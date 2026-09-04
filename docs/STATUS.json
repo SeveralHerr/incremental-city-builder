@@ -1,0 +1,18 @@
+{
+  "updated": "2026-09-04T00:00:00Z",
+  "iteration": 0,
+  "passThreshold": 8.5,
+  "modules": {
+    "core": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "balance": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "resources": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "buildings": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "upgrades": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "simulation": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "ui": { "score": null, "rounds": 0, "pass": false, "issues": [] },
+    "save": { "score": null, "rounds": 0, "pass": false, "issues": [] }
+  },
+  "economy": { "score": null, "pass": false, "issues": [] },
+  "verify": { "pass": false, "errors": null, "tickAvgMs": null, "fps": null },
+  "history": []
+}

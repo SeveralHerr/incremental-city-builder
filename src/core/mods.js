@@ -9,6 +9,7 @@ export function createMods() {
     power: 1,
     demand: 1,
     growth: 1,
+    inflow: 1, // scales config.pop.baseInflow (read by resources)
     happiness: 0,
     cost: 1,
     upkeep: 1,
@@ -24,7 +25,7 @@ export function buildingMod(mods, id) {
 
 // Validate a mods bag after folding: replace NaN/negative/infinite with safe values.
 export function sanitizeMods(mods) {
-  for (const k of ['income', 'housing', 'jobs', 'power', 'demand', 'growth', 'cost', 'upkeep']) {
+  for (const k of ['income', 'housing', 'jobs', 'power', 'demand', 'growth', 'inflow', 'cost', 'upkeep']) {
     const v = mods[k];
     if (!Number.isFinite(v) || v < 0) mods[k] = 1;
   }

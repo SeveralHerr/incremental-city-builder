@@ -123,7 +123,8 @@ Layout (desktop ≥ 1200; graceful down to 900):
 - **Toasts**: milestone reached, offline earnings, prestige.
 - **Settings modal**: save now, export (textarea copy), import, hard reset (confirm inline, NOT window.confirm), number format.
 
-Feel: dark slate/graphite glass panels (`backdrop-filter`), one accent per category, Inter for text, JetBrains Mono for numbers (tabular-nums), 8px radius grid, subtle borders (rgba white 6–10%), soft glows on affordable buy buttons, numbers tween smoothly (lerp on frame), no layout shift as digits change (fixed min-widths). Reduced-motion respected. No emoji-only icons in big places (emoji fine inside chips/cards).
+Feel: dark slate/graphite glass panels (gradient + border; `backdrop-filter` blur only on toasts and
+the modal — blur on a dozen panels cost ~20 fps in headless software rendering), one accent per category, Inter for text, JetBrains Mono for numbers (tabular-nums), 8px radius grid, subtle borders (rgba white 6–10%), soft glows on affordable buy buttons, numbers tween smoothly (lerp on frame), no layout shift as digits change (fixed min-widths). Reduced-motion respected. No emoji-only icons in big places (emoji fine inside chips/cards).
 
 Rendering: on `'frame'` event; cache DOM refs; only write `textContent` when the formatted string changes; rebuild lists only on `buy/upgrade/unlock/milestone/load/prestige` events or every 30 frames as a safety net. Target < 4 ms per frame.
 

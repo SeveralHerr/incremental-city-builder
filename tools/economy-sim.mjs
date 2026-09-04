@@ -25,7 +25,8 @@ const issues = [];
 const purchases = []; // {tick, kind, id}
 game.events.on('buy', (e) => purchases.push({ tick: state.tick, kind: 'b', id: e.id }));
 game.events.on('upgrade', (e) => purchases.push({ tick: state.tick, kind: 'u', id: e.id }));
-game.events.on('prestige', (e) => purchases.push({ tick: state.tick, kind: 'p', legacy: state.prestige.legacy }));
+// resetState() has already zeroed state.tick when 'prestige' fires; playtime survives the reset.
+game.events.on('prestige', (e) => purchases.push({ tick: Math.round(state.stats.playtime * 10), kind: 'p', legacy: state.prestige.legacy }));
 
 let lastBuyTick = 0;
 let stallStart = -1;
@@ -34,7 +35,6 @@ let bestIncome = 0;
 const t0 = Date.now();
 
 for (let t = 0; t < TICKS; t += BOT_EVERY) {
-  const n = api.step ? 0 : 0; // (kept for symmetry)
   const before = purchases.length;
   game.botStep();
   if (purchases.length > before) lastBuyTick = state.tick;

@@ -45,9 +45,10 @@ state = {
   buildings: { [id]: count },
   upgrades:  { [id]: true },
   unlocks:   { [id]: true },            // milestone flags (drive dashboard expansion)
-  stats: { totalEarned: 0, peakPop: 0, buildingsBuilt: 0, prestiges: 0, playtime: 0 },
-  prestige: { legacy: 0, spent: 0 },    // legacy points earned across resets
-  settings: { autosave: true, numFormat: 'short' },
+  stats: { totalEarned: 0, peakPop: 0, buildingsBuilt: 0, prestiges: 0, playtime: 0, clicks: 0 },
+                                        // totalEarned/peakPop/buildingsBuilt are per run (reset on prestige)
+  prestige: { legacy: 0, spent: 0, lifetimeEarned: 0 },  // legacy points + cumulative earnings across resets
+  settings: { autosave: true, numFormat: 'short', sfx: true },
   log: []                               // last 50 {t, msg, kind} events for UI feed
 }
 ```
@@ -68,9 +69,9 @@ derived = {
 ## Modifier bag
 
 Upgrades/prestige/milestones never touch state directly. They fold into a fresh `mods` object
-each tick (`src/core/mods.js`): `{ income: 1, housing: 1, jobs: 1, power: 1, growth: 1, happiness: 0,
-cost: 1, byBuilding: { [id]: { income, housing, jobs, power } } }`. All multiplicative
-except `happiness` (additive). Order-independent → a broken effect can be skipped safely.
+each tick (`src/core/mods.js`): `{ income: 1, housing: 1, jobs: 1, power: 1, demand: 1, growth: 1,
+inflow: 1, happiness: 0, cost: 1, upkeep: 1, byBuilding: { [id]: { income, housing, jobs, power, cost, happiness } } }`.
+All multiplicative except `happiness` (additive, also per building). Order-independent → a broken effect can be skipped safely.
 
 ## Registry (`src/core/registry.js`) — public API used by content modules
 
@@ -134,7 +135,8 @@ UI renders on its own rAF, reading `state`/`derived`; never inside tick handlers
 
 `npm run serve` (keep running) → `npm run verify` → `logs/verify.json` + `logs/screenshot-*.png`.
 Verify loads `http://localhost:5173/?headless=1` (no save load, no autosave, deterministic),
-runs 10,000 ticks with a greedy bot (buys best affordable item every 20 ticks), samples every
+runs 10,000 ticks with a greedy bot (buys best affordable item every 20 ticks, saves toward the
+cheapest generator during a brownout, taps the city while income < $1/s), samples every
 100 ticks: money, pop, income, powerRatio, tick ms; collects console errors/warnings.
 `npm run sim` runs the Node end-game sim (millions of ticks, prestige loops) → `logs/sim.json`.
 

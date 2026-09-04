@@ -74,11 +74,14 @@ export function loadState(obj) {
 }
 
 // Fresh run. keep: { prestige, settings, stats } chooses what survives.
+// Per-run counters (totalEarned, buildingsBuilt, peakPop) restart at 0 even when stats are
+// kept; lifetime counters (prestiges, playtime, clicks) carry over. Cumulative earnings across
+// runs live in state.prestige.lifetimeEarned.
 export function resetState({ keepPrestige = true, keepSettings = true, keepStats = true } = {}) {
   const prestige = keepPrestige ? { ...state.prestige } : undefined;
   const settings = keepSettings ? { ...state.settings } : undefined;
   const stats = keepStats
-    ? { ...state.stats, buildingsBuilt: 0, peakPop: 0 }
+    ? { ...state.stats, totalEarned: 0, buildingsBuilt: 0, peakPop: 0 }
     : undefined;
   loadState({});
   if (prestige) state.prestige = prestige;

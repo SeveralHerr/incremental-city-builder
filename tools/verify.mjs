@@ -66,7 +66,7 @@ try {
     const t = m.type();
     const text = m.text();
     if (t === 'error') report.errors.push(text);
-    else if (t === 'warning') report.warnings.push(text);
+    else if (t === 'warning' || t === 'warn') report.warnings.push(text);
   });
   page.on('pageerror', (e) => report.pageErrors.push(String(e && e.message ? e.message : e)));
   page.on('requestfailed', (r) => report.requestFailures.push(r.url() + ' ' + (r.failure()?.errorText || '')));

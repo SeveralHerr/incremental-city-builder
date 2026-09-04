@@ -4,6 +4,12 @@ Read ARCHITECTURE.md first. This file is the shared contract every builder codes
 Numbers here are **starting points**; `src/balance/config.js` is the single source of tuning
 truth and the balance builder may change any number without touching other folders.
 
+> **Stale numbers warning.** The building and upgrade tables and the "Pacing target" paragraph
+> below are the original design sketch. After the first balance pass `config.js` overrides
+> 15 buildings (tier-4 base costs are 10–1000× lower than the table, e.g. arcology $120k,
+> fusion $400k) and 29 upgrade costs, and the measured pacing is documented at the top of
+> `config.js`. Treat the tables as the *shape* of the ladder; read `config.js` for the numbers.
+
 ## Fantasy & loop
 
 You are the mayor of a tiny plot that becomes a megacity. Core loop:

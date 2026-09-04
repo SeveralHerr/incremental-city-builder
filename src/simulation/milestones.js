@@ -50,14 +50,20 @@ function ownsAnyUpgrade(s) {
   return false;
 }
 
+// "Demand outruns the grid": a grid must exist. The windmill only unlocks once something draws
+// power, so the very first cottage always sits on a capacity of zero for a tick or two; that
+// is not a brownout worth a milestone (and would fire Lights Out at t=0 for every player).
+function isBrownout(derived) {
+  return !!derived && derived.powerDemand > 0 && derived.powerCap > 0 && derived.powerRatio < 1;
+}
+
 // How close the grid is to a brownout (demand / capacity). 1 once the lights actually dim.
 function brownoutProgress(state, derived) {
   if (!derived) return 0;
-  if (derived.powerRatio < 1) return 1;
+  if (isBrownout(derived)) return 1;
   const demand = derived.powerDemand;
   const cap = derived.powerCap;
-  if (!(demand > 0)) return 0;
-  if (!(cap > 0)) return 1;
+  if (!(demand > 0) || !(cap > 0)) return 0;
   return Math.min(1, demand / cap);
 }
 
@@ -136,7 +142,7 @@ export const MILESTONES = [
     desc: 'Demand outruns the grid for the first time.',
     metric: 'brownout',
     target: 1,
-    check: (state, derived) => !!derived && derived.powerDemand > 0 && derived.powerRatio < 1,
+    check: (state, derived) => isBrownout(derived),
     progress: brownoutProgress,
     rewardText: 'Unlocks Smart Grid',
   },

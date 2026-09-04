@@ -28,6 +28,18 @@ export function civicBonus(sum, cap, scale) {
   return cap * (1 - Math.exp(-sum / scale));
 }
 
+// Pollution penalty from the (already scaled) negative-happiness sum.
+// Linear when no cap is configured (the DESIGN.md form): penalty = x.
+// With a cap it saturates like the civic bonus so a long industrial run bottoms out instead
+// of sliding forever: cap·(1 − exp(−x / curve)); slope cap/curve near zero, → cap as x grows.
+// A cap without a curve is a hard clamp: min(x, cap).
+export function pollutionPenalty(x, cap, curve) {
+  if (!(x > 0)) return 0;
+  if (!(cap > 0)) return x;
+  if (!(curve > 0)) return x < cap ? x : cap;
+  return cap * (1 - Math.exp(-x / curve));
+}
+
 // Share of the grid the city can actually light. 1 when nothing draws power.
 export function powerRatioOf(cap, demand, floor) {
   if (!(demand > 0)) return 1;

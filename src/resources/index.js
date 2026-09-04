@@ -8,6 +8,7 @@ import {
   clamp,
   happinessIncomeCurve,
   civicBonus,
+  pollutionPenalty,
   powerRatioOf,
   unemploymentOf,
   overcrowdOf,
@@ -169,6 +170,9 @@ export function computeDerived(state, derived, mods, config) {
   const civicCap = tune(hc, 'civicCap', D.happiness);
   const civicScale = tune(hc, 'civicScale', D.happiness);
   const pollutionScale = tune(hc, 'pollutionScale', D.happiness);
+  // Optional saturation (config.happiness.pollutionCap / pollutionCurve); absent → linear.
+  const pollutionCap = nonNeg(hc ? hc.pollutionCap : undefined, 0);
+  const pollutionCurve = nonNeg(hc ? hc.pollutionCurve : undefined, 0);
   const unemploymentPenalty = tune(hc, 'unemploymentPenalty', D.happiness);
   const overcrowdPenalty = tune(hc, 'overcrowdPenalty', D.happiness);
   const brownoutPenalty = tune(hc, 'brownoutPenalty', D.happiness);
@@ -239,7 +243,7 @@ export function computeDerived(state, derived, mods, config) {
 
   // --- happiness ------------------------------------------------------------
   const civic = civicBonus(civicSum, civicCap, civicScale);
-  const pollution = pollutionSum * pollutionScale;
+  const pollution = pollutionPenalty(pollutionSum * pollutionScale, pollutionCap, pollutionCurve);
   const penUnemployment = unemployment * unemploymentPenalty;
   const penOvercrowd = overcrowd * overcrowdPenalty;
   const penBrownout = (1 - powerRatio) * brownoutPenalty;

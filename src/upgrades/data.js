@@ -143,7 +143,9 @@ export const UPGRADES = [
     cost: 800,
     category: 'power',
     tier: 1,
-    unlock: (state, derived) => milestone(state, 'brownout') || (derived && derived.powerRatio < 1),
+    // Direct fallback mirrors the simulation's Lights Out rule: a grid must exist (powerCap > 0),
+    // otherwise the first cottage on an empty plot would unlock this at t=0.
+    unlock: (state, derived) => milestone(state, 'brownout') || (!!derived && derived.powerCap > 0 && derived.powerRatio < 1),
     effect: global('demand', 0.85),
   },
   {

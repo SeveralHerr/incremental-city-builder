@@ -1,6 +1,7 @@
 // Top bar: brand + city tier, resource chips (money, population, power, happiness), settings.
-import { h, icon, setText, setClass, setHidden, setProgress, tween, money, num, moneyRate, short, fmtPct, fmtTime } from './dom.js';
+import { h, icon, setText, setClass, setHidden, setProgress, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
 import { tierTitle, moodWord } from './content.js';
+import { powerChipText } from './text.js';
 
 export function createTopbar(ui) {
   const { game } = ui;
@@ -22,7 +23,9 @@ export function createTopbar(ui) {
 
   const powerFill = h('div.progress-fill');
   const powerBar = h('div.progress.progress-xs.power-bar', { 'aria-hidden': 'true' }, [powerFill]);
-  powerChip.el.append(powerBar);
+  // Narrow widths hide the sub-line; a compact '+18' / '72%' figure keeps the chip readable.
+  powerChip.short = h('span.chip-short.mono', { text: '', 'aria-hidden': 'true' });
+  powerChip.el.append(powerChip.short, powerBar);
   powerChip.el.hidden = true;
   happyChip.el.hidden = true;
 
@@ -64,8 +67,10 @@ export function createTopbar(ui) {
       const cap = d.powerCap || 0;
       const dem = d.powerDemand || 0;
       const ratio = d.powerRatio ?? 1;
-      setText(powerChip.value, `${short(cap)} / ${short(dem)} MW`);
-      setText(powerChip.sub, dem > cap ? `brownout · ${fmtPct(ratio)} supplied` : cap > 0 ? `${short(cap - dem)} MW spare` : 'no generation');
+      const txt = powerChipText(cap, dem, ratio);
+      setText(powerChip.value, txt.value);
+      setText(powerChip.sub, txt.sub);
+      setText(powerChip.short, txt.short);
       setProgress(powerFill, dem > 0 ? Math.min(1, cap / dem) : 1);
       setClass(powerChip.el, 'is-warn', ratio < 1 && ratio >= 0.6);
       setClass(powerChip.el, 'is-bad', ratio < 0.6);

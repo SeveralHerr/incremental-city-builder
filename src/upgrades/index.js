@@ -4,9 +4,9 @@ import { registerUpgrade, registerTickHandler, registerAction, registry } from '
 import { reportError } from '../core/safe.js';
 import { on, emit } from '../core/events.js';
 import { addLog } from '../core/state.js';
-import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, BOND_RUNGS, horizonCost, keptUpgradeIds } from './data.js';
+import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, keptUpgradeIds, isPermanent } from './data.js';
 
-export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, BOND_RUNGS, horizonCost, keptUpgradeIds };
+export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, keptUpgradeIds, isPermanent };
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 const DESC_MAX = 70;
@@ -37,12 +37,16 @@ export function applyOverride(def, override) {
     if (Number.isInteger(override.tier) && override.tier > 0) out.tier = override.tier;
     if (typeof override.category === 'string' && CATEGORY_IDS.has(override.category)) out.category = override.category;
   }
+  // Frontier rungs gate on a share of their own price: a new price means a new gate, hint
+  // and progress mirror (the rule lives in data.js so this stays one line).
+  if (out.earnedGate && out.cost !== def.cost) Object.assign(out, frontierUnlock(out));
   return out;
 }
 
-// Sorted view of the *registered* definitions (config overrides applied, income-priced rungs
-// at this tick's price): by cost ascending, then registration order. Handy for UI/bots.
-// Before init (or in a test with an empty registry) it falls back to the raw data.
+// Sorted view of the *registered* definitions (config overrides applied): by cost
+// ascending, then registration order. Handy for UI/bots. Before init (or in a test with
+// an empty registry) it falls back to the raw data. Legacy-priced perks sort by their
+// point price among the dollar rungs; callers that care split on `currency`.
 export function sortedUpgrades(defs) {
   const list = defs || (registry.upgradeOrder.length ? registry.upgradeOrder.map((id) => registry.upgrades.get(id)) : UPGRADES);
   return list
@@ -51,24 +55,18 @@ export function sortedUpgrades(defs) {
     .map(([d]) => d);
 }
 
-// ---------- earnings-priced rungs ----------
-//
-// Rungs carrying `priced: { seconds, floor }` (the horizon ladder in data.js) cost
-// `max(floor, seconds × current income)` — see data.js for why they are not priced in
-// dollars. The registry stores a plain `cost` number that api/ui/bot read, so a tick
-// handler (priority −10, i.e. before simulate, reading last tick's derived.income) rewrites
-// it every tick; the pure rule is `horizonCost` in data.js. At 35 rungs that is a handful
-// of multiplies per tick.
-
 // ---------- founding memory ----------
 //
-// Rungs carrying `keeps(def)` (Institutional Memory, Standing Orders in data.js) re-own
-// the upgrades they keep the moment a new city is founded. Ownership is read from the
-// state every tick (so a loaded save is honoured), and on the 'prestige' event — which the
-// simulation fires *after* the reset has wiped state.upgrades — the remembered set is
-// granted back through `grantUpgrade` below. No money changes hands and no modifier is
-// touched: the kept upgrades fold into the mods bag on the next tick exactly as if they
-// had been bought.
+// A founding wipes state.upgrades. Two kinds of rung come back on their own:
+//   • charter perks (`currency: 'legacy'`, data.js): paid in legacy points, which a
+//     founding never refunds, so they are permanent by construction;
+//   • the upgrades a keeper rung (`keeps(def)`: Institutional Memory, Standing Orders)
+//     remembers while it is owned.
+// Ownership is read from the state every tick (so a loaded save is honoured), and on the
+// 'prestige' event — which the simulation fires *after* the reset has wiped
+// state.upgrades — the remembered set is granted back through `grantUpgrade` below. No
+// money changes hands and no modifier is touched: the kept upgrades fold into the mods
+// bag on the next tick exactly as if they had been bought.
 //
 // `grantUpgrade(id)` is the one seam through which ownership changes without a purchase
 // (exposed as api.action('grantUpgrade', id) for tools and the UI): it writes the flag
@@ -84,7 +82,6 @@ export async function init(game) {
     reportError('upgrades:config', e);
   }
   const overrides = cfg.upgrades && typeof cfg.upgrades === 'object' ? cfg.upgrades : {};
-  const priced = []; // registered definitions whose cost tracks the run's income
   const registered = []; // every registered definition, in ladder order
   for (const raw of UPGRADES) {
     try {
@@ -92,22 +89,12 @@ export async function init(game) {
       if (def.desc.length > DESC_MAX) reportError('upgrades:lint', new Error(`${def.id}: desc longer than ${DESC_MAX} chars`));
       if (!CATEGORY_IDS.has(def.category)) reportError('upgrades:lint', new Error(`${def.id}: unknown category ${def.category}`));
       if (typeof def.unlockHint !== 'string' || !def.unlockHint) reportError('upgrades:lint', new Error(`${def.id}: missing unlockHint`));
+      if (def.currency === 'legacy' && def.category !== 'charter') reportError('upgrades:lint', new Error(`${def.id}: legacy-priced rung outside the charter`));
       const reg = registerUpgrade(def);
-      if (reg) {
-        registered.push(reg);
-        if (reg.priced && typeof reg.priced === 'object') priced.push(reg);
-      }
+      if (reg) registered.push(reg);
     } catch (e) {
       reportError('upgrades:' + raw.id, e);
     }
-  }
-
-  const syncPricedCosts = (derived) => {
-    for (const def of priced) def.cost = horizonCost(def, derived);
-  };
-  if (priced.length) {
-    registerTickHandler('upgrades:income-prices', (state, derived) => syncPricedCosts(derived), -10);
-    if (game && game.derived) syncPricedCosts(game.derived);
   }
 
   const grantUpgrade = (id) => {
@@ -120,43 +107,51 @@ export async function init(game) {
   };
   registerAction('grantUpgrade', grantUpgrade);
 
-  // Founding memory: which keeper rungs the current city owns, refreshed every tick and on
-  // every purchase (a mayor may buy the rung and found a city inside the same frame).
-  const keepers = registered.filter((d) => typeof d.keeps === 'function');
-  if (keepers.length) {
-    const ownedKeepers = new Set();
+  // Founding memory: which permanent rungs (charter perks, keeper rungs) the current city
+  // owns, refreshed every tick and on every purchase (a mayor may buy a perk and found a
+  // city inside the same frame).
+  const persistent = registered.filter((d) => isPermanent(d) || typeof d.keeps === 'function');
+  if (persistent.length) {
+    const ownedPersistent = new Set();
     const refresh = (state) => {
-      ownedKeepers.clear();
+      ownedPersistent.clear();
       if (!state || !state.upgrades) return;
-      for (const k of keepers) if (state.upgrades[k.id]) ownedKeepers.add(k.id);
+      for (const d of persistent) if (state.upgrades[d.id]) ownedPersistent.add(d.id);
     };
     registerTickHandler('upgrades:memory', (state) => refresh(state), -11);
     on('upgrade', (e) => {
-      if (e && keepers.some((k) => k.id === e.id)) ownedKeepers.add(e.id);
+      if (e && persistent.some((d) => d.id === e.id)) ownedPersistent.add(e.id);
     });
     on('load', () => refresh(game && game.state));
     on('prestige', () => {
-      if (ownedKeepers.size === 0) return;
-      const kept = keptUpgradeIds([...ownedKeepers], registered);
-      let granted = 0;
-      for (const id of kept) if (grantUpgrade(id)) granted++;
-      if (granted > 0) addLog(`The archives reopen: ${granted} upgrades carried over from the last city.`, 'upgrade');
+      if (ownedPersistent.size === 0) return;
+      const kept = keptUpgradeIds([...ownedPersistent], registered);
+      let perks = 0;
+      let carried = 0;
+      for (const id of kept) {
+        if (!grantUpgrade(id)) continue;
+        if (isPermanent(registry.upgrades.get(id))) perks++;
+        else carried++;
+      }
+      if (perks > 0) addLog(`The charter stands: ${perks} ${perks === 1 ? 'perk carries' : 'perks carry'} into the new city.`, 'prestige');
+      if (carried > 0) addLog(`The archives reopen: ${carried} upgrades carried over from the last city.`, 'upgrade');
     });
   }
 
   // "Fund all affordable": buys every unlocked, affordable, unowned upgrade cheapest-first
   // (so the money goes as far as it can) and returns how many were funded. Exposed as
-  // api.action('fundUpgrades') for the UI's one-click catch-up after a founding.
+  // api.action('fundUpgrades') for the UI's one-click catch-up after a founding. Charter
+  // perks are left to the mayor: legacy points are a deliberate spend, never a sweep.
   registerAction('fundUpgrades', () => {
     const api = game && game.api;
     if (!api || typeof api.upgrades !== 'function') return 0;
     let bought = 0;
     for (let pass = 0; pass < 4; pass++) {
-      // A purchase can unlock the next rung (Civic Bonds follow one another), so sweep again
-      // until a pass buys nothing.
+      // A purchase can unlock the next rung (Superconductor Grid follows Orbital Solar),
+      // so sweep again until a pass buys nothing.
       const affordable = api
         .upgrades()
-        .filter((u) => u.unlocked && !u.owned && u.affordable)
+        .filter((u) => u.unlocked && !u.owned && u.affordable && u.currency !== 'legacy')
         .sort((a, b) => a.cost - b.cost);
       let n = 0;
       for (const u of affordable) if (api.buyUpgrade(u.id)) n++;

@@ -5,20 +5,22 @@
 //   2. computeDerived (resources) with the balance config,
 //   3. integrate money and population over dt, keep the stats honest,
 //   4. latch milestones and dashboard gates, keep the city log lively,
-//   5. refresh derived.extra.prestige (legacy, gain, can, next targets) for the dashboard.
+//   5. refresh derived.extra.prestige (legacy, spent, available, gain, can, targets) for the
+//      dashboard.
 // Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
 // prestige, tap, setting, brownout ({ active, ratio } on both grid transitions). The
 // prestige rules live in prestige.js, the goals in milestones.js, every config knob read
 // here in tuning.js (resolved once and shared, so the tick allocates nothing but the mods
-// bag).
+// bag; measured 0.02–0.03 ms per tick averaged over a 12 h bot session, ~22k ticks/s in
+// the Node sim including the bot and the other modules' handlers).
 //
 // UI contract for the prestige card: read `prestigeSnapshot(derived)` (exported below; the
-// same object as derived.extra.prestige) — legacy, gain, can, minGain (the resolved gate),
-// unlockAt (bar denominator; Infinity when founding is out of reach this run), nextAt, mult
-// and multAfter (the real income multiplier now / after founding), startMoneyAfter,
-// nextTierName / nextTierAt, maturity, peakIncome, referenceIncome, lifetimeEarned. Do not
-// rebuild the bar from config.prestige.threshold or the bonus from legacy × incomePerLegacy:
-// neither is the formula the simulation runs.
+// same object as derived.extra.prestige) — legacy, spent, available (legacy − spent, the
+// charter-perk currency), gain, can, minGain (the resolved gate), unlockAt (bar denominator;
+// Infinity when founding is out of reach this run), nextAt, mult and multAfter (the real
+// income multiplier now / after founding), startMoneyAfter, nextTierName / nextTierAt,
+// lifetimeEarned. Do not rebuild the bar from config.prestige.threshold or the bonus from
+// legacy × incomePerLegacy: neither is the formula the simulation runs.
 import { registry, registerTickHandler, registerAction } from '../core/registry.js';
 import { addLog } from '../core/state.js';
 import { createMods, sanitizeMods } from '../core/mods.js';
@@ -50,7 +52,7 @@ import {
   prestigeConfig,
   prestigeStatus,
   requiredGain,
-  ripeness,
+  availableOf,
   foundingLine,
 } from './prestige.js';
 import { economyTuning, prestigeTuning } from './tuning.js';
@@ -70,7 +72,7 @@ export {
   prestigeConfig,
   prestigeStatus,
   requiredGain,
-  ripeness,
+  availableOf,
   foundingLine,
 };
 
@@ -109,8 +111,12 @@ const GATES = [
   {
     key: 'panel:prestige',
     log: 'The council whispers about founding a new city. Legacy panel added.',
-    // A mayor with a bank keeps the panel from the first second of every replay.
-    check: (state) => state.stats.totalEarned >= prestigeTuning(config).threshold / 10 || legacyOf(state) > 0,
+    // Opens at threshold × prestigePanelShare earned this run; a mayor with a bank keeps the
+    // panel from the first second of every replay.
+    check: (state) => {
+      const p = prestigeTuning(config);
+      return state.stats.totalEarned >= p.threshold * p.prestigePanelShare || legacyOf(state) > 0;
+    },
   },
 ];
 
@@ -120,7 +126,6 @@ const GATES = [
 // the log. Both transitions emit 'brownout' regardless of the log cooldown.
 const BROWNOUT_ENTER = 0.95;
 const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
-const PRESTIGE_TARGETS_EVERY = 5; // unlockAt/nextAt bisections: twice a second is plenty
 
 // Precomputed unlock keys (registry is populated before simulation init).
 let powerBuildingKeys = [];
@@ -212,12 +217,11 @@ export function foldMods(state) {
   return mods;
 }
 
-// derived.extra.prestige: { legacy, gain, can, minGain, unlockAt, nextAt, lifetimeEarned,
-// maturity, mult, multAfter, startMoneyAfter, nextTierName, nextTierAt } — the prestige
-// situation for the dashboard ("found a new city at $unlockAt", a bar that fills toward it,
-// "next tier: Living Archive at 5,000 legacy") without calling actions. The two earnings
-// targets are bisections, so they refresh every PRESTIGE_TARGETS_EVERY ticks; the rest
-// every tick.
+// derived.extra.prestige: { legacy, spent, available, gain, can, minGain, unlockAt, nextAt,
+// mult, multAfter, lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt } — the
+// prestige situation for the dashboard ("found a new city at $unlockAt", a bar that fills
+// toward it, "◆ 12 / 40 legacy", "next tier: Living Archive at 5,000 legacy") without
+// calling actions. Every field is closed-form, so the whole snapshot refreshes every tick.
 function ensurePrestigeExtra(derived) {
   let x = derived.extra;
   if (!x || typeof x !== 'object') x = derived.extra = {};
@@ -225,20 +229,19 @@ function ensurePrestigeExtra(derived) {
   if (!p || typeof p !== 'object') {
     p = x.prestige = {
       legacy: 0,
+      spent: 0,
+      available: 0,
       gain: 0,
       can: false,
       minGain: 1,
       unlockAt: 0,
       nextAt: 0,
-      lifetimeEarned: 0,
-      maturity: 0,
       mult: 1,
       multAfter: 1,
+      lifetimeEarned: 0,
       startMoneyAfter: 0,
       nextTierName: '',
       nextTierAt: 0,
-      peakIncome: 0,
-      referenceIncome: 0,
     };
   }
   return p;
@@ -272,9 +275,6 @@ function integrate(state, derived, dt) {
     stats.totalEarned += earned;
     state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + earned;
   }
-  // Per-run best gross income: prestige measures a city's maturity against it.
-  if (!(gross <= stats.peakIncome)) stats.peakIncome = gross > 0 ? gross : 0;
-
   const growth = Number.isFinite(derived.popGrowth) ? derived.popGrowth : 0;
   let pop = res.pop + growth * dt;
   // Growth is aimed at the housing gap; never overshoot into overcrowding within one step.
@@ -386,20 +386,19 @@ export function simulate(state, derived, dt) {
   checkMilestones(state, derived);
   checkGates(state, derived);
   watchGrid(state, derived);
-  prestigeStatus(state, ensurePrestigeExtra(derived), config, state.tick % PRESTIGE_TARGETS_EVERY === 0);
+  prestigeStatus(state, ensurePrestigeExtra(derived), config);
 }
 
 // --- actions -------------------------------------------------------------------
 
 // A tap pays tapSeconds of *gross* output (floor $1): a city running an upkeep deficit still
-// taps for what it produces. Tap money counts toward totalEarned (the money milestones) but
-// is tracked in stats.tapEarned so prestige maturity ignores it.
+// taps for what it produces. Tap money is earnings like any other: it counts toward
+// totalEarned (the money milestones) and lifetimeEarned (legacy).
 export function tap(state, derived) {
   const gross = Number.isFinite(derived.grossIncome) ? derived.grossIncome : 0;
   const gain = Math.max(1, gross * economyTuning(config).tapSeconds);
   state.res.money += gain;
   state.stats.totalEarned += gain;
-  state.stats.tapEarned = (Number.isFinite(state.stats.tapEarned) ? state.stats.tapEarned : 0) + gain;
   state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + gain;
   state.stats.clicks = (Number.isFinite(state.stats.clicks) ? state.stats.clicks : 0) + 1;
   emit('tap', { gain, clicks: state.stats.clicks });

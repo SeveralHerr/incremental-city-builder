@@ -1,9 +1,11 @@
 // Hero column: clickable city view (skyline + tap particles), next-milestone card,
 // prestige card (gated by panel:prestige), city stats card (gated by panel:stats).
-import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, money, num, short, fmtPct, fmtTime, fmtInt, reducedMotion } from './dom.js';
+import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtTime, fmtInt, reducedMotion } from './dom.js';
 import { createSkyline } from './skyline.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { tierTitle, nextTier } from './content.js';
+import { createCharterSection } from './charter.js';
+import { unemploymentLevel, LEGACY_GLYPH } from './text.js';
 
 const MAX_PARTICLES = 24;
 const HINT_TAPS = 5; // the 'tap the city' pill fades once the mayor has clearly got it
@@ -16,7 +18,10 @@ export function createHero(ui) {
   const particles = h('div.particles', { 'aria-hidden': 'true' });
   const cityTier = h('span.city-tier', { text: 'Hamlet' });
   const cityPop = h('span.city-pop.mono', { text: '0 citizens' });
-  const hint = h('div.city-hint', [h('span.city-hint-key', { text: 'tap' }), h('span', { text: 'the city to collect' })]);
+  // A returning mayor who has already tapped never sees the pill flash and fade: the done
+  // state is set before the element is attached, so no transition runs on first paint.
+  const hintDone = ((game.state.stats && game.state.stats.clicks) || 0) >= HINT_TAPS;
+  const hint = h(`div.city-hint${hintDone ? '.is-done' : ''}`, { hidden: hintDone }, [h('span.city-hint-key', { text: 'tap' }), h('span', { text: 'the city to collect' })]);
   const cityView = h('div.city-view', { role: 'button', tabindex: '0', 'aria-label': 'Tap the city to collect money' }, [
     skylineHost,
     h('div.city-overlay', [h('div.city-name', { text: 'Metropolis' }), h('div.city-meta', [cityTier, h('span.dot', { 'aria-hidden': 'true' }), cityPop])]),
@@ -86,14 +91,18 @@ export function createHero(ui) {
     nextReward,
   ]);
 
-  // ---- Prestige card (gated by panel:prestige) ----
+  // ---- Prestige card (gated by panel:prestige, or any legacy in the bank) ----
   const legacyVal = h('span.stat-value.mono', { text: '0' });
   const gainVal = h('span.stat-value.mono', { text: '+0' });
   const bonusVal = h('span.stat-value.mono', { text: '+0%' });
+  const legacyStat = h('div.stat', { title: '' }, [h('span.stat-label', { text: 'Legacy points' }), legacyVal]);
+  const gainStat = h('div.stat', { title: '' }, [h('span.stat-label', { text: 'On founding' }), gainVal]);
+  const bonusStat = h('div.stat', { title: '' }, [h('span.stat-label', { text: 'Income bonus' }), bonusVal]);
   const prestigePct = h('span.panel-meta.mono', { text: '' });
   const prestigeFill = h('div.progress-fill');
   const prestigeBar = h('div.progress.prestige-bar', { 'aria-hidden': 'true' }, [prestigeFill]);
-  const prestigeBarLabel = h('div.prestige-bar-label', [h('span', { text: 'Total earned' }), h('span.mono', { text: '' })]);
+  const prestigeBarLabel = h('div.prestige-bar-label', [h('span', { text: 'Earned this city' }), h('span.mono', { text: '' })]);
+  const charter = createCharterSection(ui);
   const prestigeBtn = h('button.btn.btn-prestige', { type: 'button' }, [icon('flag'), h('span', { text: 'Found a new city' })]);
   const prestigeNote = h('p.prestige-note', { text: '' });
   const confirmText = h('span.confirm-text', { text: '' });
@@ -123,23 +132,24 @@ export function createHero(ui) {
     h('div.panel-head', [h('h2.panel-title', { text: 'Legacy' }), prestigePct]),
     prestigeBarLabel,
     prestigeBar,
-    h('div.stat-grid', [
-      h('div.stat', [h('span.stat-label', { text: 'Legacy points' }), legacyVal]),
-      h('div.stat', [h('span.stat-label', { text: 'On founding' }), gainVal]),
-      h('div.stat', [h('span.stat-label', { text: 'Income bonus' }), bonusVal]),
-    ]),
+    h('div.stat-grid', [legacyStat, gainStat, bonusStat]),
     prestigeBtn,
     prestigeConfirm,
     prestigeNote,
+    charter.el,
   ]);
 
   // ---- City stats (gated by panel:stats) ----
   const statEls = {};
+  const statTiles = {};
   const statRow = (key, label) => {
     const v = h('span.stat-value.mono', { text: '—' });
     statEls[key] = v;
-    return h('div.stat', [h('span.stat-label', { text: label }), v]);
+    const tile = h('div.stat', [h('span.stat-label', { text: label }), v]);
+    statTiles[key] = tile;
+    return tile;
   };
+  // Nine tiles: a 3×3 grid at desktop widths (taps live under Settings › This city).
   const statsPanel = h('section.panel.panel-stats', { hidden: true }, [
     h('div.panel-head', [h('h2.panel-title', { text: 'City stats' })]),
     h('div.stat-grid.stat-grid-2', [
@@ -152,7 +162,6 @@ export function createHero(ui) {
       statRow('totalEarned', 'Total earned'),
       statRow('peakPop', 'Peak population'),
       statRow('built', 'Buildings built'),
-      statRow('clicks', 'Taps'),
     ]),
   ]);
 
@@ -163,12 +172,30 @@ export function createHero(ui) {
     skyline.update(list);
   }
 
-  function update(dt) {
+  // Charter perks re-render with the upgrade rows the render loop already fetched.
+  function rebuild(upgradeRows) {
+    charter.rebuild(upgradeRows);
+  }
+
+  let hintHidden = hintDone;
+  function update(dt, upgradeRows) {
     const s = game.state;
     const d = game.derived;
     skyline.tick(dt);
     setText(cityTier, tierTitle(s.res.pop));
-    setClass(hint, 'is-done', (s.stats && s.stats.clicks) >= HINT_TAPS);
+    const clicks = (s.stats && s.stats.clicks) || 0;
+    if (!hintHidden) {
+      setClass(hint, 'is-done', clicks >= HINT_TAPS);
+      if (clicks >= HINT_TAPS) {
+        hintHidden = true;
+        setTimeout(() => setHidden(hint, hintHidden), reducedMotion ? 0 : 650);
+      }
+    } else if (clicks < HINT_TAPS) {
+      // A fresh plot after a hard reset brings the pill back.
+      hintHidden = false;
+      hint.classList.remove('is-done');
+      setHidden(hint, false);
+    }
     const pop = Math.floor(s.res.pop);
     setText(cityPop, `${num(pop)} ${pop === 1 ? 'citizen' : 'citizens'}`);
 
@@ -210,23 +237,41 @@ export function createHero(ui) {
       setText(nextReward, '');
     }
 
-    // Prestige
-    const showPrestige = !!s.unlocks['panel:prestige'];
+    // Prestige. The simulation publishes its snapshot in derived.extra.prestige (legacy,
+    // gain, can, minGain, unlockAt, nextAt, mult, multAfter, available); every field is
+    // optional here and falls back to the api + config.
+    const legacyBanked = (s.prestige && s.prestige.legacy) || 0;
+    const showPrestige = !!s.unlocks['panel:prestige'] || legacyBanked > 0;
     setHidden(prestigePanel, !showPrestige);
     if (showPrestige) {
-      const legacy = s.prestige.legacy || 0;
-      const gain = game.api.prestigeGain();
-      const can = game.api.canPrestige();
+      const px = d.extra && d.extra.prestige && typeof d.extra.prestige === 'object' ? d.extra.prestige : {};
+      const fin = (v) => Number.isFinite(v) && v >= 0;
+      const legacy = fin(px.legacy) ? px.legacy : legacyBanked;
+      const gain = fin(px.gain) ? px.gain : game.api.prestigeGain();
+      const can = typeof px.can === 'boolean' ? px.can : game.api.canPrestige();
+      const minGain = fin(px.minGain) && px.minGain > 0 ? px.minGain : 1;
       const per = ui.content.config?.prestige?.incomePerLegacy ?? 0.05;
       const threshold = ui.content.config?.prestige?.threshold ?? 1e6;
+      // Bar: earnings this city toward the founding gate (unlockAt); once past it, toward the
+      // next legacy point (nextAt) so the bar keeps moving instead of pinning at 100%.
       const earned = s.stats.totalEarned || 0;
-      const p = Math.min(1, earned / threshold);
+      const unlockAt = fin(px.unlockAt) && px.unlockAt > 0 ? px.unlockAt : threshold;
+      const nextAt = fin(px.nextAt) && px.nextAt > earned ? px.nextAt : 0;
+      const target = can && nextAt > 0 ? nextAt : unlockAt;
+      const p = target > 0 ? Math.min(1, earned / target) : 0;
+      const mult = fin(px.mult) && px.mult > 0 ? px.mult : 1 + legacy * per;
+      const multAfter = fin(px.multAfter) && px.multAfter > 0 ? px.multAfter : 1 + (legacy + gain) * per;
+      const spent = (s.prestige && s.prestige.spent) || 0;
       setText(legacyVal, num(legacy));
+      setAttr(legacyStat, 'title', spent > 0 ? `${num(legacy)} banked, ${num(Math.max(0, legacy - spent))} free to spend on the charter` : 'Legacy points earned by founding cities');
       setText(gainVal, '+' + num(gain));
-      setText(bonusVal, '+' + fmtPct(legacy * per));
+      setAttr(gainStat, 'title', gain > 0 ? `Founding now banks ${num(gain)} legacy; the bonus becomes +${fmtPct(multAfter - 1)}` : `Founding needs at least ${num(minGain)} legacy to be worth it`);
+      setText(bonusVal, '+' + fmtPct(mult - 1));
+      setAttr(bonusStat, 'title', 'Income multiplier from every legacy point ever earned; spending on the charter never lowers it');
       setText(prestigePct, fmtPct(p));
       setProgress(prestigeFill, p);
-      setText(prestigeBarLabel.lastChild, `${money(earned)} / ${money(threshold)}`);
+      setText(prestigeBarLabel.firstChild, can && nextAt > 0 ? 'Next legacy point' : 'Earned this city');
+      setText(prestigeBarLabel.lastChild, `${money(earned)} / ${money(target)}`);
       setClass(prestigePanel, 'is-ready', can && gain > 0);
       setDisabled(prestigeBtn, !can);
       setClass(prestigeBtn, 'is-ready', can && gain > 0);
@@ -234,10 +279,13 @@ export function createHero(ui) {
         prestigeNote,
         can
           ? gain > 0
-            ? `Founding now grants ${num(gain)} legacy: +${fmtPct(gain * per)} income and a bigger treasury, forever.`
+            ? `Founding now banks ${LEGACY_GLYPH} ${num(gain)}: income +${fmtPct(mult - 1)} → +${fmtPct(multAfter - 1)}, a bigger treasury, and legacy to spend on charter clauses.`
             : 'Founding now would not earn legacy yet. Keep the treasury flowing a little longer.'
-          : `Earn ${money(threshold)} in total to found a new city. Every legacy point is +${fmtPct(per)} income on every run after.`
+          : legacy > 0
+            ? `Earn ${money(unlockAt)} this city to found again (${num(minGain)} legacy minimum). The bonus below is permanent; new legacy also buys charter clauses.`
+            : `Earn ${money(unlockAt)} in total to found a new city. Every legacy point raises income forever and can be spent on charter clauses.`
       );
+      charter.update(upgradeRows);
     }
 
     // Stats
@@ -249,7 +297,11 @@ export function createHero(ui) {
       const emp = Math.floor(d.employed || 0);
       const jobs = Math.floor(d.jobs || 0);
       setText(statEls.employed, jobs >= 1e4 ? `${short(emp)} / ${short(jobs)}` : `${num(emp)} / ${num(jobs)}`);
-      setText(statEls.unemployment, fmtPct(Number.isFinite(x.unemployment) ? x.unemployment : 0, 1));
+      const unemp = Number.isFinite(x.unemployment) ? x.unemployment : 0;
+      setText(statEls.unemployment, fmtPct(unemp, 1));
+      const lvl = unemploymentLevel(unemp);
+      setClass(statTiles.unemployment, 'is-warn', lvl === 'warn');
+      setClass(statTiles.unemployment, 'is-bad', lvl === 'bad');
       setText(statEls.tax, Number.isFinite(br.tax) ? '$' + short(br.tax) + '/s' : '—');
       setText(statEls.wages, Number.isFinite(br.wages) ? '$' + short(br.wages) + '/s' : '—');
       setText(statEls.buildingIncome, Number.isFinite(br.buildings) ? '$' + short(br.buildings) + '/s' : '—');
@@ -257,9 +309,8 @@ export function createHero(ui) {
       setText(statEls.totalEarned, money(s.stats.totalEarned || 0));
       setText(statEls.peakPop, fmtInt(s.stats.peakPop || 0));
       setText(statEls.built, fmtInt(s.stats.buildingsBuilt || 0));
-      setText(statEls.clicks, fmtInt(s.stats.clicks || 0));
     }
   }
 
-  return { el, update, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
+  return { el, update, rebuild, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
 }

@@ -1,15 +1,18 @@
-// Toasts: milestone / offline / prestige / unlock notices, anchored under the build column,
-// newest at the bottom. Three at most so a burst never walls off the cards behind it.
-// Each toast carries a thin timer bar that drains over its lifetime; hovering pauses it.
-// Public shape: createToasts(root) -> { el, show({ title, body, icon, kind, timeout }), clear() }
+// Toasts: milestone / offline / prestige / unlock notices. The host is a zero-height flex item
+// that sticks to the bottom edge of the column it is mounted in (the hero column), so toasts
+// stack upward over the city stats and never over the build column's Buy buttons. Two at most,
+// compact padding, newest at the bottom. Each toast carries a thin timer bar that drains over
+// its lifetime; hovering pauses it.
+// Public shape: createToasts(parent) -> { el, show({ title, body, icon, kind, timeout }), clear(), count() }
 import { h, reducedMotion } from './dom.js';
 
-const MAX_VISIBLE = 3;
+export const MAX_VISIBLE = 2;
 const DEDUPE_MS = 1500; // identical title within this window is folded into the existing toast
 
-export function createToasts(root) {
-  const host = h('div.toasts', { 'aria-live': 'polite', 'aria-atomic': 'false' });
-  root.append(host);
+export function createToasts(parent) {
+  const stack = h('div.toast-stack');
+  const host = h('div.toasts', { 'aria-live': 'polite', 'aria-atomic': 'false' }, [stack]);
+  parent.append(host);
   const recent = new Map(); // title -> { el, at }
 
   function show({ title = '', body = '', icon = '✨', kind = 'info', timeout = 5600 } = {}) {
@@ -22,7 +25,7 @@ export function createToasts(root) {
       dup.el.classList.add('is-bump');
       return dup.el;
     }
-    while (host.children.length >= MAX_VISIBLE) dismiss(host.firstChild, true);
+    while (live().length >= MAX_VISIBLE) dismiss(live()[0], true);
     const timer = h('div.toast-timer', { 'aria-hidden': 'true' });
     const el = h(`div.toast.toast-${kind}`, { role: 'status' }, [
       h('span.toast-icon', { text: icon, 'aria-hidden': 'true' }),
@@ -30,7 +33,7 @@ export function createToasts(root) {
       timer,
     ]);
     timer.style.setProperty('--life', `${timeout}ms`);
-    host.append(el);
+    stack.append(el);
     recent.set(title, { el, at: now });
 
     let remaining = timeout;
@@ -51,6 +54,11 @@ export function createToasts(root) {
     return el;
   }
 
+  // Toasts still counting toward the stack (a leaving toast no longer holds a slot).
+  function live() {
+    return Array.from(stack.children).filter((c) => !c.classList.contains('is-leaving'));
+  }
+
   function dismiss(el, immediate = false) {
     if (!el || !el.isConnected) return;
     if (typeof el.__timer === 'function') el.__timer();
@@ -67,8 +75,8 @@ export function createToasts(root) {
   }
 
   function clear() {
-    for (const c of Array.from(host.children)) dismiss(c);
+    for (const c of Array.from(stack.children)) dismiss(c);
   }
 
-  return { el: host, show, clear };
+  return { el: host, show, clear, count: () => live().length };
 }

@@ -165,7 +165,8 @@ export function createSettingsModal(ui, modal) {
       ['Playtime', fmtTime(st.stats.playtime || 0)],
       ['Total earned', money(st.stats.totalEarned || 0)],
       ['Cities founded', num(st.stats.prestiges || 0)],
-      ['Legacy', `${num(st.prestige.legacy || 0)} (+${fmtPct((st.prestige.legacy || 0) * per)} income)`],
+      ['Legacy', legacyLine(st, game.derived, per)],
+      ['Taps', num(st.stats.clicks || 0)],
     ];
 
     return h('div.settings', [
@@ -196,4 +197,14 @@ export function createSettingsModal(ui, modal) {
   }
 
   return { open: () => modal.open({ title: 'Settings', content: build }) };
+}
+
+// '12 (4 free, +60% income)' — reads the simulation's prestige snapshot when it exists.
+function legacyLine(st, derived, per) {
+  const legacy = (st.prestige && st.prestige.legacy) || 0;
+  const spent = (st.prestige && st.prestige.spent) || 0;
+  const p = derived && derived.extra && derived.extra.prestige;
+  const mult = p && Number.isFinite(p.mult) && p.mult > 0 ? p.mult : 1 + legacy * per;
+  const free = Math.max(0, Math.floor(legacy) - Math.floor(spent));
+  return `${num(legacy)}${legacy > 0 ? ` (${num(free)} free, +${fmtPct(mult - 1)} income)` : ''}`;
 }

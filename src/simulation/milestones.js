@@ -76,10 +76,9 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const prestigeExtra = (d) => (d && d.extra && d.extra.prestige && typeof d.extra.prestige === 'object' ? d.extra.prestige : null);
 
 // This run's earnings at which founding arms. The live figure comes from the snapshot
-// (it accounts for the bank, the share-of-bank gate, the discount and the run's maturity;
+// (it accounts for the bank, the share-of-bank gate and the earlier runs' earnings;
 // Infinity when founding is out of reach this run, which reads as no progress); before the
-// first tick the earnings-only figure for a fresh mayor — threshold · minGain^(1/exponent) —
-// stands in.
+// first tick the figure for a fresh mayor — threshold · minGain^(1/exponent) — stands in.
 function foundingUnlockAt(derived) {
   const x = prestigeExtra(derived);
   if (x && x.unlockAt > 0) return x.unlockAt;
@@ -271,39 +270,38 @@ export const MILESTONES = [
   popMilestone('pop-1m', 1e6, 'One in a Million', '🌌', 'A million citizens. The lights never go out.'),
   moneyMilestone('money-1t', 1e12, 'Trillion Club', '🪐', 'Earn $1,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
   // Beyond the first ladder: the horizon for a mayor with a legacy bank. Interleaved with
-  // the legacy and founding tiers in roughly the order a veteran's runs reach them.
+  // the founding tiers in roughly the order a veteran's runs reach them. The legacy tiers
+  // run 5 → 1,000,000 points ×2.5–3.3 apart: legacy comes from lifetime earnings only
+  // (floor((lifetime / threshold) ^ exponent)), so a bank that grows by a quarter per
+  // founding reaches a new tier every four or five foundings, and every late reset has a
+  // target in sight that pays out something a player can read on the dashboard.
   legacyMilestone('legacy-5', 5, 'Old Hands', '🧭', 'Bank five legacy points.', 'All buildings cost −5%', costReward(0.95)),
   buildMilestone('buildings-1k', 1000, 'Thousand Rooftops', '🏘️', 'Raise a thousand structures.', '+5% income', incomeReward(1.05)),
   prestigeMilestone('prestige-5', 5, 'Serial Founder', '🏁', 'Found five cities.', '+10% income', incomeReward(1.1)),
-  legacyMilestone('legacy-10', 10, 'Clean Air Act', '🍃', 'Bank ten legacy points.', 'Polluting buildings emit 25% less smog', cleanAirReward(0.25)),
+  legacyMilestone('legacy-15', 15, 'Clean Air Act', '🍃', 'Bank fifteen legacy points.', 'Polluting buildings emit 25% less smog', cleanAirReward(0.25)),
   popMilestone('pop-10m', 1e7, 'Ten Million Voices', '🎆', 'Ten million citizens. The city has its own time zone.'),
-  legacyMilestone('legacy-25', 25, 'Civic Memory', '🏺', 'Bank twenty-five legacy points.', '+0.15 happiness', happinessReward(0.15)),
+  legacyMilestone('legacy-50', 50, 'Civic Memory', '🏺', 'Bank fifty legacy points.', '+0.15 happiness', happinessReward(0.15)),
   prestigeMilestone('prestige-10', 10, 'Founding Dynasty', '🏰', 'Found ten cities.', '+15% income', incomeReward(1.15)),
   moneyMilestone('money-10t', 1e13, 'Ten Trillion', '💫', 'Earn $10,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
-  legacyMilestone('legacy-50', 50, 'Scrubber Mandate', '🌬️', 'Bank fifty legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
+  legacyMilestone('legacy-150', 150, 'Scrubber Mandate', '🌬️', 'Bank 150 legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
   buildMilestone('buildings-10k', 10000, 'Endless Skyline', '🌉', 'Raise ten thousand structures.', '+10% income', incomeReward(1.1)),
-  legacyMilestone('legacy-100', 100, 'Storied Skyline', '📚', 'Bank a hundred legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  legacyMilestone('legacy-500', 500, 'Storied Skyline', '📚', 'Bank 500 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
   popMilestone('pop-100m', 1e8, 'Continental City', '🗺️', 'A hundred million citizens. Borders are a rumour.'),
   moneyMilestone('money-100t', 1e14, 'Hundred Trillion', '✨', 'Earn $100,000,000,000,000 in total.', '+15% income', incomeReward(1.15)),
   prestigeMilestone('prestige-25', 25, 'Eternal Mayor', '♾️', 'Found twenty-five cities.', '+25% income', incomeReward(1.25)),
-  legacyMilestone('legacy-250', 250, 'Carbon Capture', '🌱', 'Bank two hundred and fifty legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
+  legacyMilestone('legacy-1500', 1500, 'Carbon Capture', '🌱', 'Bank 1,500 legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
   moneyMilestone('money-1qa', 1e15, 'Quadrillionaire', '🌠', 'Earn $1,000,000,000,000,000 in total.', '+20% income', incomeReward(1.2)),
-  legacyMilestone('legacy-1000', 1000, 'Thousand-Year City', '🕰️', 'Bank a thousand legacy points.', 'Polluting buildings emit 90% less smog in all', cleanAirReward(0.15)),
-  // The veteran's horizon: once the income bonus has bent toward its cap (a few thousand
-  // points, hour four or five of a session), a bank that grows by a quarter per founding
-  // reaches a new tier every three or four foundings, so every late reset has a target in
-  // sight and pays out something a player can read on the dashboard.
-  legacyMilestone('legacy-2500', 2500, "Founders' Row", '🏗️', 'Bank 2,500 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  legacyMilestone('legacy-5000', 5000, 'Thousand-Year City', '🕰️', 'Bank 5,000 legacy points.', 'Polluting buildings emit 90% less smog in all', cleanAirReward(0.15)),
   prestigeMilestone('prestige-50', 50, 'Fifty Skylines', '🌁', 'Found fifty cities.', '+25% income', incomeReward(1.25)),
-  legacyMilestone('legacy-5000', 5000, 'Living Archive', '📖', 'Bank 5,000 legacy points.', '+20% income', incomeReward(1.2)),
-  legacyMilestone('legacy-10k', 10000, 'Ten Thousand Charters', '🏛️', 'Bank 10,000 legacy points.', '+0.25 happiness', happinessReward(0.25)),
-  legacyMilestone('legacy-25k', 25000, 'Founder of Legend', '🌟', 'Bank 25,000 legacy points.', '+25% income', incomeReward(1.25)),
-  legacyMilestone('legacy-50k', 50000, 'Immortal Legacy', '👑', 'Bank 50,000 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
-  legacyMilestone('legacy-100k', 100000, 'City of Cities', '🪐', 'Bank 100,000 legacy points.', '+50% income', incomeReward(1.5)),
-  legacyMilestone('legacy-250k', 250000, 'Beyond the Horizon', '🌌', 'Bank 250,000 legacy points.', 'Population grows +50% faster', (mods) => {
+  legacyMilestone('legacy-15k', 15000, "Founders' Row", '🏗️', 'Bank 15,000 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  moneyMilestone('money-10qa', 1e16, 'Ten Quadrillion', '💠', 'Earn $10,000,000,000,000,000 in total.', '+20% income', incomeReward(1.2)),
+  legacyMilestone('legacy-50k', 50000, 'Living Archive', '📖', 'Bank 50,000 legacy points.', '+25% income', incomeReward(1.25)),
+  moneyMilestone('money-100qa', 1e17, 'Hundred Quadrillion', '🔭', 'Earn $100,000,000,000,000,000 in total.', '+25% income', incomeReward(1.25)),
+  legacyMilestone('legacy-150k', 150000, 'Founder of Legend', '🌟', 'Bank 150,000 legacy points.', '+0.25 happiness', happinessReward(0.25)),
+  legacyMilestone('legacy-400k', 400000, 'City of Cities', '🪐', 'Bank 400,000 legacy points.', 'Population grows +50% faster', (mods) => {
     mods.growth *= 1.5;
   }),
-  legacyMilestone('legacy-1m', 1e6, 'Millionfold Legacy', '♾️', 'Bank a million legacy points.', '+100% income', incomeReward(2)),
+  legacyMilestone('legacy-1m', 1e6, 'Millionfold Legacy', '👑', 'Bank a million legacy points.', '+100% income', incomeReward(2)),
 ];
 
 // Legacy tiers in ascending order of target (the ladder above is interleaved by pacing).

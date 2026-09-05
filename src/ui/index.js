@@ -12,10 +12,13 @@ import { createMilestonesPanel } from './milestones.js';
 import { createLogPanel } from './log.js';
 import { createToasts } from './toast.js';
 import { createModal, createSettingsModal } from './modal.js';
+import { createUnlockAnnouncer } from './announce.js';
+import { nameList } from './text.js';
 
 const REBUILD_EVERY = 30; // frames — safety net; events trigger immediate rebuilds
 const REBUILD_EVENTS = ['buy', 'sell', 'upgrade', 'unlock', 'milestone', 'load', 'prestige', 'offline'];
 const UNLOCK_TOAST_DELAY = 350; // ms — batch unlocks that land in the same burst into one toast
+const UNLOCK_QUIET_MS = 1500; // ms — after a load or a founding, re-latched unlocks are not news
 const PERF_WINDOW = 120; // frames in the rolling render-cost average
 
 export async function init(game) {
@@ -75,7 +78,9 @@ async function mount(game) {
   const shell = h('div.shell', [topbar.el, main]);
   app.replaceChildren(shell);
 
-  ui.toasts = createToasts(app);
+  // Toasts live in the hero column (sticky to its bottom edge) so a burst can never sit on
+  // top of the build column's Buy buttons or the sidebar's upgrade list.
+  ui.toasts = createToasts(hero.el);
   ui.modal = createModal(app);
   ui.settings = createSettingsModal(ui, ui.modal);
 
@@ -83,25 +88,26 @@ async function mount(game) {
   const ev = game.events;
   for (const name of REBUILD_EVENTS) ev.on(name, () => (ui.dirty = true));
 
-  // Unlocks: mark cards for the reveal glow and announce them in one batched toast.
-  const pendingUnlocks = { buildings: [], upgrades: [] };
-  let unlockTimer = 0;
-  let suppressUnlockToasts = false;
+  // Unlocks: mark cards for the reveal glow and announce them in one batched toast. The
+  // announcer dedupes ids within a burst, announces each id once per session (later foundings
+  // re-latch the same unlocks) and stays quiet right after a load or a founding.
+  const announcer = createUnlockAnnouncer({
+    delay: UNLOCK_TOAST_DELAY,
+    suppressMs: UNLOCK_QUIET_MS,
+    now: () => performance.now(),
+    onFlush: showUnlockToast,
+  });
+  ui.announcer = announcer;
   ev.on('unlock', (p) => {
     if (!p || !p.id) return;
     // Panel gates ('panel:*') only need a rebuild; buildings and upgrades get a glow + toast.
     if (p.kind !== 'building' && p.kind !== 'upgrade') return;
     ui.newlyUnlocked.add(p.kind === 'upgrade' ? 'u:' + p.id : p.id);
-    if (suppressUnlockToasts) return;
     const def = p.kind === 'upgrade' ? game.registry.upgrades.get(p.id) : game.registry.buildings.get(p.id);
     if (!def) return;
-    (p.kind === 'upgrade' ? pendingUnlocks.upgrades : pendingUnlocks.buildings).push(def);
-    if (!unlockTimer) unlockTimer = setTimeout(flushUnlockToast, UNLOCK_TOAST_DELAY);
+    announcer.push(p.kind, def);
   });
-  function flushUnlockToast() {
-    unlockTimer = 0;
-    const b = pendingUnlocks.buildings.splice(0);
-    const u = pendingUnlocks.upgrades.splice(0);
+  function showUnlockToast({ buildings: b, upgrades: u }) {
     if (b.length) {
       const first = b[0];
       ui.toasts.show({
@@ -112,29 +118,33 @@ async function mount(game) {
       });
     }
     if (u.length) {
-      const first = u[0];
-      ui.toasts.show({
-        icon: first.icon || '💡',
-        kind: 'unlock',
-        title: u.length === 1 ? `New upgrade: ${first.name}` : `${u.length} new upgrades available`,
-        body: u.length === 1 ? first.desc || 'The planning office has a proposal.' : nameList(u),
-      });
+      const perks = u.filter((d) => d.currency === 'legacy');
+      const money = u.filter((d) => d.currency !== 'legacy');
+      if (money.length) {
+        const first = money[0];
+        ui.toasts.show({
+          icon: first.icon || '💡',
+          kind: 'unlock',
+          title: money.length === 1 ? `New upgrade: ${first.name}` : `${money.length} new upgrades available`,
+          body: money.length === 1 ? first.desc || 'The planning office has a proposal.' : nameList(money),
+        });
+      }
+      if (perks.length) {
+        const first = perks[0];
+        ui.toasts.show({
+          icon: first.icon || '◆',
+          kind: 'prestige',
+          title: perks.length === 1 ? `Charter clause: ${first.name}` : `${perks.length} charter clauses open`,
+          body: perks.length === 1 ? first.desc || 'Sign it with legacy in the Legacy panel.' : nameList(perks),
+        });
+      }
     }
-  }
-  // 'Windmill, Corner Shop and 7 more' — a burst of unlocks folds into one line.
-  function nameList(defs, shown = 2) {
-    const names = defs.map((d) => d.name);
-    if (names.length <= shown + 1) return names.join(', ');
-    return `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
   }
   // A loaded or imported save latches many unlocks at once; those are not news.
   ev.on('load', () => {
     setNumFormat(game.state.settings?.numFormat);
     ui.newlyUnlocked.clear();
-    suppressUnlockToasts = true;
-    pendingUnlocks.buildings.length = 0;
-    pendingUnlocks.upgrades.length = 0;
-    setTimeout(() => (suppressUnlockToasts = false), 1500);
+    announcer.suppress();
   });
   ev.on('setting', (p) => {
     if (p && p.key === 'numFormat') setNumFormat(p.value);
@@ -149,6 +159,8 @@ async function mount(game) {
     ui.toasts.show({ icon: '🌙', kind: 'offline', title: 'While you were away', body: `${fmtTime(p.seconds)} passed. The city earned ${money(p.earned || 0)}.`, timeout: 9000 });
   });
   ev.on('prestige', (p) => {
+    // The fresh plot re-latches the starter unlocks within a second; they are not news.
+    announcer.suppress();
     const gain = p && Number.isFinite(p.gain) ? p.gain : 0;
     const legacy = p && Number.isFinite(p.legacy) ? p.legacy : game.state.prestige.legacy;
     ui.toasts.show({ icon: '🏙️', kind: 'prestige', title: 'A new city is founded', body: `+${num(gain)} legacy (${num(legacy)} total). The old skyline lives on in memory.`, timeout: 9000 });
@@ -179,9 +191,10 @@ async function mount(game) {
         milestones.rebuild();
         log.rebuild();
         hero.setBuildings(rows);
+        hero.rebuild(ups);
       }
       topbar.update(dt);
-      hero.update(dt);
+      hero.update(dt, ups);
       build.update(rows);
       upgrades.update(ups);
       milestones.update();

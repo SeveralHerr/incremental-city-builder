@@ -156,12 +156,16 @@ export function createBuildPanel(ui) {
     const btn = h('button.btn.btn-buy', { type: 'button' }, [btnLabel, btnCost]);
     const fill = h('div.progress-fill');
     const bar = h('div.progress.progress-xs.cost-bar', { 'aria-hidden': 'true' }, [fill]);
+    // Signature mechanic (tier-3/4 buildings): one subtle line under the stats.
+    const synergyText = def.synergy && typeof def.synergy.text === 'string' ? def.synergy.text.trim() : '';
+    const synergy = synergyText ? h('div.bcard-synergy', { title: synergyText }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: synergyText })]) : null;
     const elc = h(`article.bcard.cat-${def.category}`, { dataset: { id: def.id } }, [
       h('div.bcard-icon', { text: def.icon || '🏢', 'aria-hidden': 'true' }),
       h('div.bcard-main', [
         h('div.bcard-row', [h('span.bcard-name', { text: def.name }), count]),
-        h('div.bcard-desc', { text: def.desc || '' }),
+        h('div.bcard-desc', { text: def.desc || '', title: def.desc || null }),
         statsEl,
+        synergy,
         total,
       ]),
       h('div.bcard-buy', [btn, bar]),

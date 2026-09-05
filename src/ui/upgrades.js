@@ -40,7 +40,8 @@ export function createUpgradesPanel(ui) {
     const cost = h('span.btn-cost.mono', { text: money(def.cost) });
     const btn = h('button.btn.btn-buy.btn-sm', { type: 'button' }, [h('span.btn-label', { text: 'Buy' }), cost]);
     const fill = h('div.progress-fill');
-    const elc = h(`article.ucard.cat-${def.category}`, { dataset: { id: def.id } }, [
+    // Descriptions clamp to two lines; the full text rides along as a tooltip.
+    const elc = h(`article.ucard.cat-${def.category}`, { dataset: { id: def.id }, title: def.desc || null }, [
       h('div.ucard-icon', { text: def.icon || '⚡', 'aria-hidden': 'true' }),
       h('div.ucard-main', [
         h('span.ucard-cat', { text: cat.name }),
@@ -72,8 +73,15 @@ export function createUpgradesPanel(ui) {
     return c;
   }
 
+  // Charter perks (currency 'legacy') belong to the Legacy panel, never to this money list.
+  function moneyRows(list) {
+    const out = [];
+    for (const r of list || []) if (r && r.currency !== 'legacy') out.push(r);
+    return out;
+  }
+
   function rebuild(newRows) {
-    rows = newRows || [];
+    rows = moneyRows(newRows);
     const s = game.state;
     const show = !!s.unlocks['panel:upgrades'] && rows.length > 0;
     setHidden(el, !show);
@@ -99,7 +107,7 @@ export function createUpgradesPanel(ui) {
   }
 
   function update(newRows) {
-    rows = newRows || rows;
+    if (newRows) rows = moneyRows(newRows);
     if (el.hidden) return;
     const m = game.state.res.money;
     for (const r of rows) {

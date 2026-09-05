@@ -21,6 +21,7 @@ export const DEFAULT_CATEGORIES = [
 export const EXTRA_CATEGORIES = [
   { id: 'global', name: 'City-wide', icon: '🌐', color: '#38bdf8' },
   { id: 'prestige', name: 'Legacy', icon: '🏆', color: '#f9a8d4' },
+  { id: 'charter', name: 'Charter', icon: '◆', color: '#f9a8d4' },
   { id: 'general', name: 'General', icon: '🔧', color: '#94a3b8' },
 ];
 

@@ -1,6 +1,7 @@
 // Unit tests for the simulation module. Run: node --test src/simulation/
-// Pins the prestige rules (both legacy sources, the soft-capped payoff, the founding gate and
-// what a founding keeps), the tuning fallbacks, the brownout predicate and the tick's
+// Pins the prestige rules (both legacy sources, the carried peak and the compound cap that
+// tie legacy to output, the soft-capped payoff, the share-of-bank founding gate and what a
+// founding keeps), the tuning fallbacks, the brownout predicate and the tick's
 // bookkeeping. Explicit configs throughout so the expectations never move when balance
 // retunes; one test checks that DEFAULTS still mirror src/balance/config.js.
 import { test } from 'node:test';
@@ -27,14 +28,17 @@ import {
   prestigeStatus,
   performPrestige,
   maturityOf,
+  compoundGainFor,
+  requiredGain,
 } from './prestige.js';
 import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
-import { simulate, recompute, foldMods, seedStartMoney, markFounding } from './index.js';
+import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, prestigeSnapshot } from './index.js';
 import { createMods } from '../core/mods.js';
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${msg}: ${a} != ${b}`);
 
-// A plain prestige config: linear +4%/point, no cap, no first bonus, no compounding.
+// A plain prestige config: linear +4%/point, no cap, no first bonus, no compounding, no
+// share-of-bank gate, no carried peak (each rule gets its own test below).
 const PLAIN = {
   prestige: {
     threshold: 1e6,
@@ -46,10 +50,13 @@ const PLAIN = {
     legacyCapTailPower: 0,
     firstBonus: 0,
     compoundPerMinute: 0,
+    peakCarry: 0,
+    compoundCap: 0,
     ripenSeconds: 0,
     legacyDiscount: 0,
     startMoneyPerLegacy: 0.1,
     minGain: 3,
+    minGainShare: 0,
   },
   economy: { startMoney: 260, tapSeconds: 1 },
 };
@@ -532,4 +539,182 @@ test('foldMods sanitizes and seedStartMoney only seeds a fresh state', () => {
   assert.equal(state.res.money, economyTuning(config).startMoney);
   assert.equal(seedStartMoney(state), false);
   loadState({});
+});
+
+// --- legacy is paid for output, not time -------------------------------------------
+
+function ensureTestBuildings() {
+  if (registry.buildings.has('t-hut')) return;
+  registerBuilding({ id: 't-hut', name: 'Hut', icon: 'h', desc: 'test', category: 'residential', tier: 1, baseCost: 10, costGrowth: 1.1, housing: 4, powerUse: 1 });
+  registerBuilding({ id: 't-mill', name: 'Mill', icon: 'm', desc: 'test', category: 'power', tier: 1, baseCost: 10, costGrowth: 1.1, powerGen: 6 });
+  registerBuilding({ id: 't-shop', name: 'Shop', icon: 's', desc: 'test', category: 'commercial', tier: 1, baseCost: 10, costGrowth: 1.1, jobs: 5, income: 1 });
+}
+
+test('an idle two-cottage city at legacy 1,000 banks (almost) nothing in ten minutes and never arms the button', () => {
+  ensureTestBuildings();
+  for (const lastPeakIncome of [0, 5e4]) {
+    loadState({ prestige: { legacy: 1000, lifetimeEarned: 1e15, lastPeakIncome }, stats: { prestiges: 4 }, res: { money: 500, pop: 0 }, buildings: { 't-hut': 2, 't-mill': 1 } });
+    markFounding(1000);
+    recompute(state, derived);
+    for (let i = 0; i < 6000; i++) simulate(state, derived, 0.1);
+    assert.ok(state.stats.totalEarned > 0, 'the cottages did pay tax');
+    const gain = prestigeGain(state, config);
+    assert.ok(gain < 0.05 * 1000, `idle gain ${gain} at lastPeak ${lastPeakIncome}`);
+    assert.equal(canPrestige(state, config), false);
+    const snap = prestigeSnapshot(derived);
+    assert.equal(snap, derived.extra.prestige);
+    assert.equal(snap.can, false);
+    assert.equal(state.unlocks['m:founding-charter'], undefined, 'the charter does not latch for a worthless reset');
+    if (lastPeakIncome > 0) assert.ok(maturityOf(state, config) < 1, `maturity against the old peak: ${maturityOf(state, config)}`);
+  }
+  loadState({});
+  markFounding(0);
+});
+
+test('peakCarry: maturity is measured against the previous city peak until this one rebuilds to it', () => {
+  const cfg = withPrestige({ compoundPerMinute: 0.025, peakCarry: 0.5 });
+  // 100 banked, $60k earned at a $100/s peak: 600 s mature on its own …
+  const s = fakeState({ legacy: 100, totalEarned: 60000, lifetimeEarned: 5e8, peakIncome: 100 });
+  near(maturityOf(s, cfg), 600, 'own peak');
+  assert.equal(prestigeGain(s, cfg), 25);
+  // … but only 60 s against a predecessor that peaked at $2,000/s (reference $1,000/s).
+  s.prestige.lastPeakIncome = 2000;
+  near(maturityOf(s, cfg), 60, 'carried peak');
+  assert.equal(prestigeGain(s, cfg), 2);
+  // Once this city out-peaks the carried figure its own peak counts again.
+  s.stats.peakIncome = 1500;
+  near(maturityOf(s, cfg), 40, 'own peak above the carried one');
+  // Taps never ripen a city.
+  s.stats.peakIncome = 100;
+  s.prestige.lastPeakIncome = 0;
+  s.stats.tapEarned = 30000;
+  near(maturityOf(s, cfg), 300, 'tap money excluded');
+  // peakCarry 0 switches the carry off; a bad lastPeakIncome is ignored.
+  assert.equal(maturityOf(fakeState({ legacy: 1, totalEarned: 100, peakIncome: 1 }), withPrestige({ peakCarry: 0 })), 100);
+  const bad = fakeState({ legacy: 1, totalEarned: 100, peakIncome: 1 });
+  bad.prestige.lastPeakIncome = NaN;
+  assert.equal(maturityOf(bad, cfg), 100);
+});
+
+test('compoundCap: the compounding share never exceeds what the run earnings are worth on their own', () => {
+  const cfg = withPrestige({ compoundPerMinute: 0.08, compoundCap: 1, legacyDiscount: 0 });
+  // 1,000 banked, 600 s mature: 800 points uncapped, but $60k is worth nothing (threshold $1M).
+  const idle = fakeState({ legacy: 1000, totalEarned: 60000, lifetimeEarned: 1e12, peakIncome: 100 });
+  assert.equal(compoundGainFor(1000, 600, 60000, cfg), 0);
+  assert.equal(prestigeGain(idle, cfg), 0);
+  // $100M this run is worth 10 points to a fresh mayor: the cap.
+  near(compoundGainFor(1000, 600, 1e8, cfg), 10, 'capped at the run worth');
+  near(compoundGainFor(1000, 600, 1e8, withPrestige({ compoundPerMinute: 0.08, compoundCap: 2.5 })), 25, 'cap multiplier');
+  // Below the cap the plain rule applies; with the cap off it always does.
+  near(compoundGainFor(10, 600, 1e8, cfg), 8, 'uncapped when small');
+  assert.equal(compoundGainFor(1000, 600, 60000, withPrestige({ compoundPerMinute: 0.08, compoundCap: 0 })), 800);
+  assert.equal(compoundGainFor(0, 600, 1e8, cfg), 0);
+  assert.equal(compoundGainFor(1000, NaN, 1e8, cfg), 0);
+  // The discount scales the run earnings the cap is measured on: 25 points (x2 bonus) and
+  // $1B this and every run, 6,000 s mature -> 200 compounding uncapped; capped at 31.6
+  // undiscounted (plus 6 from the earnings source: 37), 22.4 discounted (earnings source 0).
+  const disc = withPrestige({ compoundPerMinute: 0.08, compoundCap: 1, legacyDiscount: 1 });
+  const rich = fakeState({ legacy: 25, totalEarned: 1e9, lifetimeEarned: 1e9, peakIncome: 1e9 / 6000 });
+  assert.equal(prestigeGain(rich, cfg), 37);
+  assert.equal(prestigeGain(rich, disc), 22);
+});
+
+test('minGainShare: the founding gate is a share of the bank as well as an absolute floor', () => {
+  const cfg = withPrestige({ minGain: 3, minGainShare: 0.05, compoundPerMinute: 0.08, compoundCap: 0 });
+  assert.equal(requiredGain(fakeState(), cfg), 3);
+  assert.equal(requiredGain(fakeState({ legacy: 40 }), cfg), 3, 'ceil(2) < floor');
+  assert.equal(requiredGain(fakeState({ legacy: 1000 }), cfg), 50);
+  assert.equal(requiredGain(fakeState({ legacy: 1001 }), cfg), 51, 'ceil');
+  // 1,000 banked, mature 30 s: +40 points on offer — a 4% reset the gate refuses.
+  const s = fakeState({ legacy: 1000, totalEarned: 3000, lifetimeEarned: 1e12, peakIncome: 100 });
+  assert.equal(prestigeGain(s, cfg), 40);
+  assert.equal(canPrestige(s, cfg), false);
+  assert.equal(performPrestige(s, cfg), false);
+  const out = prestigeStatus(s, {}, cfg);
+  assert.equal(out.minGain, 50, 'the snapshot carries the resolved gate');
+  assert.equal(out.can, false);
+  assert.ok(out.unlockAt > 3000 && out.unlockAt < 4000, `unlockAt tracks the real gate: ${out.unlockAt}`);
+  s.stats.totalEarned = out.unlockAt * 1.001;
+  assert.equal(canPrestige(s, cfg), true);
+  assert.equal(prestigeUnlockAt(s, cfg) <= s.stats.totalEarned, true);
+  // A fresh mayor is never gated by the share; share 0 is the plain floor.
+  assert.equal(canPrestige(fakeState({ totalEarned: 9e6 }), cfg), true);
+  assert.equal(requiredGain(fakeState({ legacy: 1e6 }), withPrestige({ minGainShare: 0 })), 3);
+});
+
+test('runEarningsForGain grows its bracket geometrically and reports Infinity when the target is out of reach', () => {
+  // The compound cap pushes the real figure past the analytic (lifetime-only) bracket.
+  const cfg = withPrestige({ compoundPerMinute: 0.08, compoundCap: 1, legacyDiscount: 1, firstBonus: 0.5 });
+  const mk = (E) => {
+    const t = fakeState({ legacy: 1000, totalEarned: E, lifetimeEarned: 1e13 - 1e6 + E, peakIncome: 1e4 });
+    t.prestige.lastPeakIncome = 5e5;
+    return t;
+  };
+  const at = runEarningsForGain(mk(1e6), 50, cfg);
+  assert.ok(Number.isFinite(at) && at > 1e6, `finite target ${at}`);
+  assert.ok(prestigeGain(mk(at * (1 + 1e-5)), cfg) >= 50, 'reaches the target just above');
+  assert.ok(prestigeGain(mk(at * (1 - 1e-4)), cfg) < 50, 'not yet just below');
+  // A million points at exponent 0.05: the next point is 1e120× the threshold away. Finite,
+  // and found (the bracket is the analytic figure).
+  const far = withPrestige({ exponent: 0.05 });
+  assert.ok(nextLegacyAt(fakeState({ legacy: 1e6, totalEarned: 1e9, lifetimeEarned: 1e9, peakIncome: 1e6 }), far) > 1e125);
+  // Ten quadrillion points: the figure overflows a double — out of reach, reported as such.
+  const rich = fakeState({ legacy: 1e16, totalEarned: 1e9, lifetimeEarned: 1e9, peakIncome: 1e6 });
+  assert.equal(nextLegacyAt(rich, far), Infinity);
+  const out = prestigeStatus(rich, {}, far);
+  assert.equal(out.unlockAt, Infinity);
+  assert.equal(out.nextAt, Infinity);
+  assert.equal(out.can, false);
+  // The milestone reads Infinity as no progress rather than NaN.
+  const charter = getMilestone('founding-charter');
+  assert.equal(charter.progress(rich, { extra: { prestige: out } }), 0);
+});
+
+test('tap pays gross output (floor $1), counts toward totalEarned but not maturity, and emits', () => {
+  ensureTestBuildings();
+  loadState({ res: { money: 0, pop: 0 }, buildings: { 't-shop': 3 }, stats: { peakIncome: 10 } });
+  recompute(state, derived);
+  // Fake an upkeep deficit: $3/s gross, net negative. A tap still pays for the output.
+  derived.grossIncome = 3;
+  derived.income = -2;
+  const taps = [];
+  const onTap = (e) => taps.push(e);
+  on('tap', onTap);
+  const gain = tap(state, derived);
+  off('tap', onTap);
+  assert.equal(gain, 3 * economyTuning(config).tapSeconds);
+  assert.equal(state.res.money, gain);
+  assert.equal(state.stats.totalEarned, gain);
+  assert.equal(state.stats.tapEarned, gain);
+  assert.equal(state.prestige.lifetimeEarned, gain);
+  assert.equal(state.stats.clicks, 1);
+  assert.deepEqual(taps, [{ gain, clicks: 1 }]);
+  assert.equal(maturityOf(state, config), 0, 'tap money does not ripen the city');
+  derived.grossIncome = 0;
+  assert.equal(tap(state, derived), 1, 'floor $1');
+  assert.equal(state.stats.clicks, 2);
+  loadState({});
+});
+
+test('a founding records the old peak and clears the tap tally; the pending list resyncs on recompute', () => {
+  loadState({
+    res: { money: 5e6, pop: 12000 },
+    stats: { totalEarned: 9e6, peakIncome: 9000, tapEarned: 12, prestiges: 0 },
+    prestige: { legacy: 0, lifetimeEarned: 9e6 },
+    unlocks: { 'm:pop-1k': true },
+  });
+  recompute(state, derived);
+  simulate(state, derived, 0.1); // latches the pop tiers up to 10k on the way
+  assert.equal(state.unlocks['m:pop-10k'], true);
+  assert.equal(performPrestige(state, PLAIN, (s) => recompute(s, derived)), true);
+  assert.equal(state.prestige.lastPeakIncome, 9000);
+  assert.equal(state.stats.tapEarned, 0);
+  assert.deepEqual(state.unlocks, {});
+  // The reset emptied the unlocks: the next tick starts from a fresh pending list and
+  // re-latches what the new city qualifies for (first founding) without a periodic resync.
+  simulate(state, derived, 0.1);
+  assert.equal(state.unlocks['m:prestige-1'], true);
+  assert.equal(state.unlocks['m:pop-10k'], undefined);
+  loadState({});
+  markFounding(0);
 });

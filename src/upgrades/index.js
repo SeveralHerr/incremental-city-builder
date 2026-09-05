@@ -2,7 +2,7 @@
 // DOM-free (runs in Node for the economy sim). Never throws from init.
 import { registerUpgrade, registerTickHandler, registerAction, registry } from '../core/registry.js';
 import { reportError } from '../core/safe.js';
-import { on } from '../core/events.js';
+import { on, emit } from '../core/events.js';
 import { addLog } from '../core/state.js';
 import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, BOND_RUNGS, horizonCost, keptUpgradeIds } from './data.js';
 
@@ -66,8 +66,15 @@ export function sortedUpgrades(defs) {
 // the upgrades they keep the moment a new city is founded. Ownership is read from the
 // state every tick (so a loaded save is honoured), and on the 'prestige' event — which the
 // simulation fires *after* the reset has wiped state.upgrades — the remembered set is
-// written back. No money changes hands and no modifier is touched: the kept upgrades fold
-// into the mods bag on the next tick exactly as if they had been bought.
+// granted back through `grantUpgrade` below. No money changes hands and no modifier is
+// touched: the kept upgrades fold into the mods bag on the next tick exactly as if they
+// had been bought.
+//
+// `grantUpgrade(id)` is the one seam through which ownership changes without a purchase
+// (exposed as api.action('grantUpgrade', id) for tools and the UI): it writes the flag
+// and emits the same 'upgrade' event api.buyUpgrade does, with `cost: 0` and
+// `granted: true`, so list rebuilds, save debouncing and any first-upgrade counter see
+// the grant the same way they see a purchase. Returns true when the flag was newly set.
 
 export async function init(game) {
   let cfg = {};
@@ -103,6 +110,16 @@ export async function init(game) {
     if (game && game.derived) syncPricedCosts(game.derived);
   }
 
+  const grantUpgrade = (id) => {
+    const state = game && game.state;
+    if (!state || !state.upgrades || typeof id !== 'string' || !registry.upgrades.has(id)) return false;
+    if (state.upgrades[id]) return false;
+    state.upgrades[id] = true;
+    emit('upgrade', { id, cost: 0, granted: true });
+    return true;
+  };
+  registerAction('grantUpgrade', grantUpgrade);
+
   // Founding memory: which keeper rungs the current city owns, refreshed every tick and on
   // every purchase (a mayor may buy the rung and found a city inside the same frame).
   const keepers = registered.filter((d) => typeof d.keeps === 'function');
@@ -119,16 +136,10 @@ export async function init(game) {
     });
     on('load', () => refresh(game && game.state));
     on('prestige', () => {
-      const state = game && game.state;
-      if (!state || !state.upgrades || ownedKeepers.size === 0) return;
+      if (ownedKeepers.size === 0) return;
       const kept = keptUpgradeIds([...ownedKeepers], registered);
       let granted = 0;
-      for (const id of kept) {
-        if (!state.upgrades[id]) {
-          state.upgrades[id] = true;
-          granted++;
-        }
-      }
+      for (const id of kept) if (grantUpgrade(id)) granted++;
       if (granted > 0) addLog(`The archives reopen: ${granted} upgrades carried over from the last city.`, 'upgrade');
     });
   }

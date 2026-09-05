@@ -11,6 +11,14 @@
 // prestige rules live in prestige.js, the goals in milestones.js, every config knob read
 // here in tuning.js (resolved once and shared, so the tick allocates nothing but the mods
 // bag).
+//
+// UI contract for the prestige card: read `prestigeSnapshot(derived)` (exported below; the
+// same object as derived.extra.prestige) — legacy, gain, can, minGain (the resolved gate),
+// unlockAt (bar denominator; Infinity when founding is out of reach this run), nextAt, mult
+// and multAfter (the real income multiplier now / after founding), startMoneyAfter,
+// nextTierName / nextTierAt, maturity, peakIncome, referenceIncome, lifetimeEarned. Do not
+// rebuild the bar from config.prestige.threshold or the bonus from legacy × incomePerLegacy:
+// neither is the formula the simulation runs.
 import { registry, registerTickHandler, registerAction } from '../core/registry.js';
 import { addLog } from '../core/state.js';
 import { createMods, sanitizeMods } from '../core/mods.js';
@@ -22,7 +30,6 @@ import {
   MILESTONES,
   REWARDED_MILESTONES,
   applyMilestoneMods,
-  pendingMilestones,
   getMilestone,
   isMilestoneReached,
   isBrownout,
@@ -42,6 +49,7 @@ import {
   legacyIncomeMult,
   prestigeConfig,
   prestigeStatus,
+  requiredGain,
   ripeness,
   foundingLine,
 } from './prestige.js';
@@ -61,9 +69,18 @@ export {
   legacyIncomeMult,
   prestigeConfig,
   prestigeStatus,
+  requiredGain,
   ripeness,
   foundingLine,
 };
+
+// The prestige situation for the dashboard (see the header). Null before the first
+// recompute/tick has run, so callers can fall back to "no bank yet".
+export function prestigeSnapshot(derived) {
+  const x = derived && derived.extra;
+  const p = x && x.prestige;
+  return p && typeof p === 'object' ? p : null;
+}
 
 export const TICK_HANDLER = 'simulate';
 
@@ -103,15 +120,18 @@ const GATES = [
 // the log. Both transitions emit 'brownout' regardless of the log cooldown.
 const BROWNOUT_ENTER = 0.95;
 const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
-const PENDING_REFRESH_TICKS = 300; // safety net: resync milestone bookkeeping every 30 s
 const PRESTIGE_TARGETS_EVERY = 5; // unlockAt/nextAt bisections: twice a second is plenty
 
 // Precomputed unlock keys (registry is populated before simulation init).
 let powerBuildingKeys = [];
 let upgradeKeys = [];
 
-// Bookkeeping that is not part of the saved state.
-let pending = []; // milestones not yet latched (list order)
+// Bookkeeping that is not part of the saved state. The pending list is a fixed array of
+// MILESTONES indices plus a count (list order, compacted in place on latch), rebuilt only
+// when something outside the tick can change state.unlocks — load, import, hard reset,
+// founding — all of which go through resetRunBookkeeping and set pendingDirty.
+const pending = new Int32Array(MILESTONES.length);
+let pendingCount = 0;
 let pendingDirty = true;
 let inBrownout = false;
 let brownoutLogged = false; // the current brownout got its log line
@@ -150,8 +170,17 @@ function refreshKeys() {
 }
 
 function refreshPending(state) {
-  pending = pendingMilestones(state);
+  const unlocks = state.unlocks;
+  let n = 0;
+  for (let i = 0; i < MILESTONES.length; i++) if (!unlocks[MILESTONES[i].key]) pending[n++] = i;
+  pendingCount = n;
   pendingDirty = false;
+}
+
+// Drop pending slot `i`, keeping list order (a handful of moves, no allocation).
+function dropPending(i) {
+  pendingCount--;
+  for (let j = i; j < pendingCount; j++) pending[j] = pending[j + 1];
 }
 
 // Seed a brand-new run with its starting treasury. Returns true when money was granted.
@@ -208,13 +237,17 @@ function ensurePrestigeExtra(derived) {
       startMoneyAfter: 0,
       nextTierName: '',
       nextTierAt: 0,
+      peakIncome: 0,
+      referenceIncome: 0,
     };
   }
   return p;
 }
 
-// Recompute derived values without advancing time (after load, prestige, init).
+// Recompute derived values without advancing time (after load, prestige, init). The state
+// was rebuilt under us, so the milestone bookkeeping resyncs on the next tick too.
 export function recompute(state, derived) {
+  pendingDirty = true;
   const mods = foldMods(state);
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
@@ -273,13 +306,14 @@ function justHappened(ms, state) {
 }
 
 function checkMilestones(state, derived) {
-  if (pendingDirty || (state.tick % PENDING_REFRESH_TICKS === 0)) refreshPending(state);
+  if (pendingDirty) refreshPending(state);
   const unlocks = state.unlocks;
   const replayStart = state.stats.prestiges > 0 && state.time < CARRY_OVER_WINDOW;
-  for (let i = 0; i < pending.length; i++) {
-    const ms = pending[i];
+  for (let i = 0; i < pendingCount; i++) {
+    const ms = MILESTONES[pending[i]];
     if (unlocks[ms.key]) {
-      pending.splice(i, 1);
+      // Latched from outside the tick (a hand-edited save): nothing to announce.
+      dropPending(i);
       i--;
       continue;
     }
@@ -288,13 +322,13 @@ function checkMilestones(state, derived) {
       reached = ms.check(state, derived) === true;
     } catch (e) {
       reportError('milestone:' + ms.id, e);
-      pending.splice(i, 1); // a broken check never blocks the loop
+      dropPending(i); // a broken check never blocks the loop
       i--;
       continue;
     }
     if (!reached) continue;
     unlocks[ms.key] = true;
-    pending.splice(i, 1);
+    dropPending(i);
     i--;
     if (replayStart && !justHappened(ms, state)) continue;
     addLog(ms.rewardText ? `Milestone: ${ms.name} (${ms.rewardText})` : `Milestone: ${ms.name}`, 'milestone');
@@ -357,11 +391,15 @@ export function simulate(state, derived, dt) {
 
 // --- actions -------------------------------------------------------------------
 
-function tap(state, derived) {
-  const income = Number.isFinite(derived.income) ? derived.income : 0;
-  const gain = Math.max(1, income * economyTuning(config).tapSeconds);
+// A tap pays tapSeconds of *gross* output (floor $1): a city running an upkeep deficit still
+// taps for what it produces. Tap money counts toward totalEarned (the money milestones) but
+// is tracked in stats.tapEarned so prestige maturity ignores it.
+export function tap(state, derived) {
+  const gross = Number.isFinite(derived.grossIncome) ? derived.grossIncome : 0;
+  const gain = Math.max(1, gross * economyTuning(config).tapSeconds);
   state.res.money += gain;
   state.stats.totalEarned += gain;
+  state.stats.tapEarned = (Number.isFinite(state.stats.tapEarned) ? state.stats.tapEarned : 0) + gain;
   state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + gain;
   state.stats.clicks = (Number.isFinite(state.stats.clicks) ? state.stats.clicks : 0) + 1;
   emit('tap', { gain, clicks: state.stats.clicks });

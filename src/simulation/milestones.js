@@ -76,11 +76,13 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const prestigeExtra = (d) => (d && d.extra && d.extra.prestige && typeof d.extra.prestige === 'object' ? d.extra.prestige : null);
 
 // This run's earnings at which founding arms. The live figure comes from the snapshot
-// (it accounts for the bank, the discount and the run's maturity); before the first tick
-// the earnings-only figure for a fresh mayor — threshold · minGain^(1/exponent) — stands in.
+// (it accounts for the bank, the share-of-bank gate, the discount and the run's maturity;
+// Infinity when founding is out of reach this run, which reads as no progress); before the
+// first tick the earnings-only figure for a fresh mayor — threshold · minGain^(1/exponent) —
+// stands in.
 function foundingUnlockAt(derived) {
   const x = prestigeExtra(derived);
-  if (x && Number.isFinite(x.unlockAt) && x.unlockAt > 0) return x.unlockAt;
+  if (x && x.unlockAt > 0) return x.unlockAt;
   const p = prestigeTuning();
   return p.threshold * Math.pow(p.minGain, 1 / p.exponent);
 }
@@ -238,10 +240,10 @@ export const MILESTONES = [
   moneyMilestone('money-1m', 1e6, 'Millionaire Mayor', '🏦', 'Earn $1,000,000 in total.', 'Unlocks Prefab Construction'),
   popMilestone('pop-10k', 10000, 'Ten Thousand Stories', '🏙️', 'Ten thousand citizens, each with somewhere to be.'),
   {
-    // Founding arms once a reset would bank minGain points — $23M for a fresh mayor at the
-    // shipped numbers, far past the $1M milestone — so the goal that promises founding is
-    // the one that tracks the real gate. Per run, like every milestone: a veteran collects
-    // it in the first minute of a replay, which is when founding is on the table again.
+    // Founding arms once a reset would bank the required points (minGain for a fresh mayor:
+    // $3M at the shipped numbers, past the $1M milestone; a share of the bank for a veteran),
+    // so the goal that promises founding is the one that tracks the real gate. Per run, like
+    // every milestone: a veteran collects it again once a replay has earned its way there.
     id: 'founding-charter',
     name: 'Founding Charter',
     icon: '📯',

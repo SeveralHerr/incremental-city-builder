@@ -25,6 +25,18 @@
 // generators below) priced in seconds of the run's current income and issued on a schedule
 // after founding — so every city, however deep into the game, has something new to fund
 // every few minutes until the next reset.
+//
+// Happiness: `mods.happiness` is added to the final happiness value *after* the civic
+// curve (resources: 1 + civic − penalties + mods.happiness), so "Happiness +10%" is exactly
+// what the chip shows. Per-building happiness adds (byBuilding.happiness) are not used
+// here on purpose: they feed the saturating civic sum, civic = 1.25·(1 − e^(−Σ/1.5)), and
+// past three parks and a school that sum is already near the cap, so a "+6% per hospital"
+// rung measured +0.01–0.05 happiness in the sim — a desc that reads as a promise the
+// curve never keeps. The civic rungs below therefore add flat happiness — kept small
+// (+5–10%, 0.25 in total) because late cities already sit at 2.5–2.7 against the 3.0 cap
+// — and, since +0.1 happiness is only ~+3% income at h≈2, each pairs it with a real
+// multiplier (growth or jobs); the two tier-4 rungs that used to add per-building
+// happiness are pure multipliers now.
 import { buildingMod } from '../core/mods.js';
 
 export const MILESTONE_IDS = [
@@ -136,12 +148,17 @@ const hasDemand = (mw) =>
   });
 const hasBuiltTotal = (n) => rule((state) => milestone(state, 'buildings-100') || built(state) >= n, `Build ${fmtInt(n)} buildings in total`, { built: n });
 const hasAnyUpgrade = () => rule((state) => milestone(state, 'first-upgrade') || ownedUpgrades(state) >= 1, 'Fund any upgrade', { upgrades: 1 });
-// Combinators join the hints ("A or B", "A and B") and carry the first rule's data mirror.
+// Combinators join the hints ("A or B", "A and B"). `any` carries the first rule's data
+// mirror (the easiest door in is the one worth a progress bar). `all` carries the first
+// *measurable* one — a mirror that counts toward a threshold ({runAge}, {pop}, …) rather
+// than an ownership flag ({upgrade}), since every gate must open and a bar that reads 100%
+// against a card that stays locked on the other condition is worse than no bar.
 const lower = (s) => (typeof s === 'string' ? s.charAt(0).toLowerCase() + s.slice(1) : '');
 const joinHints = (fns, word) => {
   const parts = fns.map((f) => f.hint).filter(Boolean);
   return parts.map((p, i) => (i === 0 ? p : lower(p))).join(` ${word} `);
 };
+const measurable = (at) => !!at && typeof at === 'object' && !('upgrade' in at);
 const any = (...fns) => {
   const fn = (state, derived) => fns.some((f) => f(state, derived) === true);
   Object.defineProperty(fn, 'hint', { get: () => joinHints(fns, 'or'), enumerable: true });
@@ -151,7 +168,8 @@ const any = (...fns) => {
 const all = (...fns) => {
   const fn = (state, derived) => fns.every((f) => f(state, derived) === true);
   Object.defineProperty(fn, 'hint', { get: () => joinHints(fns, 'and'), enumerable: true });
-  if (fns[0] && fns[0].at) fn.at = fns[0].at;
+  const pick = fns.find((f) => measurable(f.at)) || fns.find((f) => f.at);
+  if (pick) fn.at = pick.at;
   return fn;
 };
 // Seconds since this city was founded (state.time is per run; a founding resets it).
@@ -174,13 +192,10 @@ const jobsOf = (id, mult) => (mods) => {
 const powerOf = (id, mult) => (mods) => {
   buildingMod(mods, id).power *= mult;
 };
-// Per-unit additive happiness on a building (resources applies byBuilding.happiness per unit).
-// Happiness is a multiplier around 1.0 that the UI shows as a percentage ("Joy +5%" on a
-// park card), so descriptions quote the added amount as a percentage too: +0.05 per unit is
-// written "+5% happiness each". The number is the literal per-unit add, not a scale of the
-// building's base value (which lives in src/buildings/data.js and config may override).
-const happinessOf = (id, add) => (mods) => {
-  buildingMod(mods, id).happiness += add;
+// Flat city-wide happiness (see the header): happiness is a multiplier around 1.0 that the
+// UI shows as a percentage, so +0.1 is written "Happiness +10%" and lands exactly so.
+const happier = (add) => (mods) => {
+  mods.happiness += add;
 };
 const global = (key, mult) => (mods) => {
   mods[key] *= mult;
@@ -211,15 +226,25 @@ const noEffect = () => {};
 //     keeps that peak climbing. So the price is deliberately "one more building or the
 //     bond" rather than a save-up; the pacing lever is the issue schedule;
 //   • paced by an issue schedule, not by money: rung n opens `bondOpensAt(n)` seconds
-//     after founding (II at 3 min, rising 9% per rung: X at 6 min, XX at 14 min, XXX at
-//     34 min), and only after the previous rung is owned, so however rich the city the
-//     ladder arrives one proposal every 20 s to 3 min for the whole life of a run and a
-//     founding resets it with the run. The sim's late cycles run 33 min and fund rung XXIX
-//     in every one of them (XXX is for the mayor who lingers a minute longer).
+//     after founding and only after the previous rung is owned, so however rich the city
+//     the ladder arrives one proposal at a time and a founding resets it with the run.
+//     The schedule is a gap that widens linearly: II at 45 s, III 10 s later, each later
+//     gap 0.8 s longer than the one before (X at 2.5 min, XX at 5.8 min, XXX at 10.5 min,
+//     the last gap 32 s). It has to fit inside a late cycle, and the cycle is set by the
+//     schedule itself: the bot founds once a city has banked ~190 s of its peak income
+//     (compoundPerMinute 0.08 · its 25%-more rule), and while bonds land every T seconds
+//     the bank sits near 4.5·T (the integral of ×1.25 per T), so a run cannot ripen until
+//     the gaps pass ~40 s or the ladder ends. The 3-minute / 9%-per-rung schedule shipped
+//     before this pass ripened around rung XVI (10 min) with the last 14 rungs never
+//     issued, and left the first three minutes of every late city — rungs I to II — with
+//     nothing to fund while it held billions. With this one the sim's late cycles run
+//     11.8 min (logs/sim-fix-upgrades-12h-headsim.json: 69 foundings in 12 h, cycles 27–69
+//     all 11.8–11.9 min), every one funds all thirty rungs, and no late city goes two
+//     consecutive minute samples without a new upgrade (see upgrades.test.mjs for the pins).
 //
 // Civic Bonds I–XXX give +25% income each — the treadmill that keeps a plateaued city's
 // income climbing between foundings. Skyline Expansion I–V (+50% housing and jobs)
-// interleave every second bond so the ladder is not thirty identical cards.
+// interleave every fifth bond so the ladder is not thirty identical cards.
 
 const ROMAN_DIGITS = [
   [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
@@ -235,11 +260,17 @@ export const roman = (n) => {
 export const BOND_RUNGS = 30;
 export const BOND_FLOOR = 1e7; // never free: a city in the red or mid-brownout still pays this
 export const BOND_SECONDS = 2; // every horizon rung costs two seconds of current income (see above)
-export const BOND_OPEN_2 = 180; // rung II opens three minutes after founding
-export const BOND_OPEN_STEP = 1.09; // each later rung opens 9% later than the one before
+export const BOND_OPEN_2 = 45; // rung II opens 45 s after founding
+export const BOND_GAP = 10; // rung III follows 10 s later …
+export const BOND_GAP_RAMP = 0.8; // … and every later gap is 0.8 s longer than the one before
 // Seconds after founding at which rung n may be issued (rung I has no schedule: it opens
-// with the Planetary Charter or $1B earned).
-export const bondOpensAt = (n) => (n <= 1 ? 0 : Math.round(BOND_OPEN_2 * Math.pow(BOND_OPEN_STEP, n - 2)));
+// with the Planetary Charter or $1B earned). Gap between rungs n−1 and n (n ≥ 3) is
+// BOND_GAP + BOND_GAP_RAMP·(n − 3); the sum of those gaps is the closed form below.
+export const bondOpensAt = (n) => {
+  if (!(n > 1)) return 0;
+  const k = Math.floor(n) - 2;
+  return Math.round(BOND_OPEN_2 + BOND_GAP * k + (BOND_GAP_RAMP * k * (k - 1)) / 2);
+};
 
 // Price of an income-priced rung for the current run (pure; index.js applies it each tick).
 // Uses net income (derived.income) and never goes below the floor, so a city in the red or
@@ -273,28 +304,32 @@ const civicBond = (n) => {
     tier: 4,
     priced: { seconds: BOND_SECONDS, floor: BOND_FLOOR },
     unlock: n === 1 ? any(owns('planetary-charter'), hasEarned(1e9, 'money-1b')) : all(owns(`civic-bonds-${n - 1}`), runAge(opens)),
+    // The issue timer is the gate that actually holds a card (the previous rung is owned
+    // within seconds of opening), so the progress mirror counts it down explicitly.
+    ...(n > 1 ? { unlockAt: { runAge: opens } } : {}),
     effect: global('income', 1.25),
   };
 };
 
-// Skyline Expansion n is issued alongside Civic Bonds 2n.
+// Skyline Expansion n is issued alongside Civic Bonds 5n (V, X, XV, XX, XXV).
+export const SKYLINE_EVERY = 5;
 const skyline = (n) => ({
   id: `skyline-expansion-${n}`,
   name: `Skyline Expansion ${roman(n)}`,
   icon: '🌆',
-  desc: `All housing and jobs +50% · issued with Civic Bonds ${roman(2 * n)}`,
+  desc: `All housing and jobs +50% · issued with Civic Bonds ${roman(SKYLINE_EVERY * n)}`,
   cost: BOND_FLOOR,
   category: 'residential',
   tier: 4,
   priced: { seconds: BOND_SECONDS, floor: BOND_FLOOR },
-  unlock: owns(`civic-bonds-${2 * n}`),
+  unlock: owns(`civic-bonds-${SKYLINE_EVERY * n}`),
   effect: compose(global('housing', 1.5), global('jobs', 1.5)),
 });
 
 const HORIZON = [];
 for (let n = 1; n <= BOND_RUNGS; n++) {
   HORIZON.push(civicBond(n));
-  if (n % 2 === 0 && n / 2 <= 5) HORIZON.push(skyline(n / 2));
+  if (n % SKYLINE_EVERY === 0 && n / SKYLINE_EVERY <= 5) HORIZON.push(skyline(n / SKYLINE_EVERY));
 }
 
 // ---------- founding memory ----------
@@ -418,9 +453,7 @@ export const UPGRADES = [
     category: 'civic',
     tier: 1,
     unlock: hasBuilt('park', 1),
-    effect: (mods) => {
-      mods.happiness += 0.1;
-    },
+    effect: happier(0.1),
   },
   {
     id: 'assembly-lines',
@@ -448,12 +481,12 @@ export const UPGRADES = [
     id: 'green-belts',
     name: 'Green Belts',
     icon: '🌳',
-    desc: 'Parks give +5% happiness each',
+    desc: 'Happiness +5% and population grows +25% faster',
     cost: 1500,
     category: 'civic',
     tier: 2,
     unlock: hasBuilt('park', 4),
-    effect: happinessOf('park', 0.05),
+    effect: compose(happier(0.05), global('growth', 1.25)),
   },
   {
     id: 'farmers-market',
@@ -571,12 +604,14 @@ export const UPGRADES = [
     id: 'modern-curriculum',
     name: 'Modern Curriculum',
     icon: '🎓',
-    desc: 'Schools give +4% happiness each',
+    desc: 'Happiness +10% and all jobs +25%',
     cost: 150000,
     category: 'civic',
     tier: 3,
     unlock: hasBuilt('school', 3),
-    effect: happinessOf('school', 0.04),
+    // An educated workforce fills more desks: jobs pay wages directly, and at the 3-school
+    // mark (~minute 20) unemployment is the penalty a growing city feels most.
+    effect: compose(happier(0.1), global('jobs', 1.25)),
   },
   {
     id: 'maintenance-contracts',
@@ -676,12 +711,12 @@ export const UPGRADES = [
     id: 'preventive-care',
     name: 'Preventive Care',
     icon: '🩺',
-    desc: 'Hospitals give +6% happiness each',
+    desc: 'Happiness +10% and population grows +50% faster',
     cost: 480000,
     category: 'civic',
     tier: 3,
     unlock: hasBuilt('hospital', 2),
-    effect: happinessOf('hospital', 0.06),
+    effect: compose(happier(0.1), global('growth', 1.5)),
   },
   {
     id: 'robotic-assembly',
@@ -742,12 +777,12 @@ export const UPGRADES = [
     id: 'championship-season',
     name: 'Championship Season',
     icon: '🏆',
-    desc: 'Stadiums earn ×2 income and give +15% happiness each',
+    desc: 'Stadiums earn ×2 income and provide ×2 jobs',
     cost: 8e6,
     category: 'civic',
     tier: 4,
     unlock: hasBuilt('stadium', 1),
-    effect: compose(incomeOf('stadium', 2), happinessOf('stadium', 0.15)),
+    effect: compose(incomeOf('stadium', 2), jobsOf('stadium', 2)),
   },
   {
     id: 'superconductor-grid',
@@ -766,12 +801,12 @@ export const UPGRADES = [
     id: 'arcology-gardens',
     name: 'Arcology Gardens',
     icon: '🌺',
-    desc: 'Arcologies hold +100% residents and give +5% happiness each',
+    desc: 'Arcologies hold +100% residents and provide +50% jobs',
     cost: 2e7,
     category: 'residential',
     tier: 4,
     unlock: hasBuilt('arcology', 10),
-    effect: compose(housingOf('arcology', 2), happinessOf('arcology', 0.05)),
+    effect: compose(housingOf('arcology', 2), jobsOf('arcology', 1.5)),
   },
   {
     id: 'ai-governance',
@@ -831,10 +866,7 @@ export const UPGRADES = [
     category: 'prestige',
     tier: 3,
     unlock: hasLegacy(3),
-    effect: (mods) => {
-      mods.growth *= 2;
-      mods.happiness += 0.1;
-    },
+    effect: compose(global('growth', 2), happier(0.1)),
   },
   {
     id: 'dynasty-ledger',

@@ -1,11 +1,13 @@
 // Unit tests for the upgrades module. Run: node --test src/upgrades/
 // Pins the data invariants (unique ids, desc length, hints everywhere, effects touch only the
 // mods bag), the pure horizon-ladder rules (horizonCost, bondOpensAt, roman), the config
-// override rules, the founding-memory rule and the registered-cost view (sortedUpgrades).
+// override rules, the founding-memory rule, the grantUpgrade seam and the registered-cost
+// view (sortedUpgrades).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createMods, sanitizeMods } from '../core/mods.js';
 import { registry } from '../core/registry.js';
+import { on, emit } from '../core/events.js';
 import { config } from '../balance/config.js';
 import {
   UPGRADES,
@@ -15,7 +17,9 @@ import {
   BOND_FLOOR,
   BOND_SECONDS,
   BOND_OPEN_2,
-  BOND_OPEN_STEP,
+  BOND_GAP,
+  BOND_GAP_RAMP,
+  SKYLINE_EVERY,
   bondOpensAt,
   horizonCost,
   roman,
@@ -25,6 +29,15 @@ import { applyOverride, sortedUpgrades, init } from './index.js';
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 const byId = (id) => UPGRADES.find((d) => d.id === id);
+
+// Median late-cycle length (cycles after the 5th founding) of the greedy bot in the 12-hour
+// run against the committed simulation module, logs/sim-fix-upgrades-12h-headsim.json:
+// 11.8 min, steady from city 27 to city 69. The whole bond ladder has to open inside it, or
+// the top rungs are never issued (the 3-min / 9%-per-rung schedule shipped before this pass
+// opened rung XVII at 656 s against a 10.8-min cycle and never issued XVII–XXX).
+const LATE_CYCLE_MEDIAN_S = 710;
+// Longest wait a late city should ever face for its next bond once the ladder is running.
+const MAX_BOND_GAP_S = 90;
 
 function deepFreeze(o) {
   if (o && typeof o === 'object' && !Object.isFrozen(o)) {
@@ -82,21 +95,43 @@ test('hints read as the rule they mirror', () => {
   assert.equal(byId('franchising').unlockHint, 'Reach 100 citizens or build an Office Block');
   assert.deepEqual(byId('tourism-board').unlockAt, { pop: 2000 });
   assert.equal(byId('civic-bonds-1').unlockHint, 'Own Planetary Charter or earn $1B in this city');
-  assert.equal(byId('civic-bonds-2').unlockHint, 'Own Civic Bonds I and wait until 3 min after founding');
-  assert.deepEqual(byId('civic-bonds-2').unlockAt, { upgrade: 'civic-bonds-1' });
+  assert.equal(byId('civic-bonds-2').unlockHint, 'Own Civic Bonds I and wait until 45 s after founding');
+  assert.equal(byId('civic-bonds-12').unlockHint, 'Own Civic Bonds XI and wait until 3 min after founding');
   assert.equal(byId('legacy-archive').unlockHint, 'Found a new city');
   assert.deepEqual(byId('institutional-memory').unlockAt, { legacy: 10 });
   assert.match(byId('smart-grid').unlockHint, /brownout/i);
+  // `all` mirrors the measurable gate (the issue timer), never the ownership flag, so a
+  // progress bar counts the real blocker down instead of sitting at 100% on a locked card.
+  for (let n = 2; n <= BOND_RUNGS; n++) assert.deepEqual(byId(`civic-bonds-${n}`).unlockAt, { runAge: bondOpensAt(n) }, `bond ${n} mirror`);
+  assert.deepEqual(byId('standing-orders').unlockAt, { legacy: 50 });
+  assert.deepEqual(byId('skyline-expansion-1').unlockAt, { upgrade: `civic-bonds-${SKYLINE_EVERY}` });
 });
 
-test('happiness descs are written in percent, like the rest of the UI', () => {
+test('happiness: flat city-wide adds only, descs quote the exact add in percent', () => {
   assert.equal(byId('community-events').desc, 'Happiness +10%');
-  assert.equal(byId('green-belts').desc, 'Parks give +5% happiness each');
-  assert.equal(byId('modern-curriculum').desc, 'Schools give +4% happiness each');
-  assert.equal(byId('preventive-care').desc, 'Hospitals give +6% happiness each');
-  assert.equal(byId('championship-season').desc, 'Stadiums earn ×2 income and give +15% happiness each');
+  assert.equal(byId('green-belts').desc, 'Happiness +5% and population grows +25% faster');
+  assert.equal(byId('modern-curriculum').desc, 'Happiness +10% and all jobs +25%');
+  assert.equal(byId('preventive-care').desc, 'Happiness +10% and population grows +50% faster');
+  assert.equal(byId('championship-season').desc, 'Stadiums earn ×2 income and provide ×2 jobs');
   assert.equal(byId('veteran-planners').desc, 'Population grows +100% faster and happiness +10%');
-  for (const d of UPGRADES) assert.ok(!/\+0\.\d+/.test(d.desc), `${d.id}: raw decimal in desc "${d.desc}"`);
+  let flatTotal = 0;
+  for (const d of UPGRADES) {
+    assert.ok(!/\+0\.\d+/.test(d.desc), `${d.id}: raw decimal in desc "${d.desc}"`);
+    assert.ok(!/happiness each/i.test(d.desc), `${d.id}: per-building happiness promise "${d.desc}"`);
+    const mods = createMods();
+    d.effect(mods, FROZEN_STATE);
+    // Per-building happiness feeds the saturating civic curve, where the desc's number is
+    // never what the city gets: no rung may use it.
+    for (const [id, m] of Object.entries(mods.byBuilding)) assert.equal(m.happiness, 0, `${d.id}: byBuilding.${id}.happiness`);
+    const said = /happiness \+(\d+)%/i.exec(d.desc);
+    if (said) assert.ok(Math.abs(mods.happiness - Number(said[1]) / 100) < 1e-9, `${d.id}: desc says +${said[1]}%, effect adds ${mods.happiness}`);
+    else assert.equal(mods.happiness, 0, `${d.id}: silent happiness add`);
+    flatTotal += mods.happiness;
+  }
+  // Late cities sit at 2.5–2.7 happiness against the 3.0 cap with every rung owned; the
+  // whole ladder's flat adds stay inside that headroom (0.45 = the 0.2 shipped before plus
+  // 0.25 for the three civic rungs; +0.25 measured ~6% of late samples at the cap).
+  assert.ok(Math.abs(flatTotal - 0.45) < 1e-9, `ladder adds ${flatTotal} happiness in total`);
 });
 
 test('every effect leaves a deep-frozen state untouched and only writes the mods bag', () => {
@@ -132,9 +167,11 @@ test('every unlock tolerates {} / undefined / frozen inputs and returns a boolea
   assert.equal(byId('institutional-memory').unlock(FROZEN_STATE), true);
   assert.equal(byId('standing-orders').unlock(FROZEN_STATE), false);
   assert.equal(byId('smart-grid').unlock(FROZEN_STATE, FROZEN_DERIVED), true);
-  assert.equal(byId('civic-bonds-2').unlock(FROZEN_STATE), false, 'bond II waits for 180 s');
-  assert.equal(byId('civic-bonds-2').unlock({ ...FROZEN_STATE, time: 181 }), true);
+  assert.equal(byId('civic-bonds-2').unlock({ ...FROZEN_STATE, time: 30 }), false, 'bond II waits for 45 s');
+  assert.equal(byId('civic-bonds-2').unlock({ ...FROZEN_STATE, time: 45 }), true);
+  assert.equal(byId('civic-bonds-2').unlock(FROZEN_STATE), true);
   assert.equal(byId('civic-bonds-3').unlock({ ...FROZEN_STATE, time: 1e6 }), false, 'bond III needs bond II');
+  assert.equal(byId('civic-bonds-3').unlock({ ...FROZEN_STATE, time: 1e6, upgrades: { 'civic-bonds-2': true } }), true);
 });
 
 test('roman numerals', () => {
@@ -148,18 +185,41 @@ test('roman numerals', () => {
   assert.equal(roman(1994), 'MCMXCIV');
 });
 
-test('bondOpensAt: rung I is immediate, II at 180 s, later rungs geometric and inside a long cycle', () => {
+test('bondOpensAt: I immediate, II at 45 s, gaps widen 0.8 s per rung, whole ladder inside a late cycle', () => {
   assert.equal(bondOpensAt(1), 0);
-  assert.equal(bondOpensAt(2), 180);
+  assert.equal(bondOpensAt(0), 0);
+  assert.equal(bondOpensAt(undefined), 0);
   assert.equal(bondOpensAt(2), BOND_OPEN_2);
+  assert.equal(bondOpensAt(2), 45);
+  assert.equal(bondOpensAt(3), BOND_OPEN_2 + BOND_GAP);
+  let prevGap = 0;
   for (let n = 3; n <= BOND_RUNGS; n++) {
-    assert.ok(bondOpensAt(n) > bondOpensAt(n - 1), `rung ${n} opens after rung ${n - 1}`);
-    const ratio = bondOpensAt(n) / bondOpensAt(n - 1);
-    assert.ok(Math.abs(ratio - BOND_OPEN_STEP) < 0.02, `rung ${n} step ${ratio}`);
+    const gap = bondOpensAt(n) - bondOpensAt(n - 1);
+    assert.ok(gap >= BOND_GAP, `rung ${n} follows ${n - 1} after ${gap} s`);
+    // Gaps are rounded to whole seconds, so the ramp shows up as +0…+2 s per rung.
+    if (n > 3) assert.ok(gap >= prevGap && gap - prevGap <= Math.ceil(BOND_GAP_RAMP) + 1, `rung ${n}: gap ${gap} after ${prevGap} (ramp ${BOND_GAP_RAMP})`);
+    assert.ok(gap <= MAX_BOND_GAP_S, `rung ${n}: ${gap} s wait`);
+    prevGap = gap;
   }
-  assert.ok(bondOpensAt(BOND_RUNGS) <= 35 * 60, `rung ${BOND_RUNGS} opens at ${bondOpensAt(BOND_RUNGS)} s (≤ 35 min)`);
+  // Rounded milestones a mayor can read off the cards.
+  assert.equal(bondOpensAt(10), 147);
+  assert.equal(bondOpensAt(20), 347);
+  assert.equal(bondOpensAt(30), 627);
+  assert.ok(bondOpensAt(BOND_RUNGS) <= LATE_CYCLE_MEDIAN_S, `rung ${BOND_RUNGS} opens at ${bondOpensAt(BOND_RUNGS)} s, late cycles run ${LATE_CYCLE_MEDIAN_S} s`);
   assert.equal(UPGRADES.filter((d) => d.id.startsWith('civic-bonds-')).length, BOND_RUNGS);
-  assert.equal(UPGRADES.filter((d) => d.id.startsWith('skyline-expansion-')).length, 5);
+  const skylines = UPGRADES.filter((d) => d.id.startsWith('skyline-expansion-'));
+  assert.equal(skylines.length, 5);
+  for (let n = 1; n <= 5; n++) {
+    const s = byId(`skyline-expansion-${n}`);
+    assert.equal(s.unlock({ upgrades: { [`civic-bonds-${SKYLINE_EVERY * n}`]: true } }), true, `skyline ${n} follows bond ${SKYLINE_EVERY * n}`);
+    assert.equal(s.unlock({ upgrades: { [`civic-bonds-${SKYLINE_EVERY * n - 1}`]: true } }), false);
+  }
+  // The card text quotes the same schedule the rule enforces.
+  for (let n = 2; n <= BOND_RUNGS; n++) {
+    const sec = bondOpensAt(n);
+    const label = sec >= 120 ? `${Math.round(sec / 60)} min` : `${sec} s`;
+    assert.ok(byId(`civic-bonds-${n}`).desc.endsWith(`opens ${label} after founding`), `bond ${n} desc: ${byId(`civic-bonds-${n}`).desc}`);
+  }
 });
 
 test('horizonCost: seconds of income, floored, sane on negative/NaN/missing income', () => {
@@ -213,8 +273,29 @@ test('config overrides resolve to the documented costs', () => {
   for (const id of Object.keys(overrides)) assert.ok(byId(id), `config overrides unknown upgrade ${id}`);
 });
 
-test('meaningfulness: no core rung weaker than +25% (or −20% cost / power)', () => {
+test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkeep −20%) or adds ≥0.1 happiness', () => {
   const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const UP = ['income', 'housing', 'jobs', 'power', 'growth', 'inflow'];
+  const DOWN = ['cost', 'demand', 'upkeep'];
+  const B_UP = ['income', 'housing', 'jobs', 'power'];
+  // What each rung does to a fresh bag, folded in the frozen 12-legacy city.
+  const strongestUp = (mods) => {
+    let best = 0;
+    for (const k of UP) best = Math.max(best, mods[k] - 1);
+    for (const m of Object.values(mods.byBuilding)) for (const k of B_UP) best = Math.max(best, m[k] - 1);
+    return best;
+  };
+  const strongestDown = (mods) => Math.max(...DOWN.map((k) => 1 - mods[k]));
+  for (const d of UPGRADES) {
+    if (typeof d.keeps === 'function') continue; // structural rungs: their whole effect is the memory
+    const mods = createMods();
+    d.effect(mods, FROZEN_STATE);
+    const up = strongestUp(mods);
+    const down = strongestDown(mods);
+    const ok = up >= 0.25 - 1e-9 || down >= 0.2 - 1e-9 || mods.happiness >= 0.1 - 1e-9;
+    assert.ok(ok, `${d.id}: strongest +${(up * 100).toFixed(0)}% / −${(down * 100).toFixed(0)}%, happiness +${mods.happiness} — a dud`);
+  }
+  // A few exact pins.
   const mods = createMods();
   byId('grant-writing').effect(mods, {});
   assert.ok(near(mods.income, 1.25));
@@ -230,6 +311,18 @@ test('meaningfulness: no core rung weaker than +25% (or −20% cost / power)', (
   const m5 = createMods();
   byId('superconductor-grid').effect(m5, {});
   assert.ok(near(m5.demand, 0.7));
+  const m6 = createMods();
+  byId('modern-curriculum').effect(m6, {});
+  assert.ok(near(m6.jobs, 1.25) && near(m6.happiness, 0.1));
+  const m7 = createMods();
+  byId('green-belts').effect(m7, {});
+  assert.ok(near(m7.growth, 1.25) && near(m7.happiness, 0.05));
+  const m8 = createMods();
+  byId('preventive-care').effect(m8, {});
+  assert.ok(near(m8.growth, 1.5) && near(m8.happiness, 0.1));
+  const m9 = createMods();
+  byId('championship-season').effect(m9, {});
+  assert.ok(near(m9.byBuilding.stadium.income, 2) && near(m9.byBuilding.stadium.jobs, 2));
   assert.notEqual(byId('welcome-sign').icon, byId('neon-signage').icon, 'distinct icons in the owned chip row');
 });
 
@@ -257,8 +350,9 @@ test('keptUpgradeIds: memory rungs re-own tiers 1–2, standing orders tier 3 + 
   }
 });
 
-test('init registers the ladder, and sortedUpgrades reads the live registry', async () => {
-  const n = await init({ derived: { income: 0 }, state: { upgrades: {} } });
+test('init registers the ladder, sortedUpgrades reads the live registry, grants flow through one seam', async () => {
+  const game = { derived: { income: 0 }, state: { upgrades: {} } };
+  const n = await init(game);
   assert.equal(n, UPGRADES.length);
   assert.equal(registry.upgrades.size, UPGRADES.length);
   const sorted = sortedUpgrades();
@@ -276,4 +370,32 @@ test('init registers the ladder, and sortedUpgrades reads the live registry', as
   assert.equal(sortedUpgrades(UPGRADES).find((d) => d.id === 'civic-bonds-1').cost, BOND_FLOOR, 'explicit defs are sorted as given');
   assert.ok(registry.actions.has('fundUpgrades'), 'fundUpgrades action registered');
   assert.ok(registry.tickHandlers.some((t) => t.name === 'upgrades:memory'), 'memory handler registered');
+
+  // grantUpgrade: sets the flag once, emits the same 'upgrade' event a purchase does.
+  const grant = registry.actions.get('grantUpgrade');
+  assert.equal(typeof grant, 'function', 'grantUpgrade action registered');
+  const seen = [];
+  const off = on('upgrade', (e) => seen.push(e));
+  assert.equal(grant('welcome-sign'), true);
+  assert.equal(game.state.upgrades['welcome-sign'], true);
+  assert.deepEqual(seen, [{ id: 'welcome-sign', cost: 0, granted: true }]);
+  assert.equal(grant('welcome-sign'), false, 'already owned');
+  assert.equal(grant('no-such-upgrade'), false, 'unknown id');
+  assert.equal(grant(42), false, 'junk id');
+  assert.equal(seen.length, 1, 'no event without a change');
+
+  // Founding memory rides that seam: own the keeper, let the memory handler see it, then a
+  // founding wipes the upgrades and the prestige event grants every kept rung back.
+  game.state.upgrades = { 'institutional-memory': true };
+  registry.tickHandlers.find((t) => t.name === 'upgrades:memory').fn(game.state);
+  game.state.upgrades = {};
+  seen.length = 0;
+  emit('prestige', { gain: 5, legacy: 15 });
+  const kept = keptUpgradeIds(['institutional-memory']);
+  assert.equal(seen.length, kept.length, 'one upgrade event per re-granted rung');
+  assert.ok(seen.every((e) => e.granted === true && e.cost === 0));
+  assert.deepEqual(Object.keys(game.state.upgrades).sort(), [...kept].sort());
+  assert.ok(game.state.upgrades['welcome-sign'] && game.state.upgrades['institutional-memory']);
+  assert.ok(!game.state.upgrades['prefab-construction'], 'tier 3 is not kept by memory alone');
+  off();
 });

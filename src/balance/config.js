@@ -3,40 +3,42 @@
 // balance owner can retune the game without touching any other folder.
 // DOM-free: this file must import cleanly in Node (economy-sim) and the browser.
 //
-// Pacing (greedy bot, tools/economy-sim.mjs, 12 game-hour run). Measured on commit f5790cb
-// plus the uncommitted 2026-09-04 working tree of the buildings (synergies, arcology jobs),
-// upgrades (founding memory, 2-second Civic Bonds opening 9% later per rung) and simulation
-// (legacy tail, ripenSeconds) modules; re-measure with `node tools/economy-sim.mjs` before
-// quoting, those modules were still moving when this was written.
-//   Opening: cottage 0 s · two windmills, two more cottages and the Welcome Sign at 4 s ·
-//   cottage 22 s · Zoning Reform 66 s · first shop 102 s (income $1.1/s at 1 min, $3.9/s at
-//   2 min, $6.9/s at 3 min) · first brownout 2.3 min · 1k pop 12.9 min · $1M earned 18.8 min ·
-//   Found panel 14.7 min ($300k) · Found button arms 23.4 min (first legacy point, $3M) ·
-//   10k pop 28 min.
-//   Tier 4 in the first city: arcology 27 min, tech campus 30, nuclear 34, financial 42,
-//   stadium 43 — one new top-tier decision every 3–7 minutes instead of all six inside one
-//   minute; income never grows more than ×3 in any minute after minute 3 of the first city
-//   (49k citizens and $740k/s at its founding). Replays compress, as a legacy-boosted
-//   rebuild should: the second city sweeps tier 4 between its 11th and 12th minute (×35
-//   income in that minute), the sixth in its 3rd, the eleventh in its first.
-//   Late ladder in the first city: Prefab 28 min, Skyway 34, Digital City Hall 42; each
-//   later city reaches one or two rungs deeper — Preventive Care through Megastructures in
-//   city 2, Algorithmic Trading in city 3, Orbital Solar in city 6, Championship Season 8,
-//   Superconductor Grid 10, Arcology Gardens 12 (~2.3 h), AI Governance 14 (~2.6 h),
-//   Planetary Charter 23 (~4.5 h).
-//   First founding 46 min with 5 legacy; cycles 46 → 14 → 13 → 6 → 5 → 5 → 6 → 6 → 7 → 7 →
-//   8 → 9 → 10 → 11 → 12 min by city 15, a hump to 15 min around city 23 (the Planetary
-//   Charter and Civic Bonds XX land there), then 10–11 min for the rest of the session;
-//   62 foundings in 12 h. Every founding is worth at least +25% income (×1.118 from the
-//   bank, ×1.118 from the Dynasty Ledger). Legacy bank ~9e6 and income in the 1e16/s
-//   range at 12 h (money is formatted past 1e15 by core/format).
-//   Coverage: all 20 buildings in the first city except the Fusion Reactor (legacy-gated by
-//   design; bought in city 2); every fixed-price upgrade bought (the last, the Planetary
-//   Charter, in city 23); Civic Bonds I–XX bought, XXI–XXX are the upgrades module's
-//   horizon headroom (they open 16–34 min after founding, longer than any late cycle).
-//   Brownout share 6% of the first city, 1% of the session; happiness 1.95 at 20 min and
-//   1.65 at the founding of the first city as industry outgrows its parks, 1.8–2.5 at later
-//   cycle ends (the simulation's clean-air milestones scrub smog late).
+// Pacing (greedy bot, tools/economy-sim.mjs, 12 game-hour run; logs/sim-fix-balance-12h.json).
+// Measured on commit 0287076 plus the 2026-09-04 working tree of the simulation module
+// (peakCarry, compoundCap, minGainShare, taps excluded from maturity) and the upgrades
+// module (Civic Bonds II at 45 s after founding, gaps 10 s + 0.8 s per rung, XXX at
+// 10.5 min); re-measure with `node tools/economy-sim.mjs --ticks 432000` before quoting.
+//   Opening: cottage 0 s · two windmills, three more cottages and the Welcome Sign by 4 s ·
+//   Zoning Reform 48 s · first shop 86 s · a purchase every 6–16 s from there (income
+//   $1.4/s at 1 min, $6.6/s at 2 min, $13/s at 3 min; longest no-purchase gap of the first
+//   three hours is the 44 s before Zoning Reform) · first brownout 2.3 min · 1k pop 13 min
+//   · $1M earned ~18 min · Found panel ~14 min ($300k) · Found button arms ~23 min (first
+//   legacy point, $3M) · 10k pop 28 min.
+//   Tier 4 in the first city: arcology 27 min, tech campus 30.5, nuclear 31, financial 33,
+//   stadium 37 — one new top-tier decision every 2–5 minutes. Income never grows more
+//   than ×3 in any minute after minute 3 of the first city (worst ×2.98 at minute 5, when
+//   Smart Grid and the Carbon Turbine Blades end the first brownout; ×2.5 at minute 37
+//   when the stadiums land) and never sits flat: the only minute under ×1.06 is the last
+//   one before the founding (×1.05 at 39). Before this pass the financial district ($2M,
+//   $9,000/s) arrived at 42 min as a ×5 minute after three ×1.01–1.05 minutes.
+//   First founding at 39.9 min with 5 legacy (48k citizens, $1.2M/s peak).
+//   Late ladder in the first city: Prefab 27 min, Skyway 33, Digital City Hall 37; each
+//   later city reaches one or two rungs deeper (Preventive Care through Megastructures in
+//   city 2, the Planetary Charter by city ~20).
+//   Cycles: 40 → 16 → 16 → 6 → 5.3 → 5.1 → 4.4 → 4.9 → 4.3 → 4.5 (city 10, ~2 h) → then
+//   lengthening ~0.4 min per city (5.3, 5.7, 6, 6.4, 6.8, 7.8 … 10.3) to 11.3 min at city
+//   24 (~3.7 h) and exactly 11.3 min for every later city; 68 foundings in 12 h, legacy
+//   3.8e7, income ~1e19/s (core/format prints past 1e15). See the prestige block below
+//   for what sets each phase; the 4.3 → 11.3 lengthening between cities 10 and 24 is the
+//   one pacing flaw left, and it cannot be tuned away from here (details there).
+//   Coverage: all 20 buildings in the first city except the Fusion Reactor (legacy-gated
+//   by design; bought in city 2); all 82 upgrades bought — every fixed rung by city ~20
+//   and Civic Bonds I–XXX plus Skyline Expansion I–V in every city from the 24th on.
+//   Brownouts: 26% of the first 16.7 minutes' 10-second samples sit under full power (4%
+//   under 0.9; the verify run's 100-tick samples: 26 of 60 under 1, 4 under 0.9, floor
+//   0.89), 14% of the first city, 2% of the session. Happiness 0.70 in the first minute
+//   (every citizen jobless until the first shop at 86 s), 1.8 at the first founding, 2.1
+//   to 2.7 at later cycle ends, never under 1.8 at a founding.
 //
 // How the numbers were chosen. The verify/sim bot never saves: it buys the best-scoring
 // *affordable* item every two seconds, so every unlocked building's price gets pushed up to
@@ -64,13 +66,15 @@ const popUnlock = (n, label) => ({
 export const config = {
   /**
    * Core money flow.
-   * - startMoney: seed cash on a fresh run. $280 is tuned to the first five seconds as the
+   * - startMoney: seed cash on a fresh run. $300 is tuned to the first five seconds as the
    *   greedy bot actually plays them: a cottage at 0 s, then (the grid reads as dark until
-   *   the next tick) two windmills at $40 + $80, two more cottages and the $25 Welcome Sign,
-   *   leaving ~$30 — the first corner shop lands off tax income about a minute and a half
-   *   in, and Zoning Reform just before it. The windmill's cost growth of 2 is what stops
-   *   the opening spree at two windmills (the third would be $160, more than the whole
-   *   treasury); at 1.5 the bot bought three and starved the shop for three minutes.
+   *   the next tick) two windmills at $40 + $80, three more cottages and the $25 Welcome
+   *   Sign, leaving ~$0 — so the four cottages Zoning Reform asks for are up at once and
+   *   the reform lands at 48 s off tax income, the first corner shop at 86 s. ($280 left
+   *   the fourth cottage for a 40-second wait and put the reform at 66 s and the shop at
+   *   102 s.) The windmill's cost growth of 2 is what stops the opening spree at two
+   *   windmills (the third would be $160, more than the whole treasury); at 1.5–1.8, or
+   *   with a $35 windmill, the bot bought three and starved the shop until 3+ minutes.
    * - taxPerPop: money/s per citizen, employed or not. Makes residential alone trickle
    *   income so a player who over-builds housing is never fully stalled.
    * - wage: money/s per employed citizen. The dominant income term through the mid game;
@@ -80,7 +84,7 @@ export const config = {
    * - tapSeconds: manual click pays `max(1, income * tapSeconds)` — one second of income per
    *   tap. Keeps clicking meaningful at the start and irrelevant (but harmless) later.
    */
-  economy: { startMoney: 280, taxPerPop: 0.08, wage: 0.35, tapSeconds: 1 },
+  economy: { startMoney: 300, taxPerPop: 0.08, wage: 0.35, tapSeconds: 1 },
 
   /**
    * Population dynamics (per second, before happiness/power scaling).
@@ -158,53 +162,82 @@ export const config = {
 
   /**
    * Prestige — "Found a new city". The rules live in src/simulation/prestige.js; every
-   * knob it reads is set here explicitly (simulation/tuning.js carries matching fallbacks).
+   * knob it reads is set here explicitly (simulation/tuning.js carries matching fallbacks —
+   * keep its DEFAULTS in step with this block).
    *
    * Legacy has two sources: lifetime earnings are worth floor((lifetimeEarned /
    * threshold)^exponent) points in total and a founding banks the difference to what is
-   * already held; on top of that a *mature* city (one that has banked `maturity` seconds
-   * of its own peak income) grows the bank by legacy · maturity · compoundPerMinute / 60.
-   * The first source paces the first hour, the second sets the steady-state cadence.
+   * already held; on top of that a *mature* city grows the bank by legacy · maturity ·
+   * compoundPerMinute / 60, where maturity is the seconds of the run's peak income it has
+   * banked (measured against peakCarry × the previous city's peak until it rebuilds to it,
+   * taps excluded). The first source paces the first three cities, the second sets the
+   * steady-state cadence.
    *
    * - threshold: lifetime earnings worth the first point — $3M, which the first city earns
    *   about 23 minutes in. With minGain 1 that is also the moment the Found button arms,
-   *   so the counter the panel shows is the real bar (before this pass the first point was
-   *   $1M at 19 min but the button needed 3 points = $23M at 32 min, and a player watched
-   *   "0/3" for a quarter hour). The panel itself opens at threshold/10 = $300k (~15 min).
-   *   The bot, which holds out for 5 points, founds at $3M·5^(1/0.35) ≈ $300M, ~46 min.
+   *   so the counter the panel shows is the real bar. The panel itself opens at
+   *   threshold/10 = $300k (~14 min). The bot, which holds out for 5 points, founds at
+   *   $3M·5^(1/0.35) ≈ $300M, ~40 min.
    * - exponent: 0.35 (not the 0.5 sketched in DESIGN.md). Against lifetime earnings the
    *   bot's "reset for 25% more legacy" habit needs each run to out-earn everything before
-   *   it by ×1.25^(1/exponent): ×1.56 at 0.5, ×1.9 at 0.35. At 0.5 the mid game (legacy
-   *   100–500) collapses into 80-second cycles because a legacy-boosted rebuild out-earns
-   *   the small lifetime total in seconds; at 0.35 the requirement stays ahead of the
-   *   rebuild and the compounding term takes over smoothly.
+   *   it by ×1.25^(1/exponent): ×1.56 at 0.5, ×1.9 at 0.35. At 0.5 the mid game collapses
+   *   into 80-second cycles because a legacy-boosted rebuild out-earns the small lifetime
+   *   total in seconds. Lower values (0.3 → 0.15, with the threshold lowered to keep the
+   *   first founding at ~40 min) were swept this pass: they do not change the shape below,
+   *   only where the Found button first arms ($1.4M … $10k), so 0.35 stays.
    * - incomePerLegacy / legacyPower / legacyCap: income × (1 + 0.04·legacy)^0.5, uncapped
    *   (legacyCap 0 switches the simulation's soft cap and its tail off). The square root
-   *   keeps the first points readable (+2% each on top of the ×1.5 `firstBonus`) and, unlike
-   *   the ×100 cap used before this pass, never goes flat: a founding that grows the bank by
-   *   a quarter is always worth ×1.118 here, and the upgrades module's Dynasty Ledger
+   *   keeps the first points readable and never goes flat: a founding that grows the bank
+   *   by a quarter is always worth ×1.118 here, and the upgrades module's Dynasty Ledger
    *   (×√legacy) adds the same again, so every late founding still pays ≥ +25% income.
-   *   The price is that 12-hour money runs past 1e15 (≈1e17/s income at 60 foundings) —
+   *   The price is that 12-hour money runs past 1e15 (~1e19/s income at 68 foundings) —
    *   core/format handles it, and a number that keeps growing is the point of the loop.
-   *   Power 0.75 doubled the 12-hour income again for no felt difference per founding.
-   * - firstBonus: the first founding is a jump a player can feel (×1.5 on top of the points).
-   * - compoundPerMinute: 0.08 → a mature city banks +8% of its legacy per minute of peak
-   *   income earned, so the bot's 25%-more rule is met ~3 minutes of *peak-income time* into
-   *   full stride. Because the Civic Bonds treadmill keeps raising the peak inside a run,
-   *   maturity accrues slower than wall time: measured cycles plateau at ~10 min with 0.08,
-   *   ~12 with 0.07, ~14 with 0.06, ~16 with 0.05 and ~21 with 0.04 (the 0.025 shipped
-   *   before this pass gave the 27-minute treadmill). The plateau is set by the bonds'
-   *   issue schedule (upgrades module), so re-measure if that changes.
+   *   Bounding it (a soft cap, or the bank held to earnings^exponent via compoundCap 1)
+   *   makes every late cycle longer than the one before — measured 11.9 → 140 min over
+   *   hours 6–12 with the cap at 1 — because the bot's bank grows by a quarter per
+   *   founding whatever the rule, and 68 foundings are 22 doublings.
+   * - firstBonus: 0.3 — the first founding is still a jump a player can feel (×1.3 on top
+   *   of the points' ×1.1), trimmed from 0.5 so cities 2–3 do not out-earn the first city
+   *   in 13 minutes (they take 16 now) and the sprint below starts at 6 min, not 4.
+   * - compoundPerMinute: 0.1 → a mature city banks +10% of its legacy per minute of peak
+   *   income earned, so the bot's 25%-more rule is met after 150 s of *peak-income time*.
+   *   Because every Civic Bond raises the peak ×1.25, a city cannot bank more than ~4.5
+   *   bond-gaps of maturity while bonds keep landing; the gaps end at 32 s (rung XXX,
+   *   10.5 min after founding), so a bonded city ripens ~50 s after the ladder ends: the
+   *   11.3-minute cycle every city from the 24th on runs, funding all thirty rungs. 0.11
+   *   ends cities just before rung XXX opens (never bought), 0.08 gave 11.9 min; the
+   *   plateau is the bonds' issue schedule (upgrades module), so re-measure if it changes.
+   *   Cities 4–10 (legacy 15–80) are the "sprint": Civic Bonds I only opens on $1B earned
+   *   in the run, which those cities reach 5 → 1 minutes after founding, and every rung
+   *   whose issue time has passed is bought at once — a ×3–20 jump in the peak that lets
+   *   a 4–6 minute city out-earn its whole lifetime (the earnings source pays, not the
+   *   compound one). From city 10 the first bond lands inside the first minute, the sprint
+   *   fades and cycles lengthen toward the bonded plateau. No knob here changes that
+   *   ordering (exponent, threshold, firstBonus, incomePerLegacy 0 → 0.04, peakCarry,
+   *   ripenSeconds and compoundPerMinute 0.08 → 0.2 were all swept: higher compounding
+   *   shortens sprint and plateau alike and stops funding the late bonds). The seam is
+   *   the bonds' schedule: anchoring rungs II–XXX on the purchase of rung I instead of the
+   *   founding would pin cities 4–9 the same way it pins city 24, giving 16 → 15 → 14 → …
+   *   → 11.3 min; alternatively a compounding share that grows with the bank (simulation).
+   * - peakCarry: 0.5 — a new city's maturity is measured against half the previous city's
+   *   peak until it rebuilds past it, so founding and idling on two cottages banks nothing.
+   * - compoundCap: 1000 — the compounding share can never exceed 1000× what the run's own
+   *   discounted earnings are worth as legacy. A guard, not a pacing lever: a run that
+   *   earned less than the threshold is worth 0, so a stale save (no previous-peak figure)
+   *   left idle still banks nothing, while a bot city's ratio is ~1 at legacy 1e4 and ~500
+   *   at 3e6 (the 12-hour bank), so the cap never touches a played session. At 1 (the
+   *   simulation's fallback) it binds from legacy ~1.4e4 (hour 6) and cycles balloon.
    * - ripenSeconds: 0 — the earnings-based share is banked in full at any maturity. Values
-   *   around 300–450 s were tried to flatten the early cadence and produced instant
-   *   re-foundings (a fresh city's first tap counts as hundreds of seconds of maturity);
-   *   leave at 0 unless the simulation's maturity rule changes.
+   *   of 150–240 s were tried to hold the sprint: the unbanked remainder carries over to
+   *   the next city as a pool, and the pool ripens at maturity 20–35 s, so nothing changes.
    * - legacyDiscount: 1 — lifetime earnings count as earned-without-the-bonus toward the
    *   earnings source, so the bonus never buys the next points faster.
-   * - startMoneyPerLegacy: post-reset seed cash = startMoney · (1 + 0.1·legacy). Five
-   *   points (one bot cycle) buy the opening cottages, shop and windmills outright; kept
-   *   small so replays are quicker, not skipped.
+   * - startMoneyPerLegacy: post-reset seed cash = startMoney · (1 + 0.05·legacy). Five
+   *   points (one bot cycle) buy the opening cottages and windmills outright; kept small
+   *   so replays are quicker, not skipped.
    * - minGain: 1 — the Found button arms at the first point (see threshold).
+   * - minGainShare: 0.05 — once a bank exists the button also waits for 5% of it, so a
+   *   1,000-point mayor is never offered a reset for +3 (the bot holds out for 25%).
    */
   prestige: {
     threshold: 3e6,
@@ -212,12 +245,15 @@ export const config = {
     incomePerLegacy: 0.04,
     legacyPower: 0.5,
     legacyCap: 0,
-    firstBonus: 0.5,
-    compoundPerMinute: 0.08,
+    firstBonus: 0.3,
+    compoundPerMinute: 0.1,
+    peakCarry: 0.5,
+    compoundCap: 1000,
     ripenSeconds: 0,
     legacyDiscount: 1,
-    startMoneyPerLegacy: 0.1,
+    startMoneyPerLegacy: 0.05,
     minGain: 1,
+    minGainShare: 0.05,
   },
 
   /**
@@ -238,21 +274,23 @@ export const config = {
    *
    * Ladder rationale (base cost → what it buys, at the frontier where it unlocks):
    *   residential  cottage $30/4 · apartment $300/24 · tower $3k/160 · arcology $120k/1,000
-   *   commercial   shop $50/5 jobs · office $1.2k/50 · mall $25k/300 · financial $2M/4,000
+   *   commercial   shop $50/5 jobs · office $1.2k/50 · mall $25k/300 · financial $700k/4,000
    *   industrial   factory $500/20 jobs · refinery $20k/200 · tech campus $300k/2,500
-   *   power        windmill $40/3 MW · coal $1.5k/80 · solar $25k/900 · nuclear $750k/12k
+   *   power        windmill $40/4 MW · coal $1.5k/80 · solar $25k/900 · nuclear $400k/12k
    *                fusion $4M/60k MW (post-prestige trophy)
    *   civic        park $200 · school $5k · hospital $60k · stadium $3.5M
    * Housing is deliberately the cheap column and jobs the expensive one: citizens arrive
    * first, then the city has to find them work, which is where the money is.
    */
   buildings: {
-    // Windmills: $40 keeps the first one in reach right after the opening cottage, 3 MW
-    // covers three cottages (six before this pass covered the whole first four minutes,
-    // and the first brownout came at 9 min instead of the design's ~3), and growth 2 (the
-    // 3rd costs $160, the 5th $640) means the good hilltops run out fast — a coal plant is
-    // the real answer once demand passes 20 MW.
-    windmill: { baseCost: 40, costGrowth: 2, powerGen: 3 },
+    // Windmills: $40 keeps the first one in reach right after the opening cottage, 4 MW
+    // covers four cottages (6 MW covered the whole first four minutes and put the first
+    // brownout at 9 min instead of the design's ~3; 3 MW had the grid under full power
+    // for a third of the first 17 minutes and under 0.9 for 12% of them — 4 MW keeps the
+    // first brownout at 2.3 min but cuts the deep ones to 4%), and growth 2 (the 3rd costs
+    // $160, the 5th $640) means the good hilltops run out fast — a coal plant is the real
+    // answer once demand passes 20 MW.
+    windmill: { baseCost: 40, costGrowth: 2, powerGen: 4 },
 
     // The corner shop is the first paycheck: five jobs and $0.80/s of till receipts for
     // $50, so the second minute of play already has money moving.
@@ -273,22 +311,29 @@ export const config = {
     refinery: { baseCost: 20000 },
     hospital: { baseCost: 60000 },
 
-    // Tier 4. Base costs are spaced ×2.5 and the population gates ×1.5–2 so the frontier
-    // (and the city's growth) delivers one top-tier building every 3–7 minutes of the
-    // first city — arcology 27 min, tech campus 30, nuclear 34, financial 42, stadium 44 —
-    // instead of all of them inside one minute as the old ×1.3 spacing ($120k…$350k, gates
-    // 4k…10k) did. The arcology's housing is trimmed from 2,500 to 1,000: at 2,500 one
+    // Tier 4. Base costs and population gates are spaced so the frontier (and the city's
+    // growth) delivers one top-tier building every 2–5 minutes of the first city —
+    // arcology 27 min, tech campus 30.5, nuclear 31, financial 33, stadium 37 — instead
+    // of all of them inside one minute as the old ×1.3 spacing ($120k…$350k, gates
+    // 4k…10k) did. The nuclear plant sits at the 8k gate with the tech campus ($400k, a
+    // minute behind it) so the solar-farm ladder does not brown the city out for two
+    // minutes while the bot saves for a $750k plant at 34 min, as it did before. The arcology's housing is trimmed from 2,500 to 1,000: at 2,500 one
     // arcology was fifteen towers' worth of citizens for the price of one, and a dozen of
     // them tripped every later gate within a minute. At 1,000 it is still 2–3× the tower
     // frontier per dollar, with 500 jobs and +0.02 happiness of its own.
     arcology: { baseCost: 120000, housing: 1000, ...popUnlock(4000, '4,000') },
     techpark: { baseCost: 300000, ...popUnlock(8000, '8,000') },
-    nuclear: { baseCost: 750000, ...popUnlock(12000, '12,000') },
-    // Financial's base income is owned here alongside its price: the catalogue's $2,000/s
-    // was tuned for the old $250k tag, and at $2M it fell to ~2/$k against the tech
-    // campus's ~9/$k. $9,000/s (x2.5 with a full payroll) keeps the tier-3/4 ladder within
-    // the 0.8x dominance band the buildings tests pin without touching the 42-minute gate.
-    financial: { baseCost: 2e6, income: 9000, ...popUnlock(20000, '20,000') },
+    nuclear: { baseCost: 400000, ...popUnlock(8000, '8,000') },
+    // Financial district: a fresh price ladder that opens late is always a spike, because
+    // the buildings test pins its income per dollar at *base* cost to ≥ 0.8× the tech
+    // campus's, while the campus the bot is actually comparing it with has climbed ×3–6
+    // up its own ladder by then. At $2M / $9,000/s (unlock 20k citizens, 42 min) that was
+    // fourteen districts in one minute and a ×5 income minute after three flat ones. So it
+    // now opens at 12k citizens, ~33 min, two and a half minutes after the campus, at
+    // $700k and $2,600/s (×2.5 with a full payroll): 7.2/$k at base against the campus's
+    // 8.75 (the test's band), about 1.4× the campus's frontier value when it lands, so
+    // the two ladders climb together and the worst minute of the first city is ×3.
+    financial: { baseCost: 7e5, income: 2600, ...popUnlock(12000, '12,000') },
     stadium: { baseCost: 3.5e6, ...popUnlock(22000, '22,000') },
 
     // Fusion is the prestige trophy (unlocks at legacy ≥ 1 or 100k citizens). Priced above
@@ -308,12 +353,15 @@ export const config = {
    * push.
    * Late ladder ($120k → $4e10, ×3.3 per rung — DESIGN.md's ×4–6 shape, not the ×1.6 used
    * before this pass, which put twelve rungs inside 48 seconds of the second city): the
-   * first three rungs are bought at the end of the first city (28, 34 and 42 min); each
+   * first three rungs are bought at the end of the first city (27, 33 and 37 min); each
    * later city's higher legacy income reaches one or two rungs deeper, so a city with 20+
-   * legacy still has new proposals to fund, and the last of the twelve (Arcology Gardens)
-   * is first funded in the 12th city. AI Governance ($1e11) and the Planetary Charter
-   * ($3e12) are the last fixed-price rungs: they unlock on $1B / $20B earned in a single
-   * run and land in cities 14 and 23 (~2.6 h and ~4.5 h).
+   * legacy still has new proposals to fund. AI Governance ($1e11) and the Planetary
+   * Charter ($3e12) are the last fixed-price rungs: they unlock on $1B / $20B earned in a
+   * single run and are first funded around cities 14 and 20.
+   * Smart Grid is the one early rung priced off its natural frontier: $250 (not $400) so
+   * the −20% demand lands at ~4 min, right as the two starter windmills run out, instead
+   * of at 6.3 min after the fourth brownout; it took the first city's under-power share
+   * from 34% to 29% of the first 17 minutes and lifted the grid's floor from 0.70 to 0.84.
    * Beyond them the upgrades module's horizon ladder (Civic Bonds I–XXX, Skyline Expansion
    * I–V) is priced in seconds of the run's live income, not dollars, so it has no entry
    * here; it is the per-cycle treadmill once every fixed rung is owned.
@@ -326,7 +374,7 @@ export const config = {
     'grant-writing': { cost: 150 },
     'tax-software': { cost: 250 },
     'turbine-blades': { cost: 300 },
-    'smart-grid': { cost: 400 },
+    'smart-grid': { cost: 250 },
     'community-events': { cost: 500 },
     'assembly-lines': { cost: 600 },
     franchising: { cost: 1200 },

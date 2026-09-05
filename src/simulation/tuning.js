@@ -7,13 +7,17 @@
 // balance can retune at runtime and the Node sim can sweep parameters while the tick loop
 // stays allocation-free. Callers never mutate the returned object.
 //
-// config.prestige knobs read here (all optional; each is bounded to a sane range):
+// config.prestige knobs read here (all optional; each is bounded to a sane range). The balance
+// module owns the numbers; this is the complete list of what the simulation reads:
 //   threshold           lifetime earnings worth the first legacy point ($3M)
 //   exponent            legacy total = floor((lifetimeEarned / threshold) ^ exponent); a
 //                       founding banks the difference to what is already held. Bounded to
 //                       [0.05, 1]: above 1 the earnings source outruns any income curve.
 //   incomePerLegacy     k in the raw income bonus (1 + k·legacy) ^ legacyPower − 1
-//   legacyPower         p in the raw bonus above; clamped to [0.25, LEGACY_POWER_MAX] (1.5)
+//   legacyPower         p in the raw bonus above; clamped to [0.25, LEGACY_POWER_MAX] (1.5).
+//                       The shipped 0.5 is a square root: ×30 at 10k points, ×95 at 100k —
+//                       bounded and predictable without a cap. p > 1 is convex and only sane
+//                       under a legacyCap.
 //   legacyCap           soft ceiling M on the multiplier (before firstBonus): the curve keeps
 //                       its slope near zero and bends to approach M asymptotically. 0 = none
 //                       (the raw bonus applies as is — only sane with legacyPower ≤ 1).
@@ -29,14 +33,42 @@
 //   firstBonus          one-off multiplier (1 + firstBonus) once any legacy is banked
 //   legacyDiscount      0..1: lifetime earnings count as lifetime / mult ^ legacyDiscount toward
 //                       the earnings-based legacy (1 = the bonus never speeds up the next points)
-//   compoundPerMinute   share of banked legacy a founding adds per minute of maturity
-//                       (maturity = totalEarned / peakIncome, seconds of best income banked)
+//   compoundPerMinute   share of banked legacy a founding adds per minute of maturity.
+//                       Maturity = (totalEarned − tapEarned) / max(peakIncome, peakCarry ·
+//                       lastPeakIncome): seconds of the run's best income banked, measured
+//                       against the previous city's peak until this one has rebuilt to it, so
+//                       a city that stops growing (or never starts) accrues almost none.
+//   peakCarry           0..1 share of the previous run's peak income a new city is measured
+//                       against until its own peak passes it (0.5 shipped: rebuild to half
+//                       the old peak before maturity accrues at full rate; 0 = off).
+//   compoundCap         the compounding share can never bank more than compoundCap × the
+//                       legacy this run's own (discounted) earnings would be worth to a fresh
+//                       mayor, (runEarned · scale / threshold) ^ exponent. Ties late-game legacy
+//                       to actual output — an idle city earns nothing, and the bank can only
+//                       grow as fast as earnings ^ exponent — instead of to wall time. 0 = no
+//                       cap (the pre-fix behaviour; not recommended).
 //   ripenSeconds        maturity at which the earnings-based share is banked in full; below it
 //                       that share scales by maturity / ripenSeconds (0 = banked in full at any
-//                       maturity, the shipped value)
+//                       maturity, the shipped value). Taps no longer count as maturity, so a
+//                       value here now does what it says (a fresh city's first taps used to
+//                       read as hundreds of seconds).
 //   startMoneyPerLegacy seed cash = economy.startMoney · (1 + startMoneyPerLegacy · legacy)
 //   minGain             founding is allowed only once at least this many points are on offer
-// config.economy: startMoney, tapSeconds. config.milestones: popIncomeBonus.
+//   minGainShare        …and, once a bank exists, at least this share of it (0.05 shipped:
+//                       a 1,000-point mayor needs 50 more), so the Found button never arms
+//                       for a fraction-of-a-percent reset. The resolved requirement is
+//                       max(minGain, ceil(legacy · minGainShare)) — derived.extra.prestige.minGain.
+// config.economy: startMoney, tapSeconds (a tap pays max($1, grossIncome · tapSeconds)).
+// config.milestones: popIncomeBonus.
+//
+// Measured with the shipped values (greedy bot, node tools/economy-sim.mjs): an idle
+// two-cottage replay banks 0 legacy in ten minutes at any bank size (it was +79%); the
+// first founding lands at ~44 min, cycles shrink to 3–4 min around hour one (the earnings
+// source, while a replay out-earns the whole past in minutes), settle at ~12 min from hour
+// three, and stretch once the economy plateaus. Twelve hours end near 85k legacy (was 19M)
+// with the compound cap binding from hour five; income past that point is the base ladder
+// times the ×(1+0.04L)^0.5 bonus and the upgrades module's Dynasty Ledger (×√L), so bank
+// size, not this file, sets the late-game magnitude.
 import { config } from '../balance/config.js';
 
 // Hard ceiling on the payoff power: (1 + k·L)^p with p above this outruns any gain curve.
@@ -57,14 +89,17 @@ export const DEFAULTS = Object.freeze({
     legacyCap: 0,
     legacyCapTail: 0.05,
     legacyCapTailPower: 0.3,
-    firstBonus: 0.5,
-    compoundPerMinute: 0.08,
+    firstBonus: 0.3,
+    compoundPerMinute: 0.1,
+    peakCarry: 0.5,
+    compoundCap: 1000,
     ripenSeconds: 0,
     legacyDiscount: 1,
-    startMoneyPerLegacy: 0.1,
+    startMoneyPerLegacy: 0.05,
     minGain: 1,
+    minGainShare: 0.05,
   }),
-  economy: Object.freeze({ startMoney: 280, tapSeconds: 1 }),
+  economy: Object.freeze({ startMoney: 300, tapSeconds: 1 }),
   milestones: Object.freeze({ popIncomeBonus: 0.02 }),
 });
 
@@ -128,10 +163,13 @@ export function prestigeTuning(cfg = config) {
     legacyCapTailPower: clamp(finite(p.legacyCapTailPower, D.legacyCapTailPower), 0, LEGACY_TAIL_POWER_MAX),
     firstBonus: Math.max(0, finite(p.firstBonus, D.firstBonus)),
     compoundPerMinute: Math.max(0, finite(p.compoundPerMinute, D.compoundPerMinute)),
+    peakCarry: clamp(finite(p.peakCarry, D.peakCarry), 0, 1),
+    compoundCap: Math.max(0, finite(p.compoundCap, D.compoundCap)),
     ripenSeconds: Math.max(0, finite(p.ripenSeconds, D.ripenSeconds)),
     legacyDiscount: clamp(finite(p.legacyDiscount, D.legacyDiscount), 0, 1),
     startMoneyPerLegacy: Math.max(0, finite(p.startMoneyPerLegacy, D.startMoneyPerLegacy)),
     minGain: Math.max(1, Math.floor(finite(p.minGain, D.minGain))),
+    minGainShare: clamp(finite(p.minGainShare, D.minGainShare), 0, 1),
   });
 }
 

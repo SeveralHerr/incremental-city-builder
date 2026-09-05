@@ -79,6 +79,25 @@ export function buildings() {
   return out;
 }
 
+// Legacy points not yet spent on charter perks. The income bonus always uses the full bank
+// (state.prestige.legacy); spending never lowers it.
+export function legacyAvailable() {
+  const p = state.prestige || {};
+  const legacy = Number.isFinite(p.legacy) && p.legacy > 0 ? Math.floor(p.legacy) : 0;
+  const spent = Number.isFinite(p.spent) && p.spent > 0 ? Math.floor(p.spent) : 0;
+  return Math.max(0, legacy - spent);
+}
+
+// Upgrades are priced in money by default; `currency: 'legacy'` prices them in legacy points.
+export function upgradeCurrency(def) {
+  return def && def.currency === 'legacy' ? 'legacy' : 'money';
+}
+
+export function canAffordUpgrade(def) {
+  if (!def) return false;
+  return upgradeCurrency(def) === 'legacy' ? legacyAvailable() >= def.cost : state.res.money >= def.cost;
+}
+
 export function upgrades() {
   const out = [];
   for (const id of registry.upgradeOrder) {
@@ -86,8 +105,9 @@ export function upgrades() {
     const owned = !!state.upgrades[id];
     out.push({
       ...def,
+      currency: upgradeCurrency(def),
       owned,
-      affordable: state.res.money >= def.cost,
+      affordable: canAffordUpgrade(def),
       unlocked: isUpgradeUnlocked(def),
     });
   }
@@ -128,11 +148,18 @@ export function buyUpgrade(id) {
   const def = getUpgrade(id);
   if (!def || state.upgrades[id]) return false;
   if (!isUpgradeUnlocked(def)) return false;
-  if (!(state.res.money >= def.cost)) return false;
-  state.res.money -= def.cost;
+  if (!canAffordUpgrade(def)) return false;
+  const currency = upgradeCurrency(def);
+  if (currency === 'legacy') {
+    if (!state.prestige || typeof state.prestige !== 'object') state.prestige = { legacy: 0, spent: 0, lifetimeEarned: 0 };
+    state.prestige.spent = (Number.isFinite(state.prestige.spent) ? Math.floor(state.prestige.spent) : 0) + def.cost;
+    addLog(`Charter: ${def.name}`, 'prestige');
+  } else {
+    state.res.money -= def.cost;
+    addLog(`Upgrade: ${def.name}`, 'upgrade');
+  }
   state.upgrades[id] = true;
-  addLog(`Upgrade: ${def.name}`, 'upgrade');
-  emit('upgrade', { id, cost: def.cost });
+  emit('upgrade', { id, cost: def.cost, currency });
   return true;
 }
 
@@ -159,6 +186,9 @@ export const api = {
   buy,
   sell,
   buyUpgrade,
+  legacyAvailable,
+  upgradeCurrency,
+  canAffordUpgrade,
   buildingCost,
   maxAffordable,
   action,

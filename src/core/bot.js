@@ -36,11 +36,16 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
       }
     }
 
-    // Upgrades: cheapest affordable, unlocked.
-    const ups = api
-      .upgrades()
-      .filter((u) => u.unlocked && !u.owned && u.affordable)
-      .sort((a, b) => a.cost - b.cost);
+    // Upgrades: cheapest affordable, unlocked. Legacy-priced charter perks first (they are a
+    // separate currency and always worth taking), then money upgrades.
+    const allUps = api.upgrades().filter((u) => u.unlocked && !u.owned && u.affordable);
+    const perks = allUps.filter((u) => u.currency === 'legacy').sort((a, b) => a.cost - b.cost);
+    if (perks.length && api.buyUpgrade(perks[0].id)) {
+      buys++;
+      bought = true;
+      continue;
+    }
+    const ups = allUps.filter((u) => u.currency !== 'legacy').sort((a, b) => a.cost - b.cost);
     if (ups.length && api.buyUpgrade(ups[0].id)) {
       buys++;
       bought = true;

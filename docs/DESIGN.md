@@ -153,3 +153,46 @@ export const config = {
 };
 ```
 `src/balance/index.js` re-exports config; `init()` is a no-op.
+
+## Late game contract (integrator, 2026-09-05 — supersedes any conflicting line above)
+
+**Diagnosis after gauntlet iteration 3.** Hours 4–12 of a 12 h bot session were 43 identical
+11.3-minute foundings: legacy compounded on a wall-clock "maturity" timer, Civic Bonds opened on a
+wall-clock issue schedule, income reached 1e19/s with nothing priced above 3e12, and power /
+happiness stopped mattering after city 1. The fix is structural, not a knob:
+
+**Principles**
+1. **Nothing gates on wall-clock time.** Content gates on the economy: earned this run, pop,
+   building counts, legacy. Delete every time-based unlock/issue schedule.
+2. **Legacy comes from lifetime earnings only.** `legacyTotal = floor((lifetimeEarned/threshold)^exponent)`;
+   founding banks the difference. Remove the compounding/maturity source and its knobs
+   (`compoundPerMinute, peakCarry, compoundCap, ripenSeconds, legacyDiscount`) from tuning + config.
+3. **Legacy is also a currency.** `available = prestige.legacy − prestige.spent`. Charter perks are
+   upgrades with `currency: 'legacy'` (core `api.buyUpgrade` handles it; `api.legacyAvailable()`).
+   The income bonus always uses the full `legacy` bank — spending never lowers it.
+4. **Magnitudes:** money ≤ 1e18 and legacy ≤ 1e6 at 12 h under the bot. Income multiplier from
+   legacy stays a root: `(1 + incomePerLegacy·L)^p`, p ≤ 0.6, no soft-cap machinery.
+
+**Cadence target (12 h greedy bot, `npm run sim -- --ticks 432000`, read `metrics` in the JSON):**
+- first founding 30–45 min; cycles fall to a floor of 4–8 min by founding 6–10, then rise gently:
+  each cycle ≤ 1.35× the previous, last cycle ≤ 40 min; ~18–35 foundings in 12 h.
+- every founding after the 5th introduces ≥ 1 never-before-bought item (perk, rung, building, tier).
+- **purchase tension:** the priciest unlocked-unowned money item sits at 3–50× cash in ≥ 30 % of samples.
+- **power matters:** under-power (ratio < 1) share 3–20 % of the session, floor ≥ 0.6.
+- **civic matters:** happiness dips below 1.0 in ≥ 50 % of cities.
+- every building and upgrade bought at least once in 12 h; zero `overflow/stall/magnitude` issues.
+
+**Module contracts**
+- *upgrades*: ≥ 12 charter perks, `category: 'charter'`, `currency: 'legacy'`, costs ×2.5–4 apart
+  from 3 to ~2e5 legacy, strong effects (+50–100 % income/housing/power, −15 % cost, +growth, etc.),
+  `unlock: legacy ≥ cost/2`. Replace the wall-clock Civic Bond ladder with an **earnings-gated dollar
+  ladder**: fixed costs ×10 per rung from 1e13 to 1e18, `unlock: state.stats.totalEarned ≥ cost/4`,
+  with real names/effects (not "Bond XXIII"). Keep every knob in `config.upgrades`.
+- *simulation*: earnings-only legacy (principle 2); `prestigePanelShare` knob; legacy tiers up to 1e6;
+  `derived.extra.prestige.available`; refreshed header docs with measured numbers; tests updated.
+- *balance*: retune to the cadence target; late demand outpaces supply (financial powerUse 2000,
+  arcology 1200, fusion ≤ 3e5 MW); first shop < 60 s; keep every building worth buying.
+- *ui*: charter perks rendered in the Legacy panel (cost chip `◆ N`, available `◆ have / total`),
+  `synergy.text` on building cards, unlock-toast dedupe across foundings, toasts never over Buy buttons.
+- *tools/economy-sim.mjs* (integrator): reports `metrics.cycles, tensionShare, underPowerShare,
+  happinessDipCities, emptyLateCycles, neverPurchased`; `contractPass` = all of the above.

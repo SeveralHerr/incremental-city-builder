@@ -7,8 +7,10 @@
 //   4. latch milestones and dashboard gates, keep the city log lively,
 //   5. refresh derived.extra.prestige (legacy, gain, can, next targets) for the dashboard.
 // Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
-// prestige, tap, setting. The prestige rules live in prestige.js, the goals in
-// milestones.js, every config knob read here in tuning.js.
+// prestige, tap, setting, brownout ({ active, ratio } on both grid transitions). The
+// prestige rules live in prestige.js, the goals in milestones.js, every config knob read
+// here in tuning.js (resolved once and shared, so the tick allocates nothing but the mods
+// bag).
 import { registry, registerTickHandler, registerAction } from '../core/registry.js';
 import { addLog } from '../core/state.js';
 import { createMods, sanitizeMods } from '../core/mods.js';
@@ -24,6 +26,8 @@ import {
   getMilestone,
   isMilestoneReached,
   isBrownout,
+  LEGACY_MILESTONES,
+  nextLegacyMilestone,
 } from './milestones.js';
 import {
   canPrestige as canPrestigeRule,
@@ -38,21 +42,27 @@ import {
   legacyIncomeMult,
   prestigeConfig,
   prestigeStatus,
+  ripeness,
+  foundingLine,
 } from './prestige.js';
-import { economyTuning } from './tuning.js';
+import { economyTuning, prestigeTuning } from './tuning.js';
 
 export {
   MILESTONES,
   REWARDED_MILESTONES,
+  LEGACY_MILESTONES,
   getMilestone,
   isMilestoneReached,
   isBrownout,
+  nextLegacyMilestone,
   nextLegacyAt,
   earningsForLegacy,
   prestigeUnlockAt,
   legacyIncomeMult,
   prestigeConfig,
   prestigeStatus,
+  ripeness,
+  foundingLine,
 };
 
 export const TICK_HANDLER = 'simulate';
@@ -83,13 +93,16 @@ const GATES = [
     key: 'panel:prestige',
     log: 'The council whispers about founding a new city. Legacy panel added.',
     // A mayor with a bank keeps the panel from the first second of every replay.
-    check: (state) => state.stats.totalEarned >= prestigeConfig().threshold / 10 || legacyOf(state) > 0,
+    check: (state) => state.stats.totalEarned >= prestigeTuning(config).threshold / 10 || legacyOf(state) > 0,
   },
 ];
 
-// Brownout log hysteresis: enter below this ratio, clear at full power, at most one line per window.
+// Brownout log hysteresis: enter below this ratio, clear at full power. The entry line is
+// rate-limited (a grid flickering around capacity would otherwise spam the log); the
+// recovery line is logged whenever the entry was, so a logged brownout always resolves in
+// the log. Both transitions emit 'brownout' regardless of the log cooldown.
 const BROWNOUT_ENTER = 0.95;
-const BROWNOUT_LOG_COOLDOWN = 20; // game seconds
+const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
 const PENDING_REFRESH_TICKS = 300; // safety net: resync milestone bookkeeping every 30 s
 const PRESTIGE_TARGETS_EVERY = 5; // unlockAt/nextAt bisections: twice a second is plenty
 
@@ -101,6 +114,7 @@ let upgradeKeys = [];
 let pending = []; // milestones not yet latched (list order)
 let pendingDirty = true;
 let inBrownout = false;
+let brownoutLogged = false; // the current brownout got its log line
 let lastBrownoutLogAt = -Infinity;
 let installed = false;
 let gameRef = null;
@@ -170,9 +184,11 @@ export function foldMods(state) {
 }
 
 // derived.extra.prestige: { legacy, gain, can, minGain, unlockAt, nextAt, lifetimeEarned,
-// maturity, mult, multAfter } — the prestige situation for the dashboard ("next legacy point
-// at $X", a bar that fills toward unlockAt) without calling actions. The two earnings targets
-// are bisections, so they refresh every PRESTIGE_TARGETS_EVERY ticks; the rest every tick.
+// maturity, mult, multAfter, startMoneyAfter, nextTierName, nextTierAt } — the prestige
+// situation for the dashboard ("found a new city at $unlockAt", a bar that fills toward it,
+// "next tier: Living Archive at 5,000 legacy") without calling actions. The two earnings
+// targets are bisections, so they refresh every PRESTIGE_TARGETS_EVERY ticks; the rest
+// every tick.
 function ensurePrestigeExtra(derived) {
   let x = derived.extra;
   if (!x || typeof x !== 'object') x = derived.extra = {};
@@ -189,6 +205,9 @@ function ensurePrestigeExtra(derived) {
       maturity: 0,
       mult: 1,
       multAfter: 1,
+      startMoneyAfter: 0,
+      nextTierName: '',
+      nextTierAt: 0,
     };
   }
   return p;
@@ -234,9 +253,29 @@ function integrate(state, derived, dt) {
 
 // --- milestones & gates --------------------------------------------------------
 
+// Milestones re-latch every run. The ones a veteran re-collects in the first second of a
+// replay (legacy tiers, founding counts) carry over rather than happen: they latch (the
+// rewards fold, the panel shows them reached) without a log line or a 'milestone' event, so
+// a founding does not announce twelve old trophies again. A tier crossed by *this* founding
+// (the bank just passed it, or the founding count just reached it) is news and still fires.
+const CARRY_OVER_WINDOW = 1; // game seconds
+let legacyBefore = 0; // the bank before the latest founding (or at load: the whole bank)
+
+// Record the bank a founding started from, so the tiers it crosses are announced.
+export function markFounding(before) {
+  legacyBefore = Number.isFinite(before) && before > 0 ? before : 0;
+}
+
+function justHappened(ms, state) {
+  if (ms.metric === 'prestiges') return state.stats.prestiges === ms.target;
+  if (ms.metric === 'legacy') return legacyBefore < ms.target;
+  return true;
+}
+
 function checkMilestones(state, derived) {
   if (pendingDirty || (state.tick % PENDING_REFRESH_TICKS === 0)) refreshPending(state);
   const unlocks = state.unlocks;
+  const replayStart = state.stats.prestiges > 0 && state.time < CARRY_OVER_WINDOW;
   for (let i = 0; i < pending.length; i++) {
     const ms = pending[i];
     if (unlocks[ms.key]) {
@@ -257,19 +296,24 @@ function checkMilestones(state, derived) {
     unlocks[ms.key] = true;
     pending.splice(i, 1);
     i--;
+    if (replayStart && !justHappened(ms, state)) continue;
     addLog(ms.rewardText ? `Milestone: ${ms.name} (${ms.rewardText})` : `Milestone: ${ms.name}`, 'milestone');
     emit('milestone', ms);
   }
 }
 
+// Gates re-latch every run (unlocks reset on founding) so the UI can keep reading them, but
+// the "panel added" story lines belong to the first city only: a veteran's dashboard
+// reopening in the first seconds of a replay is not news.
 function checkGates(state, derived) {
   const unlocks = state.unlocks;
+  const firstCity = !(state.stats.prestiges > 0);
   for (let i = 0; i < GATES.length; i++) {
     const g = GATES[i];
     if (unlocks[g.key]) continue;
     if (g.check(state, derived) !== true) continue;
     unlocks[g.key] = true;
-    addLog(g.log, 'info');
+    if (firstCity) addLog(g.log, 'info');
     emit('unlock', { kind: 'panel', id: g.key });
   }
 }
@@ -281,17 +325,20 @@ function watchGrid(state, derived) {
   if (!inBrownout) {
     if (isBrownout(derived) && ratio < BROWNOUT_ENTER) {
       inBrownout = true;
-      if (state.time - lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN) {
+      brownoutLogged = state.time - lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN;
+      if (brownoutLogged) {
         lastBrownoutLogAt = state.time;
         addLog(`Brownout. The grid is running at ${Math.round(ratio * 100)}%: income and growth are dimmed.`, 'brownout');
       }
+      emit('brownout', { active: true, ratio });
     }
   } else if (ratio >= 1 || !(derived.powerDemand > 0)) {
     inBrownout = false;
-    if (state.time - lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN) {
-      lastBrownoutLogAt = state.time;
+    if (brownoutLogged) {
+      brownoutLogged = false;
       addLog('Power restored. Every window in the city lights up at once.', 'info');
     }
+    emit('brownout', { active: false, ratio });
   }
 }
 
@@ -339,6 +386,7 @@ function setSetting(state, key, value) {
 
 function resetRunBookkeeping(state, derived) {
   inBrownout = false;
+  brownoutLogged = false;
   lastBrownoutLogAt = -Infinity;
   pendingDirty = true;
   refreshKeys();
@@ -358,11 +406,13 @@ export function init(game) {
 
     registerAction('canPrestige', () => canPrestigeRule(state, config));
     registerAction('prestigeGain', () => prestigeGainRule(state, config));
-    registerAction('prestige', () =>
-      performPrestige(state, config, (s) => {
+    registerAction('prestige', () => {
+      const before = legacyOf(state);
+      return performPrestige(state, config, (s) => {
+        markFounding(before);
         resetRunBookkeeping(s, derived);
-      }),
-    );
+      });
+    });
     registerAction('tap', () => tap(state, derived));
     registerAction('setSetting', (key, value) => setSetting(state, key, value));
 
@@ -377,6 +427,7 @@ export function init(game) {
           if (seedStartMoney(g.state)) {
             addLog('Welcome, Mayor. A plot of land, a small treasury, and big plans.', 'info');
           }
+          markFounding(legacyOf(g.state)); // a loaded bank's tiers are all old news
           resetRunBookkeeping(g.state, g.derived);
         } catch (e) {
           reportError('simulation:load', e);
@@ -387,6 +438,7 @@ export function init(game) {
     if (seedStartMoney(state)) {
       addLog('Welcome, Mayor. A plot of land, a small treasury, and big plans.', 'info');
     }
+    markFounding(legacyOf(state));
     resetRunBookkeeping(state, derived);
 
     game.milestones = MILESTONES;

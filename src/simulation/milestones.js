@@ -13,7 +13,7 @@
 // UI shows the first few unreached entries as "next".
 import { registry } from '../core/registry.js';
 import { buildingMod } from '../core/mods.js';
-import { milestoneTuning } from './tuning.js';
+import { milestoneTuning, prestigeTuning } from './tuning.js';
 
 export const MILESTONE_PREFIX = 'm:';
 
@@ -70,6 +70,25 @@ function brownoutProgress(state, derived) {
 }
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+// The prestige snapshot the simulation keeps in derived.extra.prestige (null until the
+// first tick has run).
+const prestigeExtra = (d) => (d && d.extra && d.extra.prestige && typeof d.extra.prestige === 'object' ? d.extra.prestige : null);
+
+// This run's earnings at which founding arms. The live figure comes from the snapshot
+// (it accounts for the bank, the discount and the run's maturity); before the first tick
+// the earnings-only figure for a fresh mayor — threshold · minGain^(1/exponent) — stands in.
+function foundingUnlockAt(derived) {
+  const x = prestigeExtra(derived);
+  if (x && Number.isFinite(x.unlockAt) && x.unlockAt > 0) return x.unlockAt;
+  const p = prestigeTuning();
+  return p.threshold * Math.pow(p.minGain, 1 / p.exponent);
+}
+
+function canFound(derived) {
+  const x = prestigeExtra(derived);
+  return !!x && x.can === true;
+}
 
 // --- reward helpers -----------------------------------------------------------
 
@@ -216,8 +235,23 @@ export const MILESTONES = [
   popMilestone('pop-1k', 1000, 'Thousand Lights', '🌃', 'A thousand windows glow after dark.'),
   moneyMilestone('money-100k', 1e5, 'Six Figures', '💰', 'Earn $100,000 in total.', 'The council starts talking legacy'),
   popMilestone('pop-5k', 5000, 'City Limits', '🛣️', 'Five thousand citizens and a ring road.'),
-  moneyMilestone('money-1m', 1e6, 'Millionaire Mayor', '🏦', 'Earn $1,000,000 in total.', 'Unlocks Prefab Construction and founding a new city'),
+  moneyMilestone('money-1m', 1e6, 'Millionaire Mayor', '🏦', 'Earn $1,000,000 in total.', 'Unlocks Prefab Construction'),
   popMilestone('pop-10k', 10000, 'Ten Thousand Stories', '🏙️', 'Ten thousand citizens, each with somewhere to be.'),
+  {
+    // Founding arms once a reset would bank minGain points — $23M for a fresh mayor at the
+    // shipped numbers, far past the $1M milestone — so the goal that promises founding is
+    // the one that tracks the real gate. Per run, like every milestone: a veteran collects
+    // it in the first minute of a replay, which is when founding is on the table again.
+    id: 'founding-charter',
+    name: 'Founding Charter',
+    icon: '📯',
+    desc: 'Earn enough this run to found a new city.',
+    metric: 'founding',
+    target: 1,
+    check: (state, derived) => canFound(derived),
+    progress: (state, derived) => (canFound(derived) ? 1 : clamp01(earnedOf(state) / foundingUnlockAt(derived))),
+    rewardText: 'Unlocks founding a new city',
+  },
   {
     id: 'prestige-1',
     name: 'New Foundations',
@@ -253,7 +287,34 @@ export const MILESTONES = [
   legacyMilestone('legacy-250', 250, 'Carbon Capture', '🌱', 'Bank two hundred and fifty legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
   moneyMilestone('money-1qa', 1e15, 'Quadrillionaire', '🌠', 'Earn $1,000,000,000,000,000 in total.', '+20% income', incomeReward(1.2)),
   legacyMilestone('legacy-1000', 1000, 'Thousand-Year City', '🕰️', 'Bank a thousand legacy points.', 'Polluting buildings emit 90% less smog in all', cleanAirReward(0.15)),
+  // The veteran's horizon: once the income bonus has bent toward its cap (a few thousand
+  // points, hour four or five of a session), a bank that grows by a quarter per founding
+  // reaches a new tier every three or four foundings, so every late reset has a target in
+  // sight and pays out something a player can read on the dashboard.
+  legacyMilestone('legacy-2500', 2500, "Founders' Row", '🏗️', 'Bank 2,500 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  prestigeMilestone('prestige-50', 50, 'Fifty Skylines', '🌁', 'Found fifty cities.', '+25% income', incomeReward(1.25)),
+  legacyMilestone('legacy-5000', 5000, 'Living Archive', '📖', 'Bank 5,000 legacy points.', '+20% income', incomeReward(1.2)),
+  legacyMilestone('legacy-10k', 10000, 'Ten Thousand Charters', '🏛️', 'Bank 10,000 legacy points.', '+0.25 happiness', happinessReward(0.25)),
+  legacyMilestone('legacy-25k', 25000, 'Founder of Legend', '🌟', 'Bank 25,000 legacy points.', '+25% income', incomeReward(1.25)),
+  legacyMilestone('legacy-50k', 50000, 'Immortal Legacy', '👑', 'Bank 50,000 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  legacyMilestone('legacy-100k', 100000, 'City of Cities', '🪐', 'Bank 100,000 legacy points.', '+50% income', incomeReward(1.5)),
+  legacyMilestone('legacy-250k', 250000, 'Beyond the Horizon', '🌌', 'Bank 250,000 legacy points.', 'Population grows +50% faster', (mods) => {
+    mods.growth *= 1.5;
+  }),
+  legacyMilestone('legacy-1m', 1e6, 'Millionfold Legacy', '♾️', 'Bank a million legacy points.', '+100% income', incomeReward(2)),
 ];
+
+// Legacy tiers in ascending order of target (the ladder above is interleaved by pacing).
+export const LEGACY_MILESTONES = MILESTONES.filter((m) => m.metric === 'legacy').sort((a, b) => a.target - b.target);
+
+// The first legacy tier a bank of `legacy` points has not reached, or null past the last.
+export function nextLegacyMilestone(legacy) {
+  const n = Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
+  for (let i = 0; i < LEGACY_MILESTONES.length; i++) {
+    if (LEGACY_MILESTONES[i].target > n) return LEGACY_MILESTONES[i];
+  }
+  return null;
+}
 
 // Precomputed unlock keys so the per-tick loops never build strings.
 for (const m of MILESTONES) m.key = MILESTONE_PREFIX + m.id;

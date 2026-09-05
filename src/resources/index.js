@@ -102,12 +102,12 @@ export function formatResource(id, value) {
 export const DEFAULTS = Object.freeze({
   economy: Object.freeze({ taxPerPop: 0.08, wage: 0.35 }),
   pop: Object.freeze({ growthRate: 0.08, shrinkRate: 0.2, baseInflow: 0.5 }),
-  power: Object.freeze({ brownoutFloor: 0.4 }),
+  power: Object.freeze({ brownoutFloor: 0.3 }),
   happiness: Object.freeze({
     civicCap: 1.25,
     civicScale: 1.5,
-    pollutionScale: 0.2,
-    pollutionCap: 1.0,
+    pollutionScale: 0.35,
+    pollutionCap: 1.1,
     pollutionCurve: 1.0,
     unemploymentPenalty: 0.3,
     overcrowdPenalty: 0.5,

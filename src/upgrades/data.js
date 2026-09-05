@@ -1,13 +1,23 @@
 // Upgrade definitions for Metropolis. DOM-free, pure data + tiny pure functions.
 //
 // Every entry: { id, name, icon, desc (≤70 chars, states the exact effect), cost, category,
-//   tier, unlock(state, derived) -> boolean, effect(mods, state) -> void }
+//   tier, unlock(state, derived) -> boolean, unlockHint (string), unlockAt? (data mirror of
+//   the rule for progress bars), effect(mods, state) -> void }
 //
 // Effects only mutate the mods bag (see src/core/mods.js). Unlock rules read state counts,
 // population, lifetime earnings, prestige legacy and latched milestone flags. Each milestone
 // check has a direct-state fallback so the ladder works even if the simulation module names
 // a milestone differently; the flags below are the ids we expect simulation to latch as
 // `state.unlocks['m:' + id]`.
+//
+// Unlock hints: every helper factory below (hasBuilt, hasPop, hasEarned, hasLegacy, owns, …)
+// tags the rule it returns with `.hint` (plain English) and, where the rule is a single
+// measurable threshold, `.at` (the same shape src/buildings/data.js uses for `unlockAt`:
+// {pop} | {powerDemand} | {legacy} | {earned} | {building, count} | {upgrade} | …). The
+// `withHints` pass at the bottom copies them onto each definition as `unlockHint` /
+// `unlockAt`, so the UI can show the next locked ideas with a progress bar like the building
+// cards, without every definition spelling the hint out twice. Hand-written rules carry an
+// explicit `unlockHint`.
 //
 // Costs: the defaults here match the tuned ladder in src/balance/config.js (config wins when
 // both exist), so the file is self-consistent on its own: $25 → $5e8 for the 45-rung core
@@ -42,6 +52,47 @@ export const UPGRADE_CATEGORIES = [
   { id: 'prestige', name: 'Legacy', icon: '🌟', color: '#fbbf24' },
 ];
 
+// Building names for hint text (singular, plural), matching src/buildings/data.js.
+const BUILDING_NAMES = {
+  house: ['Cottage', 'cottages'],
+  apartment: ['Apartment Block', 'apartment blocks'],
+  tower: ['Residential Tower', 'residential towers'],
+  arcology: ['Arcology', 'arcologies'],
+  shop: ['Corner Shop', 'corner shops'],
+  office: ['Office Block', 'office blocks'],
+  mall: ['Shopping Mall', 'shopping malls'],
+  financial: ['Financial District', 'financial districts'],
+  factory: ['Factory', 'factories'],
+  refinery: ['Refinery', 'refineries'],
+  techpark: ['Tech Campus', 'tech campuses'],
+  windmill: ['Windmill', 'windmills'],
+  coal: ['Coal Plant', 'coal plants'],
+  solar: ['Solar Farm', 'solar farms'],
+  nuclear: ['Nuclear Plant', 'nuclear plants'],
+  fusion: ['Fusion Reactor', 'fusion reactors'],
+  park: ['City Park', 'city parks'],
+  school: ['School', 'schools'],
+  hospital: ['Hospital', 'hospitals'],
+  stadium: ['Stadium', 'stadiums'],
+};
+const buildingName = (id, n) => {
+  const names = BUILDING_NAMES[id] || [id, id + 's'];
+  if (n !== 1) return `${fmtInt(n)} ${names[1]}`;
+  return `${/^[aeiou]/i.test(names[0]) ? 'an' : 'a'} ${names[0]}`;
+};
+const fmtInt = (n) => Math.round(n).toLocaleString('en-US');
+// Short money for hints: $1,000 · $1M · $1B · $20B · $1T.
+const fmtMoney = (n) => {
+  const units = [[1e12, 'T'], [1e9, 'B'], [1e6, 'M']];
+  for (const [v, u] of units) {
+    if (n >= v) {
+      const x = n / v;
+      return '$' + (Number.isInteger(x) ? x : +x.toFixed(1)) + u;
+    }
+  }
+  return '$' + fmtInt(n);
+};
+
 // ---------- unlock helpers (all tolerate partially-built state/derived) ----------
 
 const count = (state, id) => (state && state.buildings && state.buildings[id]) || 0;
@@ -51,17 +102,63 @@ const built = (state) => (state && state.stats && state.stats.buildingsBuilt) ||
 const legacy = (state) => (state && state.prestige && state.prestige.legacy) || 0;
 const milestone = (state, id) => !!(state && state.unlocks && state.unlocks['m:' + id]);
 const ownedUpgrades = (state) => (state && state.upgrades ? Object.keys(state.upgrades).length : 0);
-const owns = (id) => (state) => !!(state && state.upgrades && state.upgrades[id]);
 
-const hasBuilt = (id, n) => (state) => count(state, id) >= n;
-const hasPop = (n, ms) => (state) => pop(state) >= n || (ms ? milestone(state, ms) : false);
-const hasEarned = (n, ms) => (state) => earned(state) >= n || (ms ? milestone(state, ms) : false);
-const hasLegacy = (n) => (state) => legacy(state) >= n || (n <= 1 && milestone(state, 'prestige-1'));
-const hasDemand = (mw) => (state, derived) => !!derived && Number.isFinite(derived.powerDemand) && derived.powerDemand >= mw;
-const any = (...fns) => (state, derived) => fns.some((f) => f(state, derived) === true);
-const all = (...fns) => (state, derived) => fns.every((f) => f(state, derived) === true);
+// Tag a rule with its hint (and optional data mirror) so definitions can inherit them.
+const rule = (fn, hint, at) => {
+  fn.hint = hint;
+  if (at) fn.at = at;
+  return fn;
+};
+// Names for the hint sentence: "Own Civic Bonds IV" needs the upgrade's name, which is
+// declared later in this file, so `owns` resolves it lazily through this table.
+const NAME_OF = {};
+const upgradeName = (id) => NAME_OF[id] || id;
+
+const owns = (id) => {
+  const fn = (state) => !!(state && state.upgrades && state.upgrades[id]);
+  Object.defineProperty(fn, 'hint', { get: () => `Own ${upgradeName(id)}`, enumerable: true });
+  fn.at = { upgrade: id };
+  return fn;
+};
+const hasBuilt = (id, n) => rule((state) => count(state, id) >= n, `Build ${buildingName(id, n)}`, { building: id, count: n });
+const hasPop = (n, ms) => rule((state) => pop(state) >= n || (ms ? milestone(state, ms) : false), `Reach ${fmtInt(n)} citizens`, { pop: n });
+const hasEarned = (n, ms) =>
+  rule((state) => earned(state) >= n || (ms ? milestone(state, ms) : false), `Earn ${fmtMoney(n)} in this city`, { earned: n });
+const hasLegacy = (n) =>
+  rule(
+    (state) => legacy(state) >= n || (n <= 1 && milestone(state, 'prestige-1')),
+    n <= 1 ? 'Found a new city' : `Bank ${fmtInt(n)} legacy points`,
+    { legacy: n }
+  );
+const hasDemand = (mw) =>
+  rule((state, derived) => !!derived && Number.isFinite(derived.powerDemand) && derived.powerDemand >= mw, `Draw ${fmtInt(mw)} MW of power`, {
+    powerDemand: mw,
+  });
+const hasBuiltTotal = (n) => rule((state) => milestone(state, 'buildings-100') || built(state) >= n, `Build ${fmtInt(n)} buildings in total`, { built: n });
+const hasAnyUpgrade = () => rule((state) => milestone(state, 'first-upgrade') || ownedUpgrades(state) >= 1, 'Fund any upgrade', { upgrades: 1 });
+// Combinators join the hints ("A or B", "A and B") and carry the first rule's data mirror.
+const lower = (s) => (typeof s === 'string' ? s.charAt(0).toLowerCase() + s.slice(1) : '');
+const joinHints = (fns, word) => {
+  const parts = fns.map((f) => f.hint).filter(Boolean);
+  return parts.map((p, i) => (i === 0 ? p : lower(p))).join(` ${word} `);
+};
+const any = (...fns) => {
+  const fn = (state, derived) => fns.some((f) => f(state, derived) === true);
+  Object.defineProperty(fn, 'hint', { get: () => joinHints(fns, 'or'), enumerable: true });
+  if (fns[0] && fns[0].at) fn.at = fns[0].at;
+  return fn;
+};
+const all = (...fns) => {
+  const fn = (state, derived) => fns.every((f) => f(state, derived) === true);
+  Object.defineProperty(fn, 'hint', { get: () => joinHints(fns, 'and'), enumerable: true });
+  if (fns[0] && fns[0].at) fn.at = fns[0].at;
+  return fn;
+};
 // Seconds since this city was founded (state.time is per run; a founding resets it).
-const runAge = (seconds) => (state) => ((state && Number.isFinite(state.time) ? state.time : 0) >= seconds);
+const runAge = (seconds) =>
+  rule((state) => (state && Number.isFinite(state.time) ? state.time : 0) >= seconds, `wait until ${opensLabel(seconds)} after founding`, {
+    runAge: seconds,
+  });
 
 // ---------- effect helpers ----------
 
@@ -78,8 +175,10 @@ const powerOf = (id, mult) => (mods) => {
   buildingMod(mods, id).power *= mult;
 };
 // Per-unit additive happiness on a building (resources applies byBuilding.happiness per unit).
-// Descriptions quote the literal per-unit number, never a percentage, because the base
-// value lives in src/buildings/data.js and config.buildings may override it.
+// Happiness is a multiplier around 1.0 that the UI shows as a percentage ("Joy +5%" on a
+// park card), so descriptions quote the added amount as a percentage too: +0.05 per unit is
+// written "+5% happiness each". The number is the literal per-unit add, not a scale of the
+// building's base value (which lives in src/buildings/data.js and config may override).
 const happinessOf = (id, add) => (mods) => {
   buildingMod(mods, id).happiness += add;
 };
@@ -89,6 +188,9 @@ const global = (key, mult) => (mods) => {
 const compose = (...fns) => (mods, state) => {
   for (const f of fns) f(mods, state);
 };
+// Upgrades whose whole effect is structural (kept upgrades, see FOUNDING MEMORY) change no
+// modifier; the mods bag is left exactly as it came.
+const noEffect = () => {};
 
 // ---------- horizon ladder generators ----------
 //
@@ -96,18 +198,24 @@ const compose = (...fns) => (mods, state) => {
 // multiplies income by a legacy-scaled factor and seeds each city with legacy-scaled
 // cash, so any fixed price is eventually a rounding error (a 300-legacy city funds a $5e8
 // rung in a second, a 30,000-legacy city a $5e13 one); and a greedy player who never saves
-// keeps their cash at the building-price frontier — a few seconds of income — so anything
-// priced above that is never in hand. So the horizon rungs are:
+// keeps their cash at the building-price frontier — about two seconds of income — so
+// anything priced above that is never in hand. So the horizon rungs are:
 //
 //   • priced in income, not dollars: `priced: { seconds, floor }` means the registered cost
-//     is `max(floor, seconds × current income)` (index.js keeps it in sync every tick);
-//     a rung at 2 s of income is a visible spend at any legacy and still lands
-//     inside the frontier of a player who builds every tick;
+//     is `max(floor, seconds × current income)` (index.js keeps it in sync every tick).
+//     Two seconds is the measured frontier, not a guess: tools/economy-sim.mjs's bot holds
+//     a median 2.0 s of income (p90 4.1 s) through a 12-hour session. Priced at 3 s the
+//     bonds turn into cash-luck (rung III lands at minute 8 instead of 3.6), the late cycle
+//     stretches from 27 to 43 minutes and 12-hour legacy drops tenfold, because the prestige
+//     module measures a city's maturity against its peak income and the ladder is what
+//     keeps that peak climbing. So the price is deliberately "one more building or the
+//     bond" rather than a save-up; the pacing lever is the issue schedule;
 //   • paced by an issue schedule, not by money: rung n opens `bondOpensAt(n)` seconds
-//     after founding (II at 3 min, rising 13% per rung: X at 8 min, XX at 27 min, XXX at
-//     92 min), and only after the previous rung is owned, so however rich the city the
-//     ladder arrives one proposal every one to ten minutes for the whole life of a run and
-//     a founding resets it with the run.
+//     after founding (II at 3 min, rising 9% per rung: X at 6 min, XX at 14 min, XXX at
+//     34 min), and only after the previous rung is owned, so however rich the city the
+//     ladder arrives one proposal every 20 s to 3 min for the whole life of a run and a
+//     founding resets it with the run. The sim's late cycles run 33 min and fund rung XXIX
+//     in every one of them (XXX is for the mayor who lingers a minute longer).
 //
 // Civic Bonds I–XXX give +25% income each — the treadmill that keeps a plateaued city's
 // income climbing between foundings. Skyline Expansion I–V (+50% housing and jobs)
@@ -126,9 +234,9 @@ export const roman = (n) => {
 
 export const BOND_RUNGS = 30;
 export const BOND_FLOOR = 1e7; // never free: a city in the red or mid-brownout still pays this
-export const BOND_SECONDS = 2; // every horizon rung costs two seconds of current income
-const BOND_OPEN_2 = 180; // rung II opens three minutes after founding
-const BOND_OPEN_STEP = 1.13; // each later rung opens 13% later than the one before
+export const BOND_SECONDS = 2; // every horizon rung costs two seconds of current income (see above)
+export const BOND_OPEN_2 = 180; // rung II opens three minutes after founding
+export const BOND_OPEN_STEP = 1.09; // each later rung opens 9% later than the one before
 // Seconds after founding at which rung n may be issued (rung I has no schedule: it opens
 // with the Planetary Charter or $1B earned).
 export const bondOpensAt = (n) => (n <= 1 ? 0 : Math.round(BOND_OPEN_2 * Math.pow(BOND_OPEN_STEP, n - 2)));
@@ -144,7 +252,9 @@ export function horizonCost(def, derived) {
   return Number.isFinite(cost) && cost > 0 ? cost : p.floor;
 }
 
-const opensLabel = (sec) => (sec >= 120 ? `${Math.round(sec / 60)} min` : `${sec} s`);
+function opensLabel(sec) {
+  return sec >= 120 ? `${Math.round(sec / 60)} min` : `${sec} s`;
+}
 
 // Rung I opens once the Planetary Charter is funded (or a run has earned $1B); every later
 // rung follows the one before it on the issue schedule, so only one bond is ever on offer.
@@ -154,7 +264,10 @@ const civicBond = (n) => {
     id: `civic-bonds-${n}`,
     name: `Civic Bonds ${roman(n)}`,
     icon: '💰',
-    desc: n === 1 ? 'All income +25%' : `All income +25% · issue opens ${opensLabel(opens)} after founding`,
+    desc:
+      n === 1
+        ? `All income +25% · costs ${BOND_SECONDS} s of income`
+        : `All income +25% · ${BOND_SECONDS} s of income · opens ${opensLabel(opens)} after founding`,
     cost: BOND_FLOOR,
     category: 'global',
     tier: 4,
@@ -184,7 +297,29 @@ for (let n = 1; n <= BOND_RUNGS; n++) {
   if (n % 2 === 0 && n / 2 <= 5) HORIZON.push(skyline(n / 2));
 }
 
-// ---------- definitions (ordered by cost; ladder $25 → $5e8, then the income-priced horizon) ----------
+// ---------- founding memory ----------
+//
+// A founding wipes every upgrade, and with legacy-scaled seed money the whole core ladder
+// is affordable again within the first minute: dozens of clicks that decide nothing. The
+// two Legacy rungs below carry `keeps(def)`: while one is owned, every upgrade it keeps
+// (and the rung itself) is granted again the moment a new city is founded — index.js
+// listens for the prestige event and re-owns them, at no cost, so the mayor starts the
+// replay at the decisions that matter (tier 4 and the horizon). `keptUpgradeIds` is the
+// pure rule so it can be tested without a game.
+const isCore = (def) => !def.priced && def.category !== 'prestige';
+
+export function keptUpgradeIds(ownedIds, defs = UPGRADES) {
+  const owned = new Set(ownedIds || []);
+  const out = new Set();
+  for (const keeper of defs) {
+    if (typeof keeper.keeps !== 'function' || !owned.has(keeper.id)) continue;
+    out.add(keeper.id);
+    for (const def of defs) if (def.id !== keeper.id && keeper.keeps(def) === true) out.add(def.id);
+  }
+  return [...out];
+}
+
+// ---------- definitions (grouped by phase: $25 → $5e8 core ladder, then the income-priced horizon, then Legacy) ----------
 
 export const UPGRADES = [
   // ===== Early game ($25 – $3k): first ten minutes =====
@@ -213,7 +348,7 @@ export const UPGRADES = [
   {
     id: 'neon-signage',
     name: 'Neon Signage',
-    icon: '🪧',
+    icon: '💡',
     desc: 'Shops earn +50% income',
     cost: 80,
     category: 'commercial',
@@ -225,12 +360,12 @@ export const UPGRADES = [
     id: 'grant-writing',
     name: 'Grant Writing',
     icon: '✍️',
-    desc: 'All income +20%',
+    desc: 'All income +25%',
     cost: 150,
     category: 'global',
     tier: 1,
-    unlock: (state) => milestone(state, 'first-upgrade') || ownedUpgrades(state) >= 1,
-    effect: global('income', 1.2),
+    unlock: hasAnyUpgrade(),
+    effect: global('income', 1.25),
   },
   {
     id: 'tax-software',
@@ -258,7 +393,7 @@ export const UPGRADES = [
     id: 'smart-grid',
     name: 'Smart Grid',
     icon: '🔌',
-    desc: 'All buildings use −15% power',
+    desc: 'All buildings use −20% power',
     cost: 400,
     category: 'power',
     tier: 1,
@@ -267,17 +402,18 @@ export const UPGRADES = [
     // sizeable windmill fleet, or 40 MW of demand — a mayor who keeps the lights on still
     // gets to buy it.
     unlock: any(
-      (state, derived) => milestone(state, 'brownout') || (!!derived && derived.powerCap > 0 && derived.powerRatio < 1),
+      rule((state, derived) => milestone(state, 'brownout') || (!!derived && derived.powerCap > 0 && derived.powerRatio < 1), 'Suffer a brownout'),
       hasBuilt('windmill', 6),
       hasDemand(40)
     ),
-    effect: global('demand', 0.85),
+    unlockAt: { powerDemand: 40 },
+    effect: global('demand', 0.8),
   },
   {
     id: 'community-events',
     name: 'Community Events',
     icon: '🎪',
-    desc: 'Happiness +0.1',
+    desc: 'Happiness +10%',
     cost: 500,
     category: 'civic',
     tier: 1,
@@ -312,7 +448,7 @@ export const UPGRADES = [
     id: 'green-belts',
     name: 'Green Belts',
     icon: '🌳',
-    desc: 'Parks give +0.05 happiness each',
+    desc: 'Parks give +5% happiness each',
     cost: 1500,
     category: 'civic',
     tier: 2,
@@ -380,12 +516,12 @@ export const UPGRADES = [
     id: 'bulk-permits',
     name: 'Bulk Permits',
     icon: '📋',
-    desc: 'All buildings cost −15%',
+    desc: 'All buildings cost −20%',
     cost: 25000,
     category: 'global',
     tier: 2,
-    unlock: (state) => milestone(state, 'buildings-100') || built(state) >= 60,
-    effect: global('cost', 0.85),
+    unlock: hasBuiltTotal(60),
+    effect: global('cost', 0.8),
   },
   {
     id: 'container-port',
@@ -435,7 +571,7 @@ export const UPGRADES = [
     id: 'modern-curriculum',
     name: 'Modern Curriculum',
     icon: '🎓',
-    desc: 'Schools give +0.04 happiness each',
+    desc: 'Schools give +4% happiness each',
     cost: 150000,
     category: 'civic',
     tier: 3,
@@ -450,7 +586,11 @@ export const UPGRADES = [
     cost: 200000,
     category: 'global',
     tier: 3,
-    unlock: (state, derived) => (derived && derived.upkeep > 0) || count(state, 'coal') >= 5 || count(state, 'solar') >= 1,
+    unlock: any(
+      rule((state, derived) => !!derived && derived.upkeep > 0, 'Run a building that charges upkeep'),
+      hasBuilt('coal', 5),
+      hasBuilt('solar', 1)
+    ),
     effect: global('upkeep', 0.75),
   },
   {
@@ -536,7 +676,7 @@ export const UPGRADES = [
     id: 'preventive-care',
     name: 'Preventive Care',
     icon: '🩺',
-    desc: 'Hospitals give +0.06 happiness each',
+    desc: 'Hospitals give +6% happiness each',
     cost: 480000,
     category: 'civic',
     tier: 3,
@@ -602,7 +742,7 @@ export const UPGRADES = [
     id: 'championship-season',
     name: 'Championship Season',
     icon: '🏆',
-    desc: 'Stadiums earn ×2 income and give +0.15 happiness each',
+    desc: 'Stadiums earn ×2 income and give +15% happiness each',
     cost: 8e6,
     category: 'civic',
     tier: 4,
@@ -626,7 +766,7 @@ export const UPGRADES = [
     id: 'arcology-gardens',
     name: 'Arcology Gardens',
     icon: '🌺',
-    desc: 'Arcologies hold +100% residents and give +0.05 happiness',
+    desc: 'Arcologies hold +100% residents and give +5% happiness each',
     cost: 2e7,
     category: 'residential',
     tier: 4,
@@ -675,18 +815,18 @@ export const UPGRADES = [
     id: 'founders-blueprints',
     name: "Founders' Blueprints",
     icon: '📘',
-    desc: 'All buildings cost −10%',
+    desc: 'All buildings cost −20%',
     cost: 30000,
     category: 'prestige',
     tier: 2,
     unlock: hasLegacy(2),
-    effect: global('cost', 0.9),
+    effect: global('cost', 0.8),
   },
   {
     id: 'veteran-planners',
     name: 'Veteran Planners',
     icon: '🎖️',
-    desc: 'Population grows +100% faster and happiness +0.1',
+    desc: 'Population grows +100% faster and happiness +10%',
     cost: 80000,
     category: 'prestige',
     tier: 3,
@@ -714,4 +854,37 @@ export const UPGRADES = [
       mods.income *= 1 + 0.5 * Math.sqrt(pts);
     },
   },
+  {
+    id: 'institutional-memory',
+    name: 'Institutional Memory',
+    icon: '🗃️',
+    desc: 'Every tier 1–2 upgrade is yours from the day a new city is founded',
+    cost: 1e6,
+    category: 'prestige',
+    tier: 4,
+    unlock: hasLegacy(10),
+    keeps: (def) => isCore(def) && def.tier <= 2,
+    effect: noEffect,
+  },
+  {
+    id: 'standing-orders',
+    name: 'Standing Orders',
+    icon: '📑',
+    desc: 'Tier 3 and Legacy upgrades are yours from the day a city is founded',
+    cost: 5e7,
+    category: 'prestige',
+    tier: 4,
+    unlock: all(hasLegacy(50), owns('institutional-memory')),
+    keeps: (def) => (isCore(def) && def.tier === 3) || (def.category === 'prestige' && !def.priced),
+    effect: noEffect,
+  },
 ];
+
+// ---------- hints: copy each rule's tag onto its definition ----------
+for (const def of UPGRADES) NAME_OF[def.id] = def.name;
+for (const def of UPGRADES) {
+  const u = def.unlock;
+  if (!def.unlockHint && u && typeof u.hint === 'string' && u.hint) def.unlockHint = u.hint.charAt(0).toUpperCase() + u.hint.slice(1);
+  if (!def.unlockAt && u && u.at && typeof u.at === 'object') def.unlockAt = { ...u.at };
+  if (!def.unlockHint) def.unlockHint = 'Grow the city';
+}

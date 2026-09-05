@@ -9,9 +9,11 @@ import { state, derived, loadState, createInitialState } from '../core/state.js'
 import { on, off } from '../core/events.js';
 import { registerBuilding, registry } from '../core/registry.js';
 import { config } from '../balance/config.js';
-import { DEFAULTS, LEGACY_POWER_MAX, prestigeTuning, economyTuning, milestoneTuning } from './tuning.js';
+import { DEFAULTS, LEGACY_POWER_MAX, LEGACY_TAIL_POWER_MAX, prestigeTuning, economyTuning, milestoneTuning } from './tuning.js';
 import {
   legacyIncomeMult,
+  ripeness,
+  foundingLine,
   legacyEarningsScale,
   legacyFor,
   earningsForLegacy,
@@ -26,8 +28,8 @@ import {
   performPrestige,
   maturityOf,
 } from './prestige.js';
-import { MILESTONES, REWARDED_MILESTONES, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
-import { simulate, recompute, foldMods, seedStartMoney } from './index.js';
+import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
+import { simulate, recompute, foldMods, seedStartMoney, markFounding } from './index.js';
 import { createMods } from '../core/mods.js';
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${msg}: ${a} != ${b}`);
@@ -41,8 +43,10 @@ const PLAIN = {
     legacyPower: 1,
     legacyCap: 0,
     legacyCapTail: 0,
+    legacyCapTailPower: 0,
     firstBonus: 0,
     compoundPerMinute: 0,
+    ripenSeconds: 0,
     legacyDiscount: 0,
     startMoneyPerLegacy: 0.1,
     minGain: 3,
@@ -81,13 +85,37 @@ test('tuning falls back to DEFAULTS for a missing or malformed config and clamps
     assert.equal(economyTuning(cfg).startMoney, DEFAULTS.economy.startMoney);
     assert.equal(milestoneTuning(cfg).popIncomeBonus, DEFAULTS.milestones.popIncomeBonus);
   }
-  const p = prestigeTuning({ prestige: { legacyPower: 9, legacyDiscount: 4, minGain: 0.2, exponent: 0, incomePerLegacy: -1, legacyCap: -5 } });
+  const p = prestigeTuning({ prestige: { legacyPower: 9, legacyDiscount: 4, minGain: 0.2, exponent: 0, incomePerLegacy: -1, legacyCap: -5, legacyCapTailPower: 3, ripenSeconds: -20 } });
   assert.equal(p.legacyPower, LEGACY_POWER_MAX);
   assert.equal(p.legacyDiscount, 1);
   assert.equal(p.minGain, 1);
   assert.equal(p.exponent, 0.05);
   assert.equal(p.incomePerLegacy, 0);
   assert.equal(p.legacyCap, 0);
+  assert.equal(p.legacyCapTailPower, LEGACY_TAIL_POWER_MAX);
+  assert.equal(p.ripenSeconds, 0);
+  assert.equal(prestigeTuning({ prestige: { exponent: 2 } }).exponent, 1, 'exponent capped at 1');
+});
+
+test('tuning is memoized on the raw values: same object back until a knob changes, no per-call allocation', () => {
+  const cfg = { prestige: { threshold: 5e5, exponent: 0.4 }, economy: { startMoney: 100 }, milestones: {} };
+  const a = prestigeTuning(cfg);
+  assert.equal(prestigeTuning(cfg), a, 'same resolved object');
+  assert.ok(Object.isFrozen(a));
+  assert.equal(a.threshold, 5e5);
+  cfg.prestige.exponent = 0.5; // a runtime retune is picked up on the next call
+  const b = prestigeTuning(cfg);
+  assert.notEqual(b, a);
+  assert.equal(b.exponent, 0.5);
+  assert.equal(prestigeTuning(cfg), b);
+  cfg.prestige.minGain = NaN; // a NaN knob falls back and still memoizes (Object.is)
+  const c = prestigeTuning(cfg);
+  assert.equal(c.minGain, DEFAULTS.prestige.minGain);
+  assert.equal(prestigeTuning(cfg), c);
+  assert.equal(economyTuning(cfg), economyTuning(cfg));
+  assert.equal(milestoneTuning(cfg), milestoneTuning(cfg));
+  // The shipped config resolves to one shared object across the whole tick path.
+  assert.equal(prestigeTuning(config), prestigeTuning(config));
 });
 
 // --- payoff ---------------------------------------------------------------------
@@ -99,7 +127,8 @@ test('legacyIncomeMult: 1 without legacy, linear +k per point, power and first b
   near(legacyIncomeMult(3, PLAIN), 1.12, 'linear 3 points');
   near(legacyIncomeMult(25, PLAIN), 2, 'linear 25 points');
   near(legacyIncomeMult(3, withPrestige({ firstBonus: 0.5 })), 1.12 * 1.5, 'first bonus');
-  near(legacyIncomeMult(25, withPrestige({ legacyPower: 2 })), 4, 'power 2');
+  near(legacyIncomeMult(25, withPrestige({ legacyPower: 1.5 })), Math.pow(2, 1.5), 'power 1.5');
+  near(legacyIncomeMult(25, withPrestige({ legacyPower: 2 })), Math.pow(2, LEGACY_POWER_MAX), 'power clamped');
   near(legacyIncomeMult(2.9, PLAIN), 1.08, 'fractional legacy floors');
 });
 
@@ -113,10 +142,42 @@ test('legacyIncomeMult soft cap: slope preserved near zero, bounded by the cap, 
     assert.ok(m <= 100, `bounded at ${L}: ${m}`);
     prev = m;
   }
-  const tailed = withPrestige({ legacyCap: 100, legacyCapTail: 0.05 });
-  const m9 = legacyIncomeMult(1e9, tailed);
-  assert.ok(m9 > 100 && m9 < 100 * 2, `tail keeps growing slowly past the cap: ${m9}`);
-  assert.ok(Number.isFinite(legacyIncomeMult(1e300, tailed)));
+  const logTail = withPrestige({ legacyCap: 100, legacyCapTail: 0.05, legacyCapTailPower: 0 });
+  const m9 = legacyIncomeMult(1e9, logTail);
+  assert.ok(m9 > 100 && m9 < 100 * 2, `log tail keeps growing slowly past the cap: ${m9}`);
+  assert.ok(Number.isFinite(legacyIncomeMult(1e300, logTail)));
+});
+
+test('legacyIncomeMult power tail: constant elasticity past the cap, bounded across a session', () => {
+  const cfg = withPrestige({ legacyCap: 100, legacyCapTail: 0.05, legacyCapTailPower: 0.3 });
+  const m1 = legacyIncomeMult(1, cfg);
+  assert.ok(m1 > 1.04 && m1 < 1.045, `first point barely moved by the tail: ${m1}`);
+  // Past the cap a 25% bigger bank keeps paying: +2% to +5% across the bank sizes a session
+  // reaches (tens of thousands to millions of points), rising toward 1.25^0.3 (+6.9%) as
+  // the tail takes over — never the +0.9% a log tail flattens to.
+  let prev = legacyIncomeMult(5e4, cfg);
+  let lastRatio = 0;
+  for (let L = 6.25e4; L <= 5e6; L *= 1.25) {
+    const m = legacyIncomeMult(L, cfg);
+    const ratio = m / prev;
+    assert.ok(ratio > 1.02 && ratio < 1.07, `in-session elasticity at ${L}: ${ratio}`);
+    assert.ok(ratio >= lastRatio - 1e-9, `ratio keeps rising at ${L}`);
+    lastRatio = ratio;
+    prev = m;
+  }
+  const deep = legacyIncomeMult(1.25e10, cfg) / legacyIncomeMult(1e10, cfg);
+  assert.ok(deep > 1.055 && deep < 1.07, `asymptotic elasticity: ${deep}`);
+  // Same shape whatever the knobs: monotone, finite, and never below the capped curve.
+  const capped = withPrestige({ legacyCap: 100 });
+  let last = 1;
+  for (const L of [3, 30, 300, 3000, 3e4, 3e5, 3e6, 1e9, 1e12]) {
+    const m = legacyIncomeMult(L, cfg);
+    assert.ok(m >= last && m >= legacyIncomeMult(L, capped), `monotone and above the cap curve at ${L}`);
+    last = m;
+  }
+  assert.ok(Number.isFinite(legacyIncomeMult(1e300, cfg)));
+  // A twelve-hour bank (tens of thousands to a few million points) stays a few hundred ×.
+  assert.ok(legacyIncomeMult(5e4, cfg) < 300 && legacyIncomeMult(5e6, cfg) < 500);
 });
 
 test('applyPrestigeMods folds the multiplier into mods.income only when legacy exists', () => {
@@ -181,6 +242,26 @@ test('compounding: a mature city adds legacy · minutes of peak income · rate',
   assert.equal(prestigeGain(fakeState({ totalEarned: 60000, peakIncome: 100 }), cfg), 0);
 });
 
+test('ripenSeconds: the earnings-based share scales with maturity until the run has ripened', () => {
+  const cfg = withPrestige({ ripenSeconds: 600 });
+  assert.equal(ripeness(0, cfg), 0);
+  near(ripeness(300, cfg), 0.5, 'half ripe');
+  assert.equal(ripeness(900, cfg), 1);
+  assert.equal(ripeness(NaN, cfg), 0);
+  assert.equal(ripeness(300, PLAIN), 1, 'off when ripenSeconds is 0');
+  // Worth 10 points on earnings ($100M at exponent 0.5) but only 300 s of its peak banked.
+  const green = fakeState({ totalEarned: 1e8, peakIncome: 1e6 / 3 });
+  assert.equal(prestigeGain(green, cfg), 5, 'half-ripe run banks half');
+  assert.equal(prestigeGain(fakeState({ totalEarned: 1e8, peakIncome: 100 }), cfg), 10, 'ripe run banks everything');
+  assert.equal(prestigeGain(fakeState({ totalEarned: 1e8 }), cfg), 0, 'no income yet, nothing ripened');
+  assert.equal(prestigeGain(fakeState({ totalEarned: 1e8 }), PLAIN), 10, 'and with ripening off the same run banks all 10');
+  // The targets still bracket the gate with ripening on.
+  const at = runEarningsForGain(green, 3, cfg);
+  assert.ok(at > 0 && at < 1e8, `unlock target inside the run: ${at}`);
+  assert.ok(prestigeGain(fakeState({ totalEarned: at * 1.0001, peakIncome: 1e6 / 3 }), cfg) >= 3);
+  assert.ok(prestigeGain(fakeState({ totalEarned: at * 0.999, peakIncome: 1e6 / 3 }), cfg) < 3);
+});
+
 test('runEarningsForGain brackets the exact earnings for n points and is monotone in n', () => {
   const cfg = withPrestige({ compoundPerMinute: 0.025, legacyDiscount: 1, firstBonus: 0.5, legacyCap: 100 });
   const s = fakeState({ legacy: 40, totalEarned: 2e6, lifetimeEarned: 3e9, peakIncome: 5000 });
@@ -217,6 +298,9 @@ test('prestigeStatus fills the UI snapshot and can keep the previous targets', (
   assert.equal(out.lifetimeEarned, 64e6);
   assert.ok(out.unlockAt > 0 && out.unlockAt <= 55e6);
   assert.ok(out.nextAt > 55e6);
+  near(out.startMoneyAfter, startMoneyFor(8, cfg), 'seed cash after founding');
+  assert.equal(out.nextTierName, 'Old Hands');
+  assert.equal(out.nextTierAt, 5);
   const keep = { nextAt: 123, unlockAt: 45 };
   prestigeStatus(s, keep, cfg, false);
   assert.equal(keep.nextAt, 123);
@@ -287,6 +371,29 @@ test('performPrestige banks the gain, resets the run, keeps the bank, lifetime, 
   loadState({});
 });
 
+test('foundingLine leads with the ratio while it is notable, otherwise with what changed', () => {
+  assert.match(foundingLine(3, 3, 1, 1.68, 338), /^\+3 legacy \(3 total\): income ×1\.68 on top of the old bonus, \+68% over a fresh start, forever\.$/);
+  const flat = foundingLine(4000, 21448, 170, 171.5, 557908);
+  assert.doesNotMatch(flat, /×1\.0/);
+  assert.match(flat, /^\+4,000 legacy \(21,448 total\): the bank keeps every point, the new city opens with \$557,908, and the income bonus holds at \+17,050%\. Next tier: Founder of Legend at 25,000 legacy\.$/);
+  assert.doesNotMatch(foundingLine(1, 2e6, 100, 100, 1), /Next tier/, 'past the last tier the line simply ends');
+});
+
+test('nextLegacyMilestone walks the legacy tiers in order', () => {
+  assert.equal(nextLegacyMilestone(0).id, 'legacy-5');
+  assert.equal(nextLegacyMilestone(5).id, 'legacy-10');
+  assert.equal(nextLegacyMilestone(999).id, 'legacy-1000');
+  assert.equal(nextLegacyMilestone(1000).id, 'legacy-2500');
+  assert.equal(nextLegacyMilestone(42000).id, 'legacy-50k');
+  assert.equal(nextLegacyMilestone(1e6), null);
+  assert.equal(nextLegacyMilestone(NaN).id, 'legacy-5');
+  let prev = 0;
+  for (const m of LEGACY_MILESTONES) {
+    assert.ok(m.target > prev, `ascending at ${m.id}`);
+    prev = m.target;
+  }
+});
+
 test('performPrestige refuses below minGain and leaves the state untouched', () => {
   loadState({ stats: { totalEarned: 4e6 }, prestige: { lifetimeEarned: 4e6 }, res: { money: 123, pop: 5 }, buildings: { house: 2 } });
   assert.equal(performPrestige(state, PLAIN), false);
@@ -312,6 +419,17 @@ test('milestone list: unique ids, precomputed keys, the ids other modules depend
     assert.ok(getMilestone(id), `contract id ${id}`);
   }
   assert.ok(REWARDED_MILESTONES.length >= 20);
+  // The milestone that promises founding is the one that tracks the real gate, not $1M.
+  assert.doesNotMatch(getMilestone('money-1m').rewardText, /found/i);
+  const charter = getMilestone('founding-charter');
+  assert.match(charter.rewardText, /founding a new city/i);
+  const fresh = createInitialState();
+  assert.equal(charter.check(fresh, { extra: {} }), false);
+  assert.equal(charter.check(fresh, { extra: { prestige: { can: true } } }), true);
+  const unlockAt = earningsForLegacy(prestigeTuning(config).minGain, config);
+  fresh.stats.totalEarned = unlockAt / 2;
+  near(charter.progress(fresh, {}), 0.5, 'progress toward the earnings-only gate before the first tick');
+  near(charter.progress(fresh, { extra: { prestige: { can: false, unlockAt: unlockAt / 4 } } }), 1, 'live unlockAt wins');
   const s = createInitialState();
   s.unlocks['m:pop-10'] = true;
   s.unlocks['m:legacy-5'] = true;
@@ -363,6 +481,45 @@ test('simulate integrates money and population, tracks peak income, and never lo
   assert.equal(state.log.filter((l) => l.kind === 'brownout').length, 1, 'one brownout line');
   assert.equal(state.unlocks['m:brownout'], true);
   loadState({});
+});
+
+test('a replay re-latches old tiers silently but announces the ones this founding crossed', () => {
+  // Bank went 20 -> 27 on the 5th founding: legacy-25 is news, legacy-5/10 are carried over,
+  // prestige-5 just happened, prestige-1 is old.
+  loadState({ stats: { prestiges: 5 }, prestige: { legacy: 27, lifetimeEarned: 1e9 }, res: { money: 500, pop: 0 }, time: 0, tick: 0 });
+  markFounding(20);
+  const seen = [];
+  const onMs = (m) => seen.push(m.id);
+  on('milestone', onMs);
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  for (const id of ['prestige-1', 'prestige-5', 'legacy-5', 'legacy-10', 'legacy-25']) assert.equal(state.unlocks['m:' + id], true, `${id} latched`);
+  assert.deepEqual(seen, ['prestige-5', 'legacy-25']);
+  const logged = state.log.filter((l) => l.kind === 'milestone').map((l) => l.msg);
+  assert.deepEqual(logged, ['Milestone: Serial Founder (+10% income)', 'Milestone: Civic Memory (+0.15 happiness)']);
+  // The very first founding announces New Foundations.
+  loadState({ stats: { prestiges: 1 }, prestige: { legacy: 5, lifetimeEarned: 1e8 }, res: { money: 500, pop: 0 } });
+  markFounding(0);
+  seen.length = 0;
+  on('milestone', onMs);
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  assert.deepEqual(seen, ['prestige-1', 'legacy-5']);
+  // Past the first second nothing is suppressed (a tier reached mid-run is always news).
+  loadState({ stats: { prestiges: 3 }, prestige: { legacy: 4, lifetimeEarned: 1e8 }, res: { money: 500, pop: 0 }, time: 30, tick: 300 });
+  markFounding(4);
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  state.prestige.legacy = 5;
+  seen.length = 0;
+  on('milestone', onMs);
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  assert.deepEqual(seen, ['legacy-5']);
+  loadState({});
+  markFounding(0);
 });
 
 test('foldMods sanitizes and seedStartMoney only seeds a fresh state', () => {

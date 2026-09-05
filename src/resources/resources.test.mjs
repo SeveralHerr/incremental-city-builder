@@ -277,7 +277,8 @@ test('DEFAULTS mirrors src/balance/config.js for every key config defines', () =
   }
   // Saturation must be live through the DEFAULTS fallback when config omits it.
   const withConfig = run({ 't-coal': 129, 't-factory': 123, 't-refinery': 112 }, 0, null, config);
-  assert.ok(withConfig.extra.pollution < 1.0, 'saturation applied with the real config');
+  assert.ok(withConfig.extra.pollution < config.happiness.pollutionCap, 'saturation applied with the real config');
+  assert.ok(withConfig.extra.pollution < withConfig.extra.pollutionRaw, 'saturated penalty sits below the raw smog');
 });
 
 test('resource metadata + display helpers', () => {

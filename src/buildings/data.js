@@ -23,7 +23,24 @@
 // Unlock spacing. Tier-2/3 rules sit just below the population the greedy bot has when the
 // price frontier reaches each building (school 500, refinery 2,500, mall 3,000, solar 3,200,
 // hospital 4,800), so a freshly unlocked card is affordable within ~4 minutes rather than
-// glowing unaffordably for a quarter hour. Tier-4 rules are owned by config.buildings.
+// glowing unaffordably for a quarter hour. Tier-3 techpark and tier-4 rules (unlock and
+// base cost) are owned by config.buildings.
+//
+// Signature mechanics (`synergy`). Four tier-3/4 buildings carry a per-unit stat that
+// scales with the city instead of being a bigger copy of the tier below. The rule is data:
+// `{ stat, source, per, cap, text }` means `stat = base × min(cap, 1 + source / per)`, where
+// source is 'pop', 'employed' or 'building:<id>' (an owned count). index.js evaluates it in
+// a tick handler that runs just before the simulation, writing the live value into the
+// registered definition, so the sim, the bot and the build card all see the same number.
+//   mall       income grows with population (retail follows the crowd; up to ×3 at 10k)
+//   refinery   income grows with the factories it supplies (up to ×2 at 50 factories)
+//   techpark   income grows with schools (a hiring line; up to ×1.75 at 15 schools)
+//   financial  income grows with employment (trades on the payroll; up to ×2.5 at 30k)
+// Value per $k of base cost, wages included, sits at 15–20 for offices, factories, the
+// tech campus and the financial district once their hook is active, 7–10 for malls and
+// refineries, so the tier-3/4 choice is "what does my city have" rather than one ratio.
+// Static two-axis identities: the arcology also employs 500 (a sealed, self-contained
+// block), the stadium pays and cheers, the tech campus hires and cleans the air.
 
 export const CATEGORIES = [
   { id: 'residential', name: 'Residential', icon: '🏠', color: '#60a5fa', blurb: 'Homes. Citizens move in when there is room, power, and a reason to stay.' },
@@ -88,6 +105,7 @@ export const BUILDINGS = [
     tier: 4,
     baseCost: 1.2e6,
     housing: 2500,
+    jobs: 500, // self-contained: the block staffs its own shops, clinics and corridors
     powerUse: 2500,
     happiness: 0.02,
     unlock: pop(5000),
@@ -119,7 +137,11 @@ export const BUILDINGS = [
     category: 'commercial',
     tier: 2,
     baseCost: 900,
-    jobs: 40,
+    // 50 clean jobs against the factory's 20 smoggy ones: the office out-pays a factory
+    // per dollar only once the city has citizens to fill the desks (jobs pay wages, empty
+    // desks pay nothing), while the factory's flat $3/s is guaranteed and it draws 3x the
+    // power per dollar. Neither strictly dominates; the choice depends on the vacancy.
+    jobs: 50,
     income: 3,
     powerUse: 8,
     unlock: pop(80),
@@ -130,12 +152,13 @@ export const BUILDINGS = [
     id: 'mall',
     name: 'Shopping Mall',
     icon: '🛍️',
-    desc: 'Fountains, a food court, and a parking lot visible from orbit.',
+    desc: 'A food court, fountains, and tills that ring louder as the city grows.',
     category: 'commercial',
     tier: 3,
     baseCost: 20000,
     jobs: 300,
     income: 40,
+    synergy: { stat: 'income', source: 'pop', per: 5000, cap: 3, text: 'Income +20% per 1,000 citizens (up to ×3)' },
     powerUse: 60,
     happiness: 0.01,
     unlock: pop(3000),
@@ -146,12 +169,13 @@ export const BUILDINGS = [
     id: 'financial',
     name: 'Financial District',
     icon: '🏦',
-    desc: 'Where the money is counted, then counted again, faster.',
+    desc: 'Trades on every paycheck in town; the bigger the payroll, the better.',
     category: 'commercial',
     tier: 4,
     baseCost: 3e6,
     jobs: 4000,
-    income: 900,
+    income: 2000,
+    synergy: { stat: 'income', source: 'employed', per: 20000, cap: 2.5, text: 'Income +5% per 1,000 employed citizens (up to ×2.5)' },
     powerUse: 4000,
     unlock: pop(12000),
     unlockAt: { pop: 12000 },
@@ -179,12 +203,13 @@ export const BUILDINGS = [
     id: 'refinery',
     name: 'Refinery',
     icon: '⚗️',
-    desc: 'Pipes, flare stacks, and sunsets that are suspiciously orange.',
+    desc: 'Flare stacks, orange sunsets, and every factory in town as a customer.',
     category: 'industrial',
     tier: 2,
     baseCost: 15000,
     jobs: 200,
     income: 60,
+    synergy: { stat: 'income', source: 'building:factory', per: 50, cap: 2, text: 'Income +2% per Factory (up to ×2)' },
     powerUse: 120,
     happiness: -0.03,
     unlock: pop(2500),
@@ -195,12 +220,13 @@ export const BUILDINGS = [
     id: 'techpark',
     name: 'Tech Campus',
     icon: '💻',
-    desc: 'Ping-pong tables, free lunch, and a logo visible from the highway.',
+    desc: 'Free lunch, ping-pong, and a hiring line that starts at the schools.',
     category: 'industrial',
     tier: 3,
     baseCost: 1.5e6,
     jobs: 2500,
-    income: 1500,
+    income: 1000,
+    synergy: { stat: 'income', source: 'building:school', per: 20, cap: 1.75, text: 'Income +5% per School (up to ×1.75)' },
     powerUse: 4500,
     happiness: 0.05,
     unlock: pop(8000),
@@ -280,7 +306,9 @@ export const BUILDINGS = [
     happiness: 0.05,
     upkeep: 6000,
     unlock: (state) => (state?.res?.pop ?? 0) >= 100000 || (state?.prestige?.legacy ?? 0) >= 1,
-    unlockAt: { legacy: 1 },
+    // Either condition opens it; `pop` gives the locked card a progress bar in a first city,
+    // `legacy` is the usual route (any founding).
+    unlockAt: { pop: 100000, legacy: 1 },
     unlockHint: 'Found a new city (or reach 100,000 citizens)',
   },
 

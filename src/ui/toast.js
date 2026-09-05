@@ -1,9 +1,10 @@
-// Toasts: milestone / offline / prestige / unlock notices, bottom-right, newest at the bottom.
+// Toasts: milestone / offline / prestige / unlock notices, anchored under the build column,
+// newest at the bottom. Three at most so a burst never walls off the cards behind it.
 // Each toast carries a thin timer bar that drains over its lifetime; hovering pauses it.
 // Public shape: createToasts(root) -> { el, show({ title, body, icon, kind, timeout }), clear() }
 import { h, reducedMotion } from './dom.js';
 
-const MAX_VISIBLE = 4;
+const MAX_VISIBLE = 3;
 const DEDUPE_MS = 1500; // identical title within this window is folded into the existing toast
 
 export function createToasts(root) {

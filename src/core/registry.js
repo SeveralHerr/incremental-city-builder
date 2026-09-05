@@ -22,6 +22,26 @@ function validate(def, required, kind) {
   if (typeof def.id !== 'string' || !/^[a-z0-9_-]+$/i.test(def.id)) {
     throw new Error(`${kind}: bad id ${def.id}`);
   }
+  if (typeof def.name !== 'string' || !def.name.trim()) {
+    throw new Error(`${kind} ${def.id}: name must be a non-empty string`);
+  }
+  // Numeric sanity: these feed pow/log/division in buildingCost/maxAffordable.
+  if (kind === 'building') {
+    if (!(Number.isFinite(def.baseCost) && def.baseCost > 0)) throw new Error(`building ${def.id}: baseCost must be > 0`);
+    if (!(Number.isFinite(def.costGrowth) && def.costGrowth >= 1)) throw new Error(`building ${def.id}: costGrowth must be >= 1`);
+    for (const k of ['housing', 'jobs', 'powerUse', 'powerGen', 'income', 'upkeep', 'happiness', 'sellRefund']) {
+      if (def[k] !== undefined && !Number.isFinite(def[k])) throw new Error(`building ${def.id}: ${k} must be finite`);
+    }
+    if (def.sellRefund !== undefined && (def.sellRefund < 0 || def.sellRefund > 1)) {
+      throw new Error(`building ${def.id}: sellRefund must be in [0,1]`);
+    }
+  } else {
+    if (!(Number.isFinite(def.cost) && def.cost >= 0)) throw new Error(`upgrade ${def.id}: cost must be >= 0`);
+    if (typeof def.effect !== 'function') throw new Error(`upgrade ${def.id}: effect must be a function`);
+  }
+  if (def.unlock !== undefined && def.unlock !== null && typeof def.unlock !== 'function') {
+    throw new Error(`${kind} ${def.id}: unlock must be a function`);
+  }
 }
 
 export function registerBuilding(def) {

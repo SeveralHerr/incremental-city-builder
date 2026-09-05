@@ -45,7 +45,7 @@ export const config = {
    * - tapSeconds: manual click pays `max(1, income * tapSeconds)` — one second of income per
    *   tap. Keeps clicking meaningful at the start and irrelevant (but harmless) later.
    */
-  economy: { startMoney: 210, taxPerPop: 0.08, wage: 0.35, tapSeconds: 1 },
+  economy: { startMoney: 260, taxPerPop: 0.08, wage: 0.35, tapSeconds: 1 },
 
   /**
    * Population dynamics (per second, before happiness/power scaling).
@@ -92,6 +92,8 @@ export const config = {
     civicCap: 1.25,
     civicScale: 1.5,
     pollutionScale: 0.2,
+    pollutionCap: 1.0,
+    pollutionCurve: 1.0,
     unemploymentPenalty: 0.3,
     overcrowdPenalty: 0.5,
     brownoutPenalty: 0.3,
@@ -126,7 +128,7 @@ export const config = {
    *   points (one bot cycle) buy the opening cottages, shop and windmill outright; kept
    *   small so replays are quicker, not skipped.
    */
-  prestige: { threshold: 1e6, exponent: 0.35, incomePerLegacy: 0.04, startMoneyPerLegacy: 0.1 },
+  prestige: { threshold: 1e6, exponent: 0.5, incomePerLegacy: 0.04, startMoneyPerLegacy: 0.1 },
 
   /**
    * Persistence and offline progress.
@@ -237,8 +239,8 @@ export const config = {
     'championship-season': { cost: 8e6 },
     'superconductor-grid': { cost: 1.3e7 },
     'arcology-gardens': { cost: 2e7 },
-    'ai-governance': { cost: 5e7 },
-    'planetary-charter': { cost: 5e8 },
+    'ai-governance': { cost: 5e8 },
+    'planetary-charter': { cost: 2e10 },
     // legacy
     'legacy-archive': { cost: 5000 },
     'founders-blueprints': { cost: 30000 },

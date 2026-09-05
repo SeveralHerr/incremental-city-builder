@@ -11,7 +11,9 @@
 // first-upgrade, buildings-100, prestige-1). `metric` + `target` (and `progress`) feed the
 // UI's progress bars. Listed in roughly the order a growing city reaches them, because the
 // UI shows the first few unreached entries as "next".
-import { config } from '../balance/config.js';
+import { registry } from '../core/registry.js';
+import { buildingMod } from '../core/mods.js';
+import { milestoneTuning } from './tuning.js';
 
 export const MILESTONE_PREFIX = 'm:';
 
@@ -26,8 +28,7 @@ export function isMilestoneReached(state, id) {
 // --- tuning ------------------------------------------------------------------
 
 function popIncomeBonus() {
-  const v = config && config.milestones ? config.milestones.popIncomeBonus : undefined;
-  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0.02;
+  return milestoneTuning().popIncomeBonus;
 }
 
 function pctText(x) {
@@ -41,6 +42,7 @@ const popOf = (s) => (s && s.res && Number.isFinite(s.res.pop) ? s.res.pop : 0);
 const earnedOf = (s) => (s && s.stats && Number.isFinite(s.stats.totalEarned) ? s.stats.totalEarned : 0);
 const builtOf = (s) => (s && s.stats && Number.isFinite(s.stats.buildingsBuilt) ? s.stats.buildingsBuilt : 0);
 const prestigesOf = (s) => (s && s.stats && Number.isFinite(s.stats.prestiges) ? s.stats.prestiges : 0);
+const legacyOf = (s) => (s && s.prestige && Number.isFinite(s.prestige.legacy) ? s.prestige.legacy : 0);
 
 // Allocation-free "owns at least one upgrade".
 function ownsAnyUpgrade(s) {
@@ -53,7 +55,7 @@ function ownsAnyUpgrade(s) {
 // "Demand outruns the grid": a grid must exist. The windmill only unlocks once something draws
 // power, so the very first cottage always sits on a capacity of zero for a tick or two; that
 // is not a brownout worth a milestone (and would fire Lights Out at t=0 for every player).
-function isBrownout(derived) {
+export function isBrownout(derived) {
   return !!derived && derived.powerDemand > 0 && derived.powerCap > 0 && derived.powerRatio < 1;
 }
 
@@ -68,6 +70,33 @@ function brownoutProgress(state, derived) {
 }
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+// --- reward helpers -----------------------------------------------------------
+
+const incomeReward = (mult) => (mods) => {
+  mods.income *= mult;
+};
+
+const costReward = (mult) => (mods) => {
+  mods.cost *= mult;
+};
+
+const happinessReward = (add) => (mods) => {
+  mods.happiness += add;
+};
+
+// Every polluting building (negative per-unit happiness) emits `frac` less. Allocates one
+// byBuilding entry per polluter per tick, the same sanctioned exception upgrades use.
+function cleanAirReward(frac) {
+  return (mods) => {
+    const order = registry.buildingOrder;
+    for (let i = 0; i < order.length; i++) {
+      const def = registry.buildings.get(order[i]);
+      if (!def || !(def.happiness < 0)) continue;
+      buildingMod(mods, def.id).happiness += -def.happiness * frac;
+    }
+  };
+}
 
 // --- builders ----------------------------------------------------------------
 
@@ -89,7 +118,7 @@ function popMilestone(id, target, name, icon, desc) {
   };
 }
 
-function moneyMilestone(id, target, name, icon, desc, rewardText) {
+function moneyMilestone(id, target, name, icon, desc, rewardText, reward) {
   return {
     id,
     name,
@@ -99,11 +128,12 @@ function moneyMilestone(id, target, name, icon, desc, rewardText) {
     target,
     check: (state) => earnedOf(state) >= target,
     progress: (state) => clamp01(earnedOf(state) / target),
+    reward,
     rewardText,
   };
 }
 
-function buildMilestone(id, target, name, icon, desc, rewardText) {
+function buildMilestone(id, target, name, icon, desc, rewardText, reward) {
   return {
     id,
     name,
@@ -113,6 +143,39 @@ function buildMilestone(id, target, name, icon, desc, rewardText) {
     target,
     check: (state) => builtOf(state) >= target,
     progress: (state) => clamp01(builtOf(state) / target),
+    reward,
+    rewardText,
+  };
+}
+
+function prestigeMilestone(id, target, name, icon, desc, rewardText, reward) {
+  return {
+    id,
+    name,
+    icon,
+    desc,
+    metric: 'prestiges',
+    target,
+    check: (state) => prestigesOf(state) >= target,
+    progress: (state) => clamp01(prestigesOf(state) / target),
+    reward,
+    rewardText,
+  };
+}
+
+// Banked legacy tiers. Latched per run like every milestone, so a veteran mayor collects
+// them in the first second of a replay and they show as reached in the list.
+function legacyMilestone(id, target, name, icon, desc, rewardText, reward) {
+  return {
+    id,
+    name,
+    icon,
+    desc,
+    metric: 'legacy',
+    target,
+    check: (state) => legacyOf(state) >= target,
+    progress: (state) => clamp01(legacyOf(state) / target),
+    reward,
     rewardText,
   };
 }
@@ -170,7 +233,26 @@ export const MILESTONES = [
   popMilestone('pop-100k', 100000, 'Grand Metropolis', '🌇', 'A hundred thousand citizens and a subway map.'),
   moneyMilestone('money-1b', 1e9, 'Billion-Dollar Budget', '🏛️', 'Earn $1,000,000,000 in total.', 'Unlocks AI Governance'),
   popMilestone('pop-1m', 1e6, 'One in a Million', '🌌', 'A million citizens. The lights never go out.'),
-  moneyMilestone('money-1t', 1e12, 'Trillion Club', '🪐', 'Earn $1,000,000,000,000 in total.', 'The history books run out of pages'),
+  moneyMilestone('money-1t', 1e12, 'Trillion Club', '🪐', 'Earn $1,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
+  // Beyond the first ladder: the horizon for a mayor with a legacy bank. Interleaved with
+  // the legacy and founding tiers in roughly the order a veteran's runs reach them.
+  legacyMilestone('legacy-5', 5, 'Old Hands', '🧭', 'Bank five legacy points.', 'All buildings cost −5%', costReward(0.95)),
+  buildMilestone('buildings-1k', 1000, 'Thousand Rooftops', '🏘️', 'Raise a thousand structures.', '+5% income', incomeReward(1.05)),
+  prestigeMilestone('prestige-5', 5, 'Serial Founder', '🏁', 'Found five cities.', '+10% income', incomeReward(1.1)),
+  legacyMilestone('legacy-10', 10, 'Clean Air Act', '🍃', 'Bank ten legacy points.', 'Polluting buildings emit 25% less smog', cleanAirReward(0.25)),
+  popMilestone('pop-10m', 1e7, 'Ten Million Voices', '🎆', 'Ten million citizens. The city has its own time zone.'),
+  legacyMilestone('legacy-25', 25, 'Civic Memory', '🏺', 'Bank twenty-five legacy points.', '+0.15 happiness', happinessReward(0.15)),
+  prestigeMilestone('prestige-10', 10, 'Founding Dynasty', '🏰', 'Found ten cities.', '+15% income', incomeReward(1.15)),
+  moneyMilestone('money-10t', 1e13, 'Ten Trillion', '💫', 'Earn $10,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
+  legacyMilestone('legacy-50', 50, 'Scrubber Mandate', '🌬️', 'Bank fifty legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
+  buildMilestone('buildings-10k', 10000, 'Endless Skyline', '🌉', 'Raise ten thousand structures.', '+10% income', incomeReward(1.1)),
+  legacyMilestone('legacy-100', 100, 'Storied Skyline', '📚', 'Bank a hundred legacy points.', 'All buildings cost another −10%', costReward(0.9)),
+  popMilestone('pop-100m', 1e8, 'Continental City', '🗺️', 'A hundred million citizens. Borders are a rumour.'),
+  moneyMilestone('money-100t', 1e14, 'Hundred Trillion', '✨', 'Earn $100,000,000,000,000 in total.', '+15% income', incomeReward(1.15)),
+  prestigeMilestone('prestige-25', 25, 'Eternal Mayor', '♾️', 'Found twenty-five cities.', '+25% income', incomeReward(1.25)),
+  legacyMilestone('legacy-250', 250, 'Carbon Capture', '🌱', 'Bank two hundred and fifty legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
+  moneyMilestone('money-1qa', 1e15, 'Quadrillionaire', '🌠', 'Earn $1,000,000,000,000,000 in total.', '+20% income', incomeReward(1.2)),
+  legacyMilestone('legacy-1000', 1000, 'Thousand-Year City', '🕰️', 'Bank a thousand legacy points.', 'Polluting buildings emit 90% less smog in all', cleanAirReward(0.15)),
 ];
 
 // Precomputed unlock keys so the per-tick loops never build strings.

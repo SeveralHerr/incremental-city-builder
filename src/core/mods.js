@@ -29,12 +29,15 @@ export function sanitizeMods(mods) {
     const v = mods[k];
     if (!Number.isFinite(v) || v < 0) mods[k] = 1;
   }
+  // A zero cost multiplier means free buildings and NaN in maxAffordable's log: never allow it.
+  if (!(mods.cost > 0)) mods.cost = 1;
   if (!Number.isFinite(mods.happiness)) mods.happiness = 0;
   for (const id of Object.keys(mods.byBuilding)) {
     const m = mods.byBuilding[id];
     for (const k of ['income', 'housing', 'jobs', 'power', 'cost']) {
       if (!Number.isFinite(m[k]) || m[k] < 0) m[k] = 1;
     }
+    if (!(m.cost > 0)) m.cost = 1;
     if (!Number.isFinite(m.happiness)) m.happiness = 0;
   }
   return mods;

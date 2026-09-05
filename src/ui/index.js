@@ -35,6 +35,10 @@ export async function init(game) {
 async function mount(game) {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app not found');
+  // The shell must not be a live region: money, income and the clock change every frame and
+  // would flood a screen reader. Announcements are scoped to the toast host (aria-live polite).
+  app.removeAttribute('aria-live');
+  app.removeAttribute('aria-atomic');
   const content = await loadContent();
   setNumFormat(game.state.settings?.numFormat);
 
@@ -104,7 +108,7 @@ async function mount(game) {
         icon: first.icon || '🏗️',
         kind: 'unlock',
         title: b.length === 1 ? `New building: ${first.name}` : `${b.length} new buildings unlocked`,
-        body: b.length === 1 ? first.desc || 'Now available in the build panel.' : b.map((d) => d.name).join(', '),
+        body: b.length === 1 ? first.desc || 'Now available in the build panel.' : nameList(b),
       });
     }
     if (u.length) {
@@ -113,9 +117,15 @@ async function mount(game) {
         icon: first.icon || '💡',
         kind: 'unlock',
         title: u.length === 1 ? `New upgrade: ${first.name}` : `${u.length} new upgrades available`,
-        body: u.length === 1 ? first.desc || 'The planning office has a proposal.' : u.map((d) => d.name).join(', '),
+        body: u.length === 1 ? first.desc || 'The planning office has a proposal.' : nameList(u),
       });
     }
+  }
+  // 'Windmill, Corner Shop and 7 more' — a burst of unlocks folds into one line.
+  function nameList(defs, shown = 2) {
+    const names = defs.map((d) => d.name);
+    if (names.length <= shown + 1) return names.join(', ');
+    return `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
   }
   // A loaded or imported save latches many unlocks at once; those are not news.
   ev.on('load', () => {

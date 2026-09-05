@@ -2,20 +2,49 @@
 
 const SUFFIX = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
 
+// toFixed with a tiny nudge so decimal-looking inputs round the way a human expects
+// (9.995 is 9.99499999… in binary; toFixed alone prints "9.99").
+function roundFixed(v, d) {
+  const p = Math.pow(10, d);
+  return (Math.round(v * p + 1e-9) / p).toFixed(d);
+}
+
+// Format `v` (scaled into [1, 1000)) with 3 significant figures, choosing the digit count from
+// the ROUNDED value so 99.95 -> "100" (not "100.0"). Returns null when rounding carried past
+// 1000 (999.96 -> "1000") so the caller bumps the suffix instead of printing "1000K".
+function tierFixed(v, digits) {
+  let s = v >= 100 ? roundFixed(v, 0) : v >= 10 ? roundFixed(v, 1) : roundFixed(v, digits);
+  const r = Number(s);
+  if (r >= 1000) return null;
+  if (r >= 100 && v < 100) s = roundFixed(r, 0);
+  else if (r >= 10 && v < 10) s = roundFixed(r, 1);
+  return s;
+}
+
 export function fmt(n, digits = 2) {
   if (!Number.isFinite(n)) return n > 0 ? '∞' : n < 0 ? '-∞' : '—';
+  digits = Number.isInteger(digits) && digits >= 0 ? Math.min(digits, 20) : 2;
   const neg = n < 0;
   n = Math.abs(n);
   if (n < 1000) {
-    const s = n < 10 && n !== Math.floor(n) ? n.toFixed(digits) : Math.floor(n).toString();
+    if (n >= 10 || n === Math.floor(n)) return (neg ? '-' : '') + Math.floor(n).toString();
+    let s = roundFixed(n, digits);
+    if (Number(s) >= 10) s = '10'; // 9.996 -> "10", not "10.00"
     return (neg ? '-' : '') + s;
   }
-  const e = Math.floor(Math.log10(n) / 3);
-  if (e >= SUFFIX.length) {
+  let e = Math.floor(Math.log10(n) / 3);
+  // log10 float error can land one tier off right at a power of 1000: re-anchor.
+  if (Math.pow(1000, e) > n) e--;
+  else if (Math.pow(1000, e + 1) <= n) e++;
+  let s = null;
+  while (e < SUFFIX.length) {
+    s = tierFixed(n / Math.pow(1000, e), digits);
+    if (s !== null) break;
+    e++; // rounding carried into the next magnitude (999,999 -> "1.00M")
+  }
+  if (s === null) {
     return (neg ? '-' : '') + n.toExponential(2).replace('e+', 'e');
   }
-  const v = n / Math.pow(1000, e);
-  const s = v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(digits);
   return (neg ? '-' : '') + s + SUFFIX[e];
 }
 
@@ -32,7 +61,7 @@ export function fmtRate(n, unit = '', digits = 2) {
 
 export function fmtInt(n) {
   if (!Number.isFinite(n)) return '—';
-  return n < 1e6 ? Math.floor(n).toLocaleString('en-US') : fmt(n);
+  return Math.abs(n) < 1e6 ? (Math.trunc(n) || 0).toLocaleString('en-US') : fmt(n);
 }
 
 export function fmtPct(x, digits = 0) {

@@ -5,6 +5,25 @@
 // Per-unit fields: housing (citizens), jobs, income ($/s), powerGen / powerUse (MW),
 // happiness (additive, civic curve), upkeep ($/s). `unlock(state, derived)` latches in core.
 // `unlockAt` mirrors the unlock rule as data so the UI can show progress toward it.
+//
+// Power ladder. Each generator is sized to cover a handful of same-tier consumers, and the
+// steps between tiers are ~5-13x (windmill 6 → coal 80 → solar 900 → nuclear 12k → fusion
+// 60k MW) so no plant makes the one below it pointless the moment it unlocks. Tier-4
+// consumers are power-hungry on purpose (arcology 2,500 / financial 4,000 / tech campus
+// 4,500 / stadium 1,500 MW): one nuclear plant carries about three of them, so the Power
+// tab keeps asking for purchases through the late game instead of going dark after one
+// fusion reactor. Measured with the greedy bot: cap/demand 1.1x at the end of cycle 1 and
+// under 5x for the first eight prestige cycles (upgrade multipliers widen it later).
+//
+// Air quality. Polluters are mild per unit (factory −0.02, coal −0.015, refinery −0.03) and
+// clean tech pushes the other way (solar +0.03, nuclear +0.02, tech campus +0.05, fusion
+// +0.05), so a late city can scrub its own smog by choosing its power mix; the balance
+// config caps the total penalty (happiness.pollutionCap) the same way civic saturates.
+//
+// Unlock spacing. Tier-2/3 rules sit just below the population the greedy bot has when the
+// price frontier reaches each building (school 500, refinery 2,500, mall 3,000, solar 3,200,
+// hospital 4,800), so a freshly unlocked card is affordable within ~4 minutes rather than
+// glowing unaffordably for a quarter hour. Tier-4 rules are owned by config.buildings.
 
 export const CATEGORIES = [
   { id: 'residential', name: 'Residential', icon: '🏠', color: '#60a5fa', blurb: 'Homes. Citizens move in when there is room, power, and a reason to stay.' },
@@ -69,7 +88,7 @@ export const BUILDINGS = [
     tier: 4,
     baseCost: 1.2e6,
     housing: 2500,
-    powerUse: 500,
+    powerUse: 2500,
     happiness: 0.02,
     unlock: pop(5000),
     unlockAt: { pop: 5000 },
@@ -103,9 +122,9 @@ export const BUILDINGS = [
     jobs: 40,
     income: 3,
     powerUse: 8,
-    unlock: pop(60),
-    unlockAt: { pop: 60 },
-    unlockHint: 'Reach 60 citizens',
+    unlock: pop(80),
+    unlockAt: { pop: 80 },
+    unlockHint: 'Reach 80 citizens',
   },
   {
     id: 'mall',
@@ -119,9 +138,9 @@ export const BUILDINGS = [
     income: 40,
     powerUse: 60,
     happiness: 0.01,
-    unlock: pop(600),
-    unlockAt: { pop: 600 },
-    unlockHint: 'Reach 600 citizens',
+    unlock: pop(3000),
+    unlockAt: { pop: 3000 },
+    unlockHint: 'Reach 3,000 citizens',
   },
   {
     id: 'financial',
@@ -133,7 +152,7 @@ export const BUILDINGS = [
     baseCost: 3e6,
     jobs: 4000,
     income: 900,
-    powerUse: 800,
+    powerUse: 4000,
     unlock: pop(12000),
     unlockAt: { pop: 12000 },
     unlockHint: 'Reach 12,000 citizens',
@@ -167,10 +186,10 @@ export const BUILDINGS = [
     jobs: 200,
     income: 60,
     powerUse: 120,
-    happiness: -0.05,
-    unlock: pop(800),
-    unlockAt: { pop: 800 },
-    unlockHint: 'Reach 800 citizens',
+    happiness: -0.03,
+    unlock: pop(2500),
+    unlockAt: { pop: 2500 },
+    unlockHint: 'Reach 2,500 citizens',
   },
   {
     id: 'techpark',
@@ -182,8 +201,8 @@ export const BUILDINGS = [
     baseCost: 1.5e6,
     jobs: 2500,
     income: 1500,
-    powerUse: 900,
-    happiness: 0.02,
+    powerUse: 4500,
+    happiness: 0.05,
     unlock: pop(8000),
     unlockAt: { pop: 8000 },
     unlockHint: 'Reach 8,000 citizens',
@@ -213,7 +232,7 @@ export const BUILDINGS = [
     baseCost: 1500,
     jobs: 10,
     powerGen: 80,
-    happiness: -0.03,
+    happiness: -0.015,
     unlock: demand(20),
     unlockAt: { powerDemand: 20 },
     unlockHint: 'Power demand reaches 20 MW',
@@ -227,10 +246,10 @@ export const BUILDINGS = [
     tier: 3,
     baseCost: 25000,
     powerGen: 900,
-    happiness: 0.01,
-    unlock: pop(1000),
-    unlockAt: { pop: 1000 },
-    unlockHint: 'Reach 1,000 citizens',
+    happiness: 0.03,
+    unlock: pop(3200),
+    unlockAt: { pop: 3200 },
+    unlockHint: 'Reach 3,200 citizens',
   },
   {
     id: 'nuclear',
@@ -241,7 +260,8 @@ export const BUILDINGS = [
     tier: 4,
     baseCost: 2e6,
     jobs: 100,
-    powerGen: 25000,
+    powerGen: 12000,
+    happiness: 0.02,
     upkeep: 120,
     unlock: pop(10000),
     unlockAt: { pop: 10000 },
@@ -256,12 +276,12 @@ export const BUILDINGS = [
     tier: 4,
     baseCost: 5e8,
     jobs: 200,
-    powerGen: 2e6,
+    powerGen: 60000,
     happiness: 0.05,
     upkeep: 6000,
     unlock: (state) => (state?.res?.pop ?? 0) >= 100000 || (state?.prestige?.legacy ?? 0) >= 1,
-    unlockAt: { pop: 100000, legacy: 1 },
-    unlockHint: 'Reach 100,000 citizens, or found a new city',
+    unlockAt: { legacy: 1 },
+    unlockHint: 'Found a new city (or reach 100,000 citizens)',
   },
 
   // ---------------------------------------------------------------------- civic
@@ -291,9 +311,9 @@ export const BUILDINGS = [
     jobs: 30,
     powerUse: 5,
     happiness: 0.08,
-    unlock: pop(300),
-    unlockAt: { pop: 300 },
-    unlockHint: 'Reach 300 citizens',
+    unlock: pop(500),
+    unlockAt: { pop: 500 },
+    unlockHint: 'Reach 500 citizens',
   },
   {
     id: 'hospital',
@@ -307,9 +327,9 @@ export const BUILDINGS = [
     jobs: 200,
     powerUse: 50,
     happiness: 0.12,
-    unlock: pop(2500),
-    unlockAt: { pop: 2500 },
-    unlockHint: 'Reach 2,500 citizens',
+    unlock: pop(4800),
+    unlockAt: { pop: 4800 },
+    unlockHint: 'Reach 4,800 citizens',
   },
   {
     id: 'stadium',
@@ -322,7 +342,7 @@ export const BUILDINGS = [
     costGrowth: 1.2,
     jobs: 500,
     income: 2000,
-    powerUse: 300,
+    powerUse: 1500,
     happiness: 0.25,
     unlock: pop(20000),
     unlockAt: { pop: 20000 },

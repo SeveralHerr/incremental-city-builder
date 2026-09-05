@@ -54,13 +54,25 @@ function isObj(v) {
   return v && typeof v === 'object' && !Array.isArray(v);
 }
 
+const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const MAX_DEPTH = 16;
+
 // Deep-merge `src` into `dst` for plain objects; arrays and primitives replaced.
-function mergeInto(dst, src) {
+// Prototype-polluting keys are skipped and recursion only follows keys `dst` itself owns, so
+// loadState(JSON.parse(untrusted)) can never reach Object.prototype.
+function mergeInto(dst, src, depth = 0) {
+  if (depth > MAX_DEPTH) return dst;
   for (const k of Object.keys(src)) {
+    if (BAD_KEYS.has(k)) continue;
     const v = src[k];
-    if (isObj(v) && isObj(dst[k])) mergeInto(dst[k], v);
-    else dst[k] = Array.isArray(v) ? v.slice() : v;
+    if (isObj(v)) {
+      const own = Object.prototype.hasOwnProperty.call(dst, k) && isObj(dst[k]);
+      mergeInto(own ? dst[k] : (dst[k] = {}), v, depth + 1);
+    } else {
+      dst[k] = Array.isArray(v) ? v.slice() : v;
+    }
   }
+  return dst;
 }
 
 // Replace state contents with `obj` (missing fields get defaults). Keeps identity.
@@ -90,16 +102,50 @@ export function resetState({ keepPrestige = true, keepSettings = true, keepStats
   return state;
 }
 
-// Clamp NaN/Infinity/negatives that would poison the sim.
+// Clamp NaN/Infinity/negatives that would poison the sim, and enforce the shape promised by
+// createInitialState(): every section is the right container type and every known field has
+// the right primitive type (wrong-typed values fall back to defaults). Safe on its own — does
+// not rely on the save module's scrub/coerce.
 export function sanitize() {
+  const fresh = createInitialState();
+  for (const sec of ['res', 'buildings', 'upgrades', 'unlocks', 'stats', 'prestige', 'settings']) {
+    if (!isObj(state[sec])) state[sec] = fresh[sec];
+  }
+  if (!Array.isArray(state.log)) state.log = [];
   for (const k of Object.keys(state.res)) {
     const v = state.res[k];
-    if (!Number.isFinite(v) || v < 0) state.res[k] = 0;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) state.res[k] = 0;
   }
   for (const k of Object.keys(state.buildings)) {
     const v = state.buildings[k];
-    if (!Number.isInteger(v) || v < 0) state.buildings[k] = Math.max(0, Math.floor(v) || 0);
+    if (!Number.isInteger(v) || v < 0) state.buildings[k] = Math.max(0, Math.floor(Number(v)) || 0);
   }
+  for (const sec of ['upgrades', 'unlocks']) {
+    for (const k of Object.keys(state[sec])) {
+      if (state[sec][k]) state[sec][k] = true;
+      else delete state[sec][k];
+    }
+  }
+  // stats/prestige/settings: known keys must match the default's type; numbers finite & >= 0.
+  for (const sec of ['stats', 'prestige', 'settings']) {
+    const want = fresh[sec];
+    const cur = state[sec];
+    for (const k of Object.keys(want)) {
+      const type = typeof want[k];
+      const v = cur[k];
+      if (typeof v !== type || (type === 'number' && !(Number.isFinite(v) && v >= 0))) cur[k] = want[k];
+    }
+  }
+  for (let i = state.log.length - 1; i >= 0; i--) {
+    const e = state.log[i];
+    if (!isObj(e) || typeof e.msg !== 'string') state.log.splice(i, 1);
+    else {
+      if (!Number.isFinite(e.t)) e.t = 0;
+      if (typeof e.kind !== 'string') e.kind = 'info';
+    }
+  }
+  if (state.log.length > MAX_LOG) state.log.splice(0, state.log.length - MAX_LOG);
+  if (typeof state.version !== 'number' || !Number.isFinite(state.version)) state.version = STATE_VERSION;
   if (!Number.isFinite(state.time) || state.time < 0) state.time = 0;
   if (!Number.isInteger(state.tick) || state.tick < 0) state.tick = 0;
 }

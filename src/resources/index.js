@@ -5,6 +5,9 @@ import { fmt, fmtMoney, fmtInt, fmtPct } from '../core/format.js';
 import {
   num,
   nonNeg,
+  posOr1,
+  finite,
+  FINITE_MAX,
   clamp,
   happinessIncomeCurve,
   civicBonus,
@@ -86,17 +89,27 @@ export function formatResource(id, value) {
   return fmtInt(value);
 }
 
-// Local mirror of the balance numbers this module reads (docs/DESIGN.md "Balance").
-// `src/balance/config.js` is the source of truth; these only cover a missing config.
+// Local mirror of the balance numbers this module reads. `src/balance/config.js` is the
+// source of truth: every key it defines is read from there, and these values only cover a
+// missing config or a missing key. Keep them equal to config.js — resources.test.mjs fails
+// on drift (`node --test src/resources/`).
+//
+// pollutionCap / pollutionCurve make the pollution penalty saturate at 1.0 happiness (below
+// civicCap 1.25, so a fully civic city always nets positive) with unit slope at zero
+// (curve == cap). Without them the linear, uncapped penalty pins a late-game industrial city
+// at the 0.25 floor for hours. They are defaulted here too, so the saturation stays on even
+// if a balance pass drops the keys; set pollutionCap to 0 in config.js for the linear form.
 export const DEFAULTS = Object.freeze({
   economy: Object.freeze({ taxPerPop: 0.08, wage: 0.35 }),
-  pop: Object.freeze({ growthRate: 0.06, shrinkRate: 0.2, baseInflow: 0.5 }),
-  power: Object.freeze({ brownoutFloor: 0.25 }),
+  pop: Object.freeze({ growthRate: 0.08, shrinkRate: 0.2, baseInflow: 0.5 }),
+  power: Object.freeze({ brownoutFloor: 0.4 }),
   happiness: Object.freeze({
-    civicCap: 1.0,
+    civicCap: 1.25,
     civicScale: 1.5,
-    pollutionScale: 1,
-    unemploymentPenalty: 0.4,
+    pollutionScale: 0.2,
+    pollutionCap: 1.0,
+    pollutionCurve: 1.0,
+    unemploymentPenalty: 0.3,
     overcrowdPenalty: 0.5,
     brownoutPenalty: 0.3,
     min: 0.25,
@@ -170,9 +183,9 @@ export function computeDerived(state, derived, mods, config) {
   const civicCap = tune(hc, 'civicCap', D.happiness);
   const civicScale = tune(hc, 'civicScale', D.happiness);
   const pollutionScale = tune(hc, 'pollutionScale', D.happiness);
-  // Optional saturation (config.happiness.pollutionCap / pollutionCurve); absent → linear.
-  const pollutionCap = nonNeg(hc ? hc.pollutionCap : undefined, 0);
-  const pollutionCurve = nonNeg(hc ? hc.pollutionCurve : undefined, 0);
+  // Saturation (see DEFAULTS); config.happiness.pollutionCap = 0 restores the linear form.
+  const pollutionCap = Math.max(0, tune(hc, 'pollutionCap', D.happiness));
+  const pollutionCurve = Math.max(0, tune(hc, 'pollutionCurve', D.happiness));
   const unemploymentPenalty = tune(hc, 'unemploymentPenalty', D.happiness);
   const overcrowdPenalty = tune(hc, 'overcrowdPenalty', D.happiness);
   const brownoutPenalty = tune(hc, 'brownoutPenalty', D.happiness);
@@ -180,16 +193,17 @@ export function computeDerived(state, derived, mods, config) {
   const happyMax = Math.max(happyMin, tune(hc, 'max', D.happiness));
 
   // --- global modifiers -----------------------------------------------------
-  const modIncome = nonNeg(m.income, 1);
-  const modHousing = nonNeg(m.housing, 1);
-  const modJobs = nonNeg(m.jobs, 1);
-  const modPower = nonNeg(m.power, 1);
-  const modDemand = nonNeg(m.demand, 1);
-  const modGrowth = nonNeg(m.growth, 1);
-  const modInflow = nonNeg(m.inflow, 1);
-  const modUpkeep = nonNeg(m.upkeep, 1);
+  // Multiplicative mods: missing, non-finite or negative → 1 (same as core/mods.sanitizeMods).
+  const modIncome = posOr1(m.income);
+  const modHousing = posOr1(m.housing);
+  const modJobs = posOr1(m.jobs);
+  const modPower = posOr1(m.power);
+  const modDemand = posOr1(m.demand);
+  const modGrowth = posOr1(m.growth);
+  const modInflow = posOr1(m.inflow);
+  const modUpkeep = posOr1(m.upkeep);
   const modHappiness = num(m.happiness, 0);
-  const modCost = nonNeg(m.cost, 1);
+  const modCost = posOr1(m.cost);
 
   // --- sum over owned buildings --------------------------------------------
   let housing = 0;
@@ -209,10 +223,10 @@ export function computeDerived(state, derived, mods, config) {
     const def = registry.buildings.get(id);
     if (!def) continue;
     const bm = byBuilding[id];
-    const bHousing = bm ? nonNeg(bm.housing, 1) : 1;
-    const bJobs = bm ? nonNeg(bm.jobs, 1) : 1;
-    const bPower = bm ? nonNeg(bm.power, 1) : 1;
-    const bIncome = bm ? nonNeg(bm.income, 1) : 1;
+    const bHousing = bm ? posOr1(bm.housing) : 1;
+    const bJobs = bm ? posOr1(bm.jobs) : 1;
+    const bPower = bm ? posOr1(bm.power) : 1;
+    const bIncome = bm ? posOr1(bm.income) : 1;
     const bHappy = bm ? num(bm.happiness, 0) : 0;
 
     housing += count * nonNeg(def.housing) * bHousing;
@@ -227,11 +241,16 @@ export function computeDerived(state, derived, mods, config) {
     else if (perUnit < 0) pollutionSum -= count * perUnit;
   }
 
-  housing *= modHousing;
-  jobs *= modJobs;
-  powerCap *= modPower;
-  powerDemand *= modDemand;
-  upkeep *= modUpkeep;
+  // Every sum is clamped to ±FINITE_MAX so absurd inputs (1e308 counts) can never leak an
+  // Infinity into derived; at real-game magnitudes this is a no-op.
+  housing = finite(housing * modHousing);
+  jobs = finite(jobs * modJobs);
+  powerCap = finite(powerCap * modPower);
+  powerDemand = finite(powerDemand * modDemand);
+  upkeep = finite(upkeep * modUpkeep);
+  buildingIncome = finite(buildingIncome);
+  civicSum = finite(civicSum);
+  pollutionSum = finite(pollutionSum);
 
   // --- power ----------------------------------------------------------------
   const powerRatio = powerRatioOf(powerCap, powerDemand, brownoutFloor);
@@ -255,18 +274,27 @@ export function computeDerived(state, derived, mods, config) {
   const happinessMult = happinessIncomeCurve(happiness);
 
   // --- money ----------------------------------------------------------------
-  const tax = pop * taxPerPop;
-  const wages = employed * wage;
-  const multiplier = modIncome * powerRatio * happinessMult;
-  const grossIncome = (tax + wages + buildingIncome) * multiplier;
-  const income = grossIncome - upkeep;
+  const multiplier = finite(modIncome * powerRatio * happinessMult);
+  let tax = finite(pop * taxPerPop * multiplier);
+  let wages = finite(employed * wage * multiplier);
+  let fromBuildings = finite(buildingIncome * multiplier);
+  let grossIncome = tax + wages + fromBuildings;
+  if (grossIncome > FINITE_MAX) {
+    // Keep the invariant tax + wages + buildings == grossIncome through the clamp.
+    const k = FINITE_MAX / grossIncome;
+    tax *= k;
+    wages *= k;
+    fromBuildings *= k;
+    grossIncome = FINITE_MAX;
+  }
+  const income = finite(grossIncome - upkeep);
 
   // --- population -----------------------------------------------------------
   let popGrowth = 0;
   if (pop < housing) {
-    popGrowth = (housing - pop) * growthRate * happiness * powerRatio * modGrowth + baseInflow * modInflow;
+    popGrowth = finite((housing - pop) * growthRate * happiness * powerRatio * modGrowth + baseInflow * modInflow);
   } else if (pop > housing) {
-    popGrowth = -(pop - housing) * shrinkRate;
+    popGrowth = finite(-(pop - housing) * shrinkRate);
   }
 
   // --- write ----------------------------------------------------------------
@@ -290,16 +318,16 @@ export function computeDerived(state, derived, mods, config) {
   x.civic = civic;
   x.pollution = pollution;
   x.happinessMult = happinessMult;
-  x.vacancy = Math.max(0, housing - pop);
-  x.openJobs = Math.max(0, jobs - employed);
-  x.powerSurplus = powerCap - powerDemand;
+  x.vacancy = finite(Math.max(0, housing - pop));
+  x.openJobs = finite(Math.max(0, jobs - employed));
+  x.powerSurplus = finite(powerCap - powerDemand);
   x.penalties.unemployment = penUnemployment;
   x.penalties.overcrowd = penOvercrowd;
   x.penalties.brownout = penBrownout;
   x.penalties.pollution = pollution;
-  x.incomeBreakdown.tax = tax * multiplier;
-  x.incomeBreakdown.wages = wages * multiplier;
-  x.incomeBreakdown.buildings = buildingIncome * multiplier;
+  x.incomeBreakdown.tax = tax;
+  x.incomeBreakdown.wages = wages;
+  x.incomeBreakdown.buildings = fromBuildings;
   x.incomeBreakdown.upkeep = upkeep;
   x.incomeBreakdown.multiplier = multiplier;
 

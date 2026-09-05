@@ -75,7 +75,8 @@ export function createBuildPanel(ui) {
     if (!t) {
       const dot = h('span.tab-dot', { 'aria-hidden': 'true' });
       const count = h('span.tab-count.mono', { text: '' });
-      const btn = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', dataset: { cat: cat.id } }, [
+      // Name as title + aria-label too: in a narrow column inactive tabs collapse to icon + count.
+      const btn = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-label': cat.name, title: cat.name, dataset: { cat: cat.id } }, [
         h('span.tab-icon', { text: cat.icon, 'aria-hidden': 'true' }),
         h('span.tab-label', { text: cat.name }),
         count,

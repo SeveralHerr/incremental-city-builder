@@ -24,8 +24,12 @@ export function maxAffordable(def, money = state.res.money) {
   const first = def.baseCost * Math.pow(g, count) * mult;
   if (first > money) return 0;
   if (g === 1) return Math.floor(money / first);
-  const n = Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
-  return Math.max(0, Math.min(n, 10000));
+  let n = Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
+  n = Math.max(0, Math.min(n, 10000));
+  // The closed form can overshoot by one when money sits within float error of an exact
+  // n-purchase total; walk back so buy(id, 'max') never fails its own affordability check.
+  while (n > 0 && buildingCost(def, count, n) > money) n--;
+  return n;
 }
 
 export function isBuildingUnlocked(def) {

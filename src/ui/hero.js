@@ -6,6 +6,7 @@ import { milestoneProgress, nextMilestones } from './milestones.js';
 import { tierTitle, nextTier } from './content.js';
 
 const MAX_PARTICLES = 24;
+const HINT_TAPS = 5; // the 'tap the city' pill fades once the mayor has clearly got it
 
 export function createHero(ui) {
   const { game } = ui;
@@ -167,6 +168,7 @@ export function createHero(ui) {
     const d = game.derived;
     skyline.tick(dt);
     setText(cityTier, tierTitle(s.res.pop));
+    setClass(hint, 'is-done', (s.stats && s.stats.clicks) >= HINT_TAPS);
     const pop = Math.floor(s.res.pop);
     setText(cityPop, `${num(pop)} ${pop === 1 ? 'citizen' : 'citizens'}`);
 

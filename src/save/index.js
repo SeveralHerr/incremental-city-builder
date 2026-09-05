@@ -2,7 +2,7 @@
 // One of the two modules allowed to touch the browser (window, document, localStorage).
 // Everything here is defensive: a corrupt or hostile save must never take the game down.
 import { loadState, addLog, STATE_VERSION, createInitialState } from '../core/state.js';
-import { registerAction } from '../core/registry.js';
+import { registerAction, registry } from '../core/registry.js';
 import { reportError } from '../core/safe.js';
 import { TICK_MS } from '../core/loop.js';
 import { fmtMoney, fmtTime } from '../core/format.js';
@@ -18,7 +18,16 @@ const UNLOAD_REASONS = new Set(['hidden', 'pagehide', 'beforeunload']);
 const TICKS_PER_SEC = 1000 / TICK_MS;
 const MAX_LOG = 60;
 const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+// Events that change the city in a way a 30 s autosave gap could lose. 'prestige' writes at
+// once; the others are debounced so a shopping burst is one write.
+const IMMEDIATE_SAVE_EVENTS = ['prestige'];
+const DEBOUNCED_SAVE_EVENTS = ['upgrade', 'milestone'];
+const DEBOUNCE_SAVE_MS = 1500;
 
+// Offline rule (one rule, both paths): the city grows at full rate while away, but cash earned
+// offline is credited at config.save.offlineEfficiency (0.5) whether the ticks were simulated
+// with game.step() or approximated analytically after the wall budget ran out. This makes the
+// payout independent of how fast the returning device can simulate.
 const DEFAULTS = {
   autosaveSec: 30,
   offlineCapSec: 8 * 3600,
@@ -109,10 +118,14 @@ function coerceShape(st) {
       if (typeof v !== type || (type === 'number' && !Number.isFinite(v))) delete st[sec][k];
     }
   }
+  // Ids the registry does not know (renamed content, hand-edited saves) are dropped so they
+  // never linger in state. The registry is only consulted once content has registered, so a
+  // bare parseSave() in a test harness still keeps everything.
+  const known = (map, k) => map.size === 0 || map.has(k);
   if (isObj(st.buildings)) {
     for (const k of Object.keys(st.buildings)) {
       const n = Math.floor(Number(st.buildings[k]));
-      if (Number.isFinite(n) && n > 0) st.buildings[k] = n;
+      if (Number.isFinite(n) && n > 0 && known(registry.buildings, k)) st.buildings[k] = n;
       else delete st.buildings[k];
     }
   } else delete st.buildings;
@@ -122,7 +135,8 @@ function coerceShape(st) {
       continue;
     }
     for (const k of Object.keys(st[sec])) {
-      if (st[sec][k]) st[sec][k] = true;
+      const ok = sec === 'upgrades' ? known(registry.upgrades, k) : unlockKnown(k);
+      if (st[sec][k] && ok) st[sec][k] = true;
       else delete st[sec][k];
     }
   }
@@ -137,6 +151,14 @@ function coerceShape(st) {
   return st;
 }
 
+// Latched unlock flags are namespaced: b:<building>, u:<upgrade>; everything else (m:<milestone>,
+// panel:<gate>) belongs to simulation and is passed through.
+function unlockKnown(key) {
+  if (key.startsWith('b:')) return registry.buildings.size === 0 || registry.buildings.has(key.slice(2));
+  if (key.startsWith('u:')) return registry.upgrades.size === 0 || registry.upgrades.has(key.slice(2));
+  return true;
+}
+
 function runMigrations(st) {
   let v = Number.isInteger(st.version) ? st.version : 1;
   if (v > STATE_VERSION) {
@@ -148,7 +170,11 @@ function runMigrations(st) {
     step(st);
     v++;
   }
-  st.version = STATE_VERSION;
+  // Only stamp the version the state actually reached. A save that stalls on a missing
+  // migration keeps its old number, so it is migrated properly once the step exists instead of
+  // being treated as current forever.
+  if (v < STATE_VERSION) console.warn(`[save] no migration from v${v} to v${STATE_VERSION}; loading best-effort.`);
+  st.version = v;
   return st;
 }
 
@@ -169,7 +195,9 @@ export function parseSave(json) {
   if (!isObj(st) || !isObj(st.res)) return fail('missing resources');
   coerceShape(runMigrations(st));
   const savedAt = num(envelope.savedAt, 0);
-  return { ok: true, state: st, savedAt: clamp(savedAt, 0, Date.now()) };
+  // moneyMissing: the money field was absent or unreadable, so the loader reseeds startMoney
+  // instead of leaving the mayor with $0 and no way to buy the first house.
+  return { ok: true, state: st, savedAt: clamp(savedAt, 0, Date.now()), moneyMissing: st.res.money === undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +296,7 @@ export async function init(game) {
     catchUp.wallUsed = 0;
     info.catchingUp = false;
     info.lastOffline = result;
+    emit('catchup', { phase: 'end', source: result.source, seconds });
     if (seconds >= cfg.offlineMinSec) {
       const away = fmtTime(seconds);
       addLog(
@@ -281,13 +310,35 @@ export async function init(game) {
     }
   }
 
+  // Simulate n ticks and credit only cfg.offlineEfficiency of the money they earned. Losses
+  // (negative income from upkeep) are not softened; the analytic remainder ignores them
+  // entirely (rate clamped at 0), so both paths favour the player the same way.
+  function stepScaled(n) {
+    const eff = cfg.offlineEfficiency;
+    const st = state.stats;
+    const pr = isObj(state.prestige) ? state.prestige : null;
+    const money0 = state.res.money;
+    const earned0 = num(st.totalEarned, 0);
+    const life0 = pr ? num(pr.lifetimeEarned, 0) : 0;
+    game.step(n);
+    if (eff >= 1) return;
+    const dMoney = state.res.money - money0;
+    if (dMoney > 0) state.res.money = money0 + dMoney * eff;
+    const dEarned = num(st.totalEarned, 0) - earned0;
+    if (dEarned > 0) st.totalEarned = earned0 + dEarned * eff;
+    if (pr) {
+      const dLife = num(pr.lifetimeEarned, 0) - life0;
+      if (dLife > 0) pr.lifetimeEarned = life0 + dLife * eff;
+    }
+  }
+
   function runChunk() {
     if (!catchUp.running) return;
     const sliceStart = now();
     while (catchUp.pendingTicks > 0 && catchUp.wallUsed < cfg.offlineBudgetMs) {
       const n = Math.min(CHUNK_TICKS, catchUp.pendingTicks);
       const t0 = now();
-      game.step(n);
+      stepScaled(n);
       const spent = now() - t0;
       catchUp.wallUsed += spent;
       catchUp.pendingTicks -= n;
@@ -312,6 +363,8 @@ export async function init(game) {
     catchUp.simulatedTicks = 0;
     catchUp.wallUsed = 0;
     info.catchingUp = true;
+    // UI hint: milestone/unlock toasts raised while this runs belong behind the offline notice.
+    emit('catchup', { phase: 'start', source, seconds: catchUp.totalSeconds });
     setTimeout(runChunk, 0);
   }
 
@@ -321,6 +374,7 @@ export async function init(game) {
     catchUp.totalSeconds = 0;
     catchUp.simulatedTicks = 0;
     catchUp.wallUsed = 0;
+    if (info.catchingUp) emit('catchup', { phase: 'end', source: catchUp.source, seconds: 0 });
     info.catchingUp = false;
   }
 
@@ -379,6 +433,7 @@ export async function init(game) {
       return null;
     }
     applyState(r.state);
+    if (r.moneyMissing) state.res.money = cfg.startMoney;
     addLog('Welcome back, Mayor. The city kept your seat warm.', 'info');
     emit('load', { source: 'storage', savedAt: r.savedAt });
     return r;
@@ -410,6 +465,7 @@ export async function init(game) {
       return false;
     }
     applyState(r.state);
+    if (r.moneyMissing) state.res.money = cfg.startMoney;
     addLog('City plans imported. The archives remember everything.', 'info');
     emit('load', { source: 'import', savedAt: r.savedAt });
     if (storage) save('import');
@@ -474,6 +530,23 @@ export async function init(game) {
       setInterval(() => {
         if (autosaveOn()) save('auto');
       }, cfg.autosaveSec * 1000);
+    }
+    // Major state changes are written right away (prestige) or shortly after (upgrade,
+    // milestone) so a tab crash inside the 30 s window cannot replay the old city.
+    for (const name of IMMEDIATE_SAVE_EVENTS) {
+      game.events?.on?.(name, () => {
+        if (autosaveOn()) save(name);
+      });
+    }
+    let debounced = 0;
+    for (const name of DEBOUNCED_SAVE_EVENTS) {
+      game.events?.on?.(name, () => {
+        if (catchUp.running || !autosaveOn()) return; // catch-up ends with its own save
+        clearTimeout(debounced);
+        debounced = setTimeout(() => {
+          if (autosaveOn()) save(name);
+        }, DEBOUNCE_SAVE_MS);
+      });
     }
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {

@@ -13,7 +13,15 @@ import { on, emit } from '../core/events.js';
 import { reportError } from '../core/safe.js';
 import { computeDerived } from '../resources/index.js';
 import { config } from '../balance/config.js';
-import { MILESTONES, REWARDED_MILESTONES, applyMilestoneMods, pendingMilestones, getMilestone, isMilestoneReached } from './milestones.js';
+import {
+  MILESTONES,
+  REWARDED_MILESTONES,
+  applyMilestoneMods,
+  pendingMilestones,
+  getMilestone,
+  isMilestoneReached,
+  isBrownout,
+} from './milestones.js';
 import {
   canPrestige as canPrestigeRule,
   prestigeGain as prestigeGainRule,
@@ -22,9 +30,27 @@ import {
   startMoneyFor,
   legacyOf,
   nextLegacyAt,
+  earningsForLegacy,
+  prestigeUnlockAt,
+  legacyIncomeMult,
+  prestigeConfig,
+  prestigeStatus,
 } from './prestige.js';
+import { economyTuning } from './tuning.js';
 
-export { MILESTONES, REWARDED_MILESTONES, getMilestone, isMilestoneReached, nextLegacyAt };
+export {
+  MILESTONES,
+  REWARDED_MILESTONES,
+  getMilestone,
+  isMilestoneReached,
+  isBrownout,
+  nextLegacyAt,
+  earningsForLegacy,
+  prestigeUnlockAt,
+  legacyIncomeMult,
+  prestigeConfig,
+  prestigeStatus,
+};
 
 export const TICK_HANDLER = 'simulate';
 
@@ -53,7 +79,7 @@ const GATES = [
   {
     key: 'panel:prestige',
     log: 'The council whispers about founding a new city. Legacy panel added.',
-    check: (state) => state.stats.totalEarned >= prestigeThreshold() / 10,
+    check: (state) => state.stats.totalEarned >= prestigeConfig().threshold / 10,
   },
 ];
 
@@ -75,16 +101,6 @@ let installed = false;
 let gameRef = null;
 
 // --- helpers -----------------------------------------------------------------
-
-function prestigeThreshold() {
-  const t = config && config.prestige ? config.prestige.threshold : undefined;
-  return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t : 1e6;
-}
-
-function tapSeconds() {
-  const t = config && config.economy ? config.economy.tapSeconds : undefined;
-  return typeof t === 'number' && Number.isFinite(t) && t >= 0 ? t : 1;
-}
 
 function anyPowerBuildingUnlocked(state) {
   const u = state.unlocks;
@@ -148,11 +164,24 @@ export function foldMods(state) {
   return mods;
 }
 
+// derived.extra.prestige: { legacy, gain, can, unlockAt, nextAt, mult, multAfter }, refreshed
+// every tick so the dashboard can show "next legacy point at $X" without calling actions.
+function ensurePrestigeExtra(derived) {
+  let x = derived.extra;
+  if (!x || typeof x !== 'object') x = derived.extra = {};
+  let p = x.prestige;
+  if (!p || typeof p !== 'object') {
+    p = x.prestige = { legacy: 0, gain: 0, can: false, unlockAt: 0, nextAt: 0, mult: 1, multAfter: 1 };
+  }
+  return p;
+}
+
 // Recompute derived values without advancing time (after load, prestige, init).
 export function recompute(state, derived) {
   const mods = foldMods(state);
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
+  prestigeStatus(state, ensurePrestigeExtra(derived), config);
   return derived;
 }
 
@@ -225,10 +254,12 @@ function checkGates(state, derived) {
   }
 }
 
+// Same "a grid must exist" predicate as the Lights Out milestone: the first cottage draws
+// power before any generator can be bought, and that is not a brownout worth a log line.
 function watchGrid(state, derived) {
   const ratio = derived.powerRatio;
   if (!inBrownout) {
-    if (derived.powerDemand > 0 && ratio < BROWNOUT_ENTER) {
+    if (isBrownout(derived) && ratio < BROWNOUT_ENTER) {
       inBrownout = true;
       if (state.time - lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN) {
         lastBrownoutLogAt = state.time;
@@ -254,17 +285,19 @@ export function simulate(state, derived, dt) {
   checkMilestones(state, derived);
   checkGates(state, derived);
   watchGrid(state, derived);
+  prestigeStatus(state, ensurePrestigeExtra(derived), config);
 }
 
 // --- actions -------------------------------------------------------------------
 
 function tap(state, derived) {
   const income = Number.isFinite(derived.income) ? derived.income : 0;
-  const gain = Math.max(1, income * tapSeconds());
+  const gain = Math.max(1, income * economyTuning(config).tapSeconds);
   state.res.money += gain;
   state.stats.totalEarned += gain;
   state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + gain;
   state.stats.clicks = (Number.isFinite(state.stats.clicks) ? state.stats.clicks : 0) + 1;
+  emit('tap', { gain, clicks: state.stats.clicks });
   return gain;
 }
 
@@ -308,7 +341,6 @@ export function init(game) {
     registerAction('prestige', () =>
       performPrestige(state, config, (s) => {
         resetRunBookkeeping(s, derived);
-        addLog('Fresh ground, familiar hands. The first cottage goes up faster this time.', 'info');
       }),
     );
     registerAction('tap', () => tap(state, derived));

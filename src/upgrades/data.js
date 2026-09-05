@@ -11,9 +11,10 @@
 //
 // Costs: the defaults here match the tuned ladder in src/balance/config.js (config wins when
 // both exist), so the file is self-consistent on its own: $25 → $5e8 for the 45-rung core
-// ladder, then a "horizon" ladder ($1.5e9 → $6e13, roughly ×2 per rung alternating between
-// Civic Bonds and Skyline Expansion) that a single run only climbs as deep as its legacy
-// income allows — every prestige cycle has something new to fund.
+// ladder, then a "horizon" ladder (Civic Bonds I–XXX and Skyline Expansion I–V, see the
+// generators below) priced in seconds of the run's current income and issued on a schedule
+// after founding — so every city, however deep into the game, has something new to fund
+// every few minutes until the next reset.
 import { buildingMod } from '../core/mods.js';
 
 export const MILESTONE_IDS = [
@@ -58,6 +59,9 @@ const hasEarned = (n, ms) => (state) => earned(state) >= n || (ms ? milestone(st
 const hasLegacy = (n) => (state) => legacy(state) >= n || (n <= 1 && milestone(state, 'prestige-1'));
 const hasDemand = (mw) => (state, derived) => !!derived && Number.isFinite(derived.powerDemand) && derived.powerDemand >= mw;
 const any = (...fns) => (state, derived) => fns.some((f) => f(state, derived) === true);
+const all = (...fns) => (state, derived) => fns.every((f) => f(state, derived) === true);
+// Seconds since this city was founded (state.time is per run; a founding resets it).
+const runAge = (seconds) => (state) => ((state && Number.isFinite(state.time) ? state.time : 0) >= seconds);
 
 // ---------- effect helpers ----------
 
@@ -87,37 +91,100 @@ const compose = (...fns) => (mods, state) => {
 };
 
 // ---------- horizon ladder generators ----------
+//
+// The late-cycle horizon has to survive two things a dollar ladder cannot: prestige
+// multiplies income by a legacy-scaled factor and seeds each city with legacy-scaled
+// cash, so any fixed price is eventually a rounding error (a 300-legacy city funds a $5e8
+// rung in a second, a 30,000-legacy city a $5e13 one); and a greedy player who never saves
+// keeps their cash at the building-price frontier — a few seconds of income — so anything
+// priced above that is never in hand. So the horizon rungs are:
+//
+//   • priced in income, not dollars: `priced: { seconds, floor }` means the registered cost
+//     is `max(floor, seconds × current income)` (index.js keeps it in sync every tick);
+//     a rung at 2 s of income is a visible spend at any legacy and still lands
+//     inside the frontier of a player who builds every tick;
+//   • paced by an issue schedule, not by money: rung n opens `bondOpensAt(n)` seconds
+//     after founding (II at 3 min, rising 13% per rung: X at 8 min, XX at 27 min, XXX at
+//     92 min), and only after the previous rung is owned, so however rich the city the
+//     ladder arrives one proposal every one to ten minutes for the whole life of a run and
+//     a founding resets it with the run.
+//
+// Civic Bonds I–XXX give +25% income each — the treadmill that keeps a plateaued city's
+// income climbing between foundings. Skyline Expansion I–V (+50% housing and jobs)
+// interleave every second bond so the ladder is not thirty identical cards.
 
-const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const ROMAN_DIGITS = [
+  [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+  [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+];
+export const roman = (n) => {
+  let v = Math.max(1, Math.floor(n));
+  let out = '';
+  for (const [value, glyph] of ROMAN_DIGITS) while (v >= value) { out += glyph; v -= value; }
+  return out;
+};
 
-// Civic Bonds I–X: +25% all income each, unlocked one after the other. The first rung opens
-// once the Planetary Charter is funded (or a run has earned $5B).
-const civicBond = (n, cost) => ({
-  id: `civic-bonds-${n}`,
-  name: `Civic Bonds ${ROMAN[n - 1]}`,
-  icon: '💰',
-  desc: 'All income +25%',
-  cost,
-  category: 'global',
-  tier: 4,
-  unlock: n === 1 ? any(owns('planetary-charter'), hasEarned(5e9)) : owns(`civic-bonds-${n - 1}`),
-  effect: global('income', 1.25),
-});
+export const BOND_RUNGS = 30;
+export const BOND_FLOOR = 1e7; // never free: a city in the red or mid-brownout still pays this
+export const BOND_SECONDS = 2; // every horizon rung costs two seconds of current income
+const BOND_OPEN_2 = 180; // rung II opens three minutes after founding
+const BOND_OPEN_STEP = 1.13; // each later rung opens 13% later than the one before
+// Seconds after founding at which rung n may be issued (rung I has no schedule: it opens
+// with the Planetary Charter or $1B earned).
+export const bondOpensAt = (n) => (n <= 1 ? 0 : Math.round(BOND_OPEN_2 * Math.pow(BOND_OPEN_STEP, n - 2)));
 
-// Skyline Expansion I–V: +50% housing and jobs each, interleaved with the bonds.
-const skyline = (n, cost) => ({
+// Price of an income-priced rung for the current run (pure; index.js applies it each tick).
+// Uses net income (derived.income) and never goes below the floor, so a city in the red or
+// mid-brownout still sees a finite, sane price.
+export function horizonCost(def, derived) {
+  const p = def && def.priced;
+  if (!p) return def ? def.cost : NaN;
+  const income = derived && Number.isFinite(derived.income) && derived.income > 0 ? derived.income : 0;
+  const cost = Math.max(p.floor, p.seconds * income);
+  return Number.isFinite(cost) && cost > 0 ? cost : p.floor;
+}
+
+const opensLabel = (sec) => (sec >= 120 ? `${Math.round(sec / 60)} min` : `${sec} s`);
+
+// Rung I opens once the Planetary Charter is funded (or a run has earned $1B); every later
+// rung follows the one before it on the issue schedule, so only one bond is ever on offer.
+const civicBond = (n) => {
+  const opens = bondOpensAt(n);
+  return {
+    id: `civic-bonds-${n}`,
+    name: `Civic Bonds ${roman(n)}`,
+    icon: '💰',
+    desc: n === 1 ? 'All income +25%' : `All income +25% · issue opens ${opensLabel(opens)} after founding`,
+    cost: BOND_FLOOR,
+    category: 'global',
+    tier: 4,
+    priced: { seconds: BOND_SECONDS, floor: BOND_FLOOR },
+    unlock: n === 1 ? any(owns('planetary-charter'), hasEarned(1e9, 'money-1b')) : all(owns(`civic-bonds-${n - 1}`), runAge(opens)),
+    effect: global('income', 1.25),
+  };
+};
+
+// Skyline Expansion n is issued alongside Civic Bonds 2n.
+const skyline = (n) => ({
   id: `skyline-expansion-${n}`,
-  name: `Skyline Expansion ${ROMAN[n - 1]}`,
+  name: `Skyline Expansion ${roman(n)}`,
   icon: '🌆',
-  desc: 'All housing and jobs +50%',
-  cost,
+  desc: `All housing and jobs +50% · issued with Civic Bonds ${roman(2 * n)}`,
+  cost: BOND_FLOOR,
   category: 'residential',
   tier: 4,
-  unlock: n === 1 ? owns('civic-bonds-1') : owns(`skyline-expansion-${n - 1}`),
+  priced: { seconds: BOND_SECONDS, floor: BOND_FLOOR },
+  unlock: owns(`civic-bonds-${2 * n}`),
   effect: compose(global('housing', 1.5), global('jobs', 1.5)),
 });
 
-// ---------- definitions (ordered by cost; ladder $25 → $6e13) ----------
+const HORIZON = [];
+for (let n = 1; n <= BOND_RUNGS; n++) {
+  HORIZON.push(civicBond(n));
+  if (n % 2 === 0 && n / 2 <= 5) HORIZON.push(skyline(n / 2));
+}
+
+// ---------- definitions (ordered by cost; ladder $25 → $5e8, then the income-priced horizon) ----------
 
 export const UPGRADES = [
   // ===== Early game ($25 – $3k): first ten minutes =====
@@ -589,26 +656,8 @@ export const UPGRADES = [
     effect: compose(global('income', 2.5), global('growth', 2)),
   },
 
-  // ===== Horizon ($1.5e9 – $6e13): the deep-legacy ladder =====
-  // Alternating Civic Bonds (+25% income) and Skyline Expansion (+50% housing & jobs),
-  // ~×2 per rung. A run climbs as far as its legacy-boosted income reaches before the next
-  // reset, so a 300-legacy city funds five or six of these per cycle and a 2,000-legacy city
-  // is still chasing the top rungs.
-  civicBond(1, 1.5e9),
-  skyline(1, 3e9),
-  civicBond(2, 6e9),
-  skyline(2, 1.2e10),
-  civicBond(3, 2.5e10),
-  skyline(3, 5e10),
-  civicBond(4, 1e11),
-  skyline(4, 2e11),
-  civicBond(5, 4e11),
-  skyline(5, 8e11),
-  civicBond(6, 1.6e12),
-  civicBond(7, 4e12),
-  civicBond(8, 1e13),
-  civicBond(9, 2.5e13),
-  civicBond(10, 6e13),
+  // ===== Horizon (income-priced, issued on a schedule): Civic Bonds I–XXX + Skyline Expansion I–V =====
+  ...HORIZON,
 
   // ===== Legacy (prestige) — unlocked by legacy points, paid in money each run =====
   {
@@ -651,17 +700,18 @@ export const UPGRADES = [
     id: 'dynasty-ledger',
     name: 'Dynasty Ledger',
     icon: '👑',
-    desc: 'All income +5% per legacy point (max +500%)',
+    desc: 'All income +50% × √legacy (+112% at 5 points, +500% at 100)',
     cost: 150000,
     category: 'prestige',
     tier: 4,
     unlock: hasLegacy(5),
-    // Capped at 100 points: the ladder keeps paying out for the first ~15 cities, and the
-    // cap keeps this from compounding with the prestige curve itself (an uncapped legacy
-    // term here feeds straight back into the next reset's legacy).
+    // A square-root curve instead of a capped line: it never goes flat (a cap is reached
+    // within a couple of hours once legacy compounds, after which a "per point" description
+    // lies), yet it grows slowly enough not to feed back into the prestige curve — the bot's
+    // 25%-more-legacy cadence adds ~12% here per founding, and a million points is ×500.
     effect: (mods, state) => {
-      const pts = Math.min(100, Math.max(0, Math.floor(legacy(state))));
-      mods.income *= 1 + 0.05 * pts;
+      const pts = Math.max(0, Math.floor(legacy(state)));
+      mods.income *= 1 + 0.5 * Math.sqrt(pts);
     },
   },
 ];

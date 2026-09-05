@@ -262,7 +262,8 @@ export function computeDerived(state, derived, mods, config) {
 
   // --- happiness ------------------------------------------------------------
   const civic = civicBonus(civicSum, civicCap, civicScale);
-  const pollution = pollutionPenalty(pollutionSum * pollutionScale, pollutionCap, pollutionCurve);
+  const pollutionRaw = finite(pollutionSum * pollutionScale); // unsaturated smog, for the UI
+  const pollution = pollutionPenalty(pollutionRaw, pollutionCap, pollutionCurve);
   const penUnemployment = unemployment * unemploymentPenalty;
   const penOvercrowd = overcrowd * overcrowdPenalty;
   const penBrownout = (1 - powerRatio) * brownoutPenalty;
@@ -317,6 +318,7 @@ export function computeDerived(state, derived, mods, config) {
   x.overcrowd = overcrowd;
   x.civic = civic;
   x.pollution = pollution;
+  x.pollutionRaw = pollutionRaw;
   x.happinessMult = happinessMult;
   x.vacancy = finite(Math.max(0, housing - pop));
   x.openJobs = finite(Math.max(0, jobs - employed));

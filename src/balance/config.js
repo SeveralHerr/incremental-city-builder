@@ -3,10 +3,21 @@
 // balance owner can retune the game without touching any other folder.
 // DOM-free: this file must import cleanly in Node (economy-sim) and the browser.
 //
-// Pacing (greedy bot, tools/economy-sim.mjs, measured after this tuning pass):
-//   first building 0 s · first upgrade ~66 s · 1k pop ~12 min · $1M earned (prestige
-//   available) ~20 min · first prestige taken by the bot ~48 min · cycles then shorten
-//   48 → 25 → 21 → 17 → 16 → 14 min · every building bought in the first cycle.
+// Pacing (greedy bot, tools/economy-sim.mjs, 12 game-hour run, measured after this pass):
+//   first building 0 s · first upgrade 24 s (Welcome Sign, $25) · 1k pop 12.2 min ·
+//   $1M earned 18.7 min · first founding 34 min · cycles then shorten
+//   34 → 12.4 → 11.7 → 9.6 → 8.1 → 6.6 → 6.1 min (floor at the 7th city, ~1.4 h in), then
+//   lengthen gently — 7, 8, 9, 10, 11, 13, 16, 18, 20, 23, 26 — to ~27 min by the 24th city
+//   (~5.3 h) and hold there for the rest of the session; the prestige module's compounding
+//   term sets that cadence (see `prestige` below). 38 foundings and ~42k legacy in 12 h.
+//   Every building is bought in the first cycle (all 20, Fusion included, in every cycle
+//   after the first). AI Governance lands in cycle 13 (~2.4 h), the Planetary Charter in
+//   cycle 17 (~3.4 h). Income reaches the 1e15/s range at 12 h — the legacy bonus itself
+//   tops out at ×171 (legacyCap); the rest is the upgrades module's income-priced Civic
+//   Bonds treadmill compounding inside each 27-minute run. Happiness never drops below
+//   1.94 at a cycle's end; brownout share of any cycle ≤ 7% (0.1% late); never a gap over
+//   44 s between purchases. (Snapshot of the simulation/upgrades modules at the time of
+//   this pass; both were still being retuned, so re-measure before quoting.)
 //
 // How the numbers were chosen. The verify/sim bot never saves: it buys the best-scoring
 // *affordable* item every two seconds, so every unlocked building's price gets pushed up to
@@ -31,11 +42,12 @@ const popUnlock = (n, label) => ({
 export const config = {
   /**
    * Core money flow.
-   * - startMoney: seed cash on a fresh run. $210 is tuned to the first two seconds: a
-   *   player (or the bot) puts up four cottages ($30 → $49) and still has the $40 windmill
-   *   in hand when the porch lights flicker, so the opening brownout lasts one tick instead
-   *   of a minute. It also covers cottage + shop + windmill for a player who buys one of
-   *   each first.
+   * - startMoney: seed cash on a fresh run. $260 is tuned to the first five seconds: a
+   *   player (or the bot) puts up four cottages ($30 → $49), the $40 windmill that keeps
+   *   the porch lights on, and still has the $50 corner shop in hand — so the first
+   *   paycheck starts in the opening spree instead of after a 40-second wait, and the
+   *   $25 Welcome Sign lands at 24 s. It also covers cottage + shop + windmill for a player
+   *   who buys one of each first.
    * - taxPerPop: money/s per citizen, employed or not. Makes residential alone trickle
    *   income so a player who over-builds housing is never fully stalled.
    * - wage: money/s per employed citizen. The dominant income term through the mid game;
@@ -75,11 +87,15 @@ export const config = {
    *   from civic alone, +62% income at full saturation).
    * - civicScale: Σ(count·happiness) at which the civic bonus reaches 63% of civicCap.
    *   Lower = parks pay off sooner but saturate faster.
-   * - pollutionScale: multiplier on negative building happiness (factories, coal,
-   *   refineries). The penalty is linear and uncapped while the civic bonus saturates, so
-   *   the scale is what keeps a fully industrialised city from pinning happiness at the
-   *   floor: at 0.2 a 60-factory / 60-coal / 45-refinery city (about 90 minutes of greedy
-   *   play) loses ~1.3, roughly what parks, schools and hospitals give back.
+   * - pollutionScale / pollutionCap / pollutionCurve: smog. Σ(count·|negative happiness|)
+   *   × pollutionScale is the raw smog x; the penalty applied is the saturating curve
+   *   pollutionCap · (1 − exp(−x / pollutionCurve)) (resources.pollutionPenalty), so it
+   *   mirrors the civic bonus instead of racing it: a 60-factory / 60-coal / 45-refinery
+   *   city (x ≈ 1.3) loses ~0.73, and even the 120-factory / 130-coal / 110-refinery city
+   *   of a 12-hour session (x ≈ 2.4) loses at most ~0.9 — below the civic cap, so parks,
+   *   schools and hospitals always win the tug of war and happiness stays ≥ 1.9 at the end
+   *   of every cycle instead of pinning at the 0.25 floor. Raise pollutionCap toward
+   *   civicCap to make industry a real happiness problem again.
    * - unemploymentPenalty: happiness lost at 100% unemployment. 0.3 makes an all-housing
    *   city noticeably sluggish without stalling it.
    * - overcrowdPenalty: happiness lost per 100% overcrowding (pop/housing − 1). Only bites
@@ -114,21 +130,58 @@ export const config = {
   cost: { tierGrowth: { 1: 1.18, 2: 1.16, 3: 1.14, 4: 1.12 }, sellRefund: 0.5 },
 
   /**
-   * Prestige — "Found a new city".
-   * - threshold: totalEarned required to prestige. $1M lands around minute 20 and matches
-   *   the Millionaire Mayor milestone text and the Prefab Construction unlock.
-   * - exponent: legacy gained = floor((totalEarned / threshold)^exponent). 0.35 means the
-   *   second point needs $7.2M, the fifth $99M, the tenth $720M: pushing far past the
-   *   threshold has diminishing returns, so resetting on time is the right play, while a
-   *   run that waits for five points (what the bot does) lasts long enough to buy every
-   *   tier-4 building and the first rungs of the late upgrade ladder before the reset.
-   * - incomePerLegacy: permanent income multiplier per legacy point (+4% each, additive
-   *   inside one multiplier: ×(1 + 0.04·legacy)).
+   * Prestige — "Found a new city". The rules live in src/simulation/prestige.js; every
+   * knob it reads is set here explicitly (simulation/tuning.js carries matching fallbacks).
+   *
+   * Legacy has two sources: lifetime earnings are worth floor((lifetimeEarned /
+   * threshold)^exponent) points in total and a founding banks the difference to what is
+   * already held; on top of that a *mature* city (one that has banked `maturity` seconds
+   * of its own peak income) grows the bank by legacy · maturity · compoundPerMinute / 60.
+   * The first source paces the first hour, the second sets the steady-state cadence.
+   *
+   * - threshold: lifetime earnings worth the first point. $1M lands around minute 19 and
+   *   matches the Millionaire Mayor milestone text and the Prefab Construction unlock.
+   * - exponent: 0.35 (not the 0.5 sketched in DESIGN.md). Against lifetime earnings the
+   *   bot's "reset for 25% more legacy" habit needs each run to out-earn everything before
+   *   it by ×1.25^(1/exponent): ×1.56 at 0.5, ×1.9 at 0.35. At 0.5 the mid game (legacy
+   *   100–500, hours 1.5–2.5) collapses into 80-second cycles because a legacy-boosted
+   *   rebuild out-earns the small lifetime total in seconds, then the cadence has to climb
+   *   back to the compounding floor; at 0.35 the requirement stays ahead of the rebuild,
+   *   so cycles walk down 34 → 12 → 12 → 9.6 → 8.1 → 6.6 → 6.1 min and climb back gently
+   *   (never under 6) as the compounding term takes over. 0.3 flattens the descent too
+   *   (17 → 13 min from the second city on).
+   * - incomePerLegacy / legacyPower / legacyCap: income × (1 + 0.04·legacy)^1, bent toward
+   *   a soft ceiling of ×100. Linear (power 1) keeps the first points readable (+4% each,
+   *   +50% one-off `firstBonus` on the first founding); the cap is what keeps the legacy
+   *   bonus from compounding with the in-run Civic Bonds treadmill (the bonus tops out at
+   *   ×171 and 12-hour money stays near 1e15; without the cap both run away) while the
+   *   legacy bank itself keeps growing (~42k after 12 h — the number that keeps going up
+   *   is the bank, the bonus flattens).
+   * - firstBonus: the first founding is a jump a player can feel (×1.5 on top of the points).
+   * - compoundPerMinute: 0.025 → a mature city banks +2.5% of its legacy per minute of peak
+   *   income earned, so the bot's 25%-more rule is met ~10 minutes of *peak-income time*
+   *   into full stride. Because the Civic Bonds treadmill keeps raising the peak inside a
+   *   run, maturity accrues slower than wall time and the steady-state cycle measures
+   *   ~27–29 min; 0.02 stretches it to ~34 min, 0.03 would pull it under 25.
+   * - ripenSeconds: 0 — the earnings-based share is banked in full at any maturity.
    * - startMoneyPerLegacy: post-reset seed cash = startMoney · (1 + 0.1·legacy). Five
    *   points (one bot cycle) buy the opening cottages, shop and windmill outright; kept
    *   small so replays are quicker, not skipped.
+   * - minGain: the Found button arms only once at least 3 points are on offer, so it never
+   *   invites a worthless reset.
    */
-  prestige: { threshold: 1e6, exponent: 0.5, incomePerLegacy: 0.04, startMoneyPerLegacy: 0.1 },
+  prestige: {
+    threshold: 1e6,
+    exponent: 0.35,
+    incomePerLegacy: 0.04,
+    legacyPower: 1,
+    legacyCap: 100,
+    firstBonus: 0.5,
+    compoundPerMinute: 0.025,
+    ripenSeconds: 0,
+    startMoneyPerLegacy: 0.1,
+    minGain: 3,
+  },
 
   /**
    * Persistence and offline progress.
@@ -207,9 +260,15 @@ export const config = {
    * push.
    * Late ladder ($120k → $20M, ×1.6 per rung): the first rungs are bought at the end of the
    * first cycle; each later cycle's higher legacy income reaches one or two rungs deeper,
-   * so a city with 20+ legacy still has new proposals to fund. AI Governance and the
-   * Planetary Charter are the horizon: they unlock on $1B / $20B earned in a single run and
-   * are priced for the player who goes that deep.
+   * so a city with 20+ legacy still has new proposals to fund. AI Governance ($1e11) and
+   * the Planetary Charter ($3e12) are the last fixed-price rungs: they unlock on $1B / $20B
+   * earned in a single run and are priced so the bot funds them in cycle 13 (~2.4 h,
+   * legacy ~150) and cycle 17 (~3.4 h, legacy ~380) — at the old $5e7 / $5e8 both landed
+   * around cycle 9 and the fixed ladder was exhausted at three hours. Pricing them here
+   * also lifts the mid-session cadence floor by about a minute (see the header).
+   * Beyond them the upgrades module's horizon ladder (Civic Bonds I–XXX, Skyline Expansion
+   * I–V) is priced in seconds of the run's live income, not dollars, so it has no entry
+   * here; it is the per-cycle treadmill once every fixed rung is owned.
    * Legacy ladder: paid in money each run, priced for the first minutes of a replay.
    */
   upgrades: {
@@ -239,8 +298,8 @@ export const config = {
     'championship-season': { cost: 8e6 },
     'superconductor-grid': { cost: 1.3e7 },
     'arcology-gardens': { cost: 2e7 },
-    'ai-governance': { cost: 5e8 },
-    'planetary-charter': { cost: 2e10 },
+    'ai-governance': { cost: 1e11 },
+    'planetary-charter': { cost: 3e12 },
     // legacy
     'legacy-archive': { cost: 5000 },
     'founders-blueprints': { cost: 30000 },

@@ -4,8 +4,11 @@
 //   1. build a fresh mods bag and fold owned upgrades, latched milestones and prestige,
 //   2. computeDerived (resources) with the balance config,
 //   3. integrate money and population over dt, keep the stats honest,
-//   4. latch milestones and dashboard gates, keep the city log lively.
-// Actions: canPrestige, prestigeGain, prestige, tap, setSetting.
+//   4. latch milestones and dashboard gates, keep the city log lively,
+//   5. refresh derived.extra.prestige (legacy, gain, can, next targets) for the dashboard.
+// Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
+// prestige, tap, setting. The prestige rules live in prestige.js, the goals in
+// milestones.js, every config knob read here in tuning.js.
 import { registry, registerTickHandler, registerAction } from '../core/registry.js';
 import { addLog } from '../core/state.js';
 import { createMods, sanitizeMods } from '../core/mods.js';
@@ -79,7 +82,8 @@ const GATES = [
   {
     key: 'panel:prestige',
     log: 'The council whispers about founding a new city. Legacy panel added.',
-    check: (state) => state.stats.totalEarned >= prestigeConfig().threshold / 10,
+    // A mayor with a bank keeps the panel from the first second of every replay.
+    check: (state) => state.stats.totalEarned >= prestigeConfig().threshold / 10 || legacyOf(state) > 0,
   },
 ];
 
@@ -87,6 +91,7 @@ const GATES = [
 const BROWNOUT_ENTER = 0.95;
 const BROWNOUT_LOG_COOLDOWN = 20; // game seconds
 const PENDING_REFRESH_TICKS = 300; // safety net: resync milestone bookkeeping every 30 s
+const PRESTIGE_TARGETS_EVERY = 5; // unlockAt/nextAt bisections: twice a second is plenty
 
 // Precomputed unlock keys (registry is populated before simulation init).
 let powerBuildingKeys = [];
@@ -164,14 +169,27 @@ export function foldMods(state) {
   return mods;
 }
 
-// derived.extra.prestige: { legacy, gain, can, unlockAt, nextAt, mult, multAfter }, refreshed
-// every tick so the dashboard can show "next legacy point at $X" without calling actions.
+// derived.extra.prestige: { legacy, gain, can, minGain, unlockAt, nextAt, lifetimeEarned,
+// maturity, mult, multAfter } — the prestige situation for the dashboard ("next legacy point
+// at $X", a bar that fills toward unlockAt) without calling actions. The two earnings targets
+// are bisections, so they refresh every PRESTIGE_TARGETS_EVERY ticks; the rest every tick.
 function ensurePrestigeExtra(derived) {
   let x = derived.extra;
   if (!x || typeof x !== 'object') x = derived.extra = {};
   let p = x.prestige;
   if (!p || typeof p !== 'object') {
-    p = x.prestige = { legacy: 0, gain: 0, can: false, unlockAt: 0, nextAt: 0, mult: 1, multAfter: 1 };
+    p = x.prestige = {
+      legacy: 0,
+      gain: 0,
+      can: false,
+      minGain: 1,
+      unlockAt: 0,
+      nextAt: 0,
+      lifetimeEarned: 0,
+      maturity: 0,
+      mult: 1,
+      multAfter: 1,
+    };
   }
   return p;
 }
@@ -202,6 +220,8 @@ function integrate(state, derived, dt) {
     stats.totalEarned += earned;
     state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + earned;
   }
+  // Per-run best gross income: prestige measures a city's maturity against it.
+  if (!(gross <= stats.peakIncome)) stats.peakIncome = gross > 0 ? gross : 0;
 
   const growth = Number.isFinite(derived.popGrowth) ? derived.popGrowth : 0;
   let pop = res.pop + growth * dt;
@@ -285,7 +305,7 @@ export function simulate(state, derived, dt) {
   checkMilestones(state, derived);
   checkGates(state, derived);
   watchGrid(state, derived);
-  prestigeStatus(state, ensurePrestigeExtra(derived), config);
+  prestigeStatus(state, ensurePrestigeExtra(derived), config, state.tick % PRESTIGE_TARGETS_EVERY === 0);
 }
 
 // --- actions -------------------------------------------------------------------

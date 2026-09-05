@@ -158,6 +158,7 @@ test('late-game industrial city no longer pins happiness at the floor', () => {
   near(d.extra.unemployment, 0, 'employed');
   near(d.extra.overcrowd, 0, 'housed');
   near(d.extra.pollution, 1 - Math.exp(-2.386), 'saturated pollution');
+  near(d.extra.pollutionRaw, 2.386, 'raw (unsaturated) smog exposed for the UI');
   assert.ok(d.extra.pollution < 1.0, 'pollution below cap');
   assert.ok(d.happiness > 1.0, `happiness ${d.happiness} > 1`);
   // pollutionCap 0 restores the DESIGN.md linear form.

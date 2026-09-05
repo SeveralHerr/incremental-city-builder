@@ -1,24 +1,23 @@
 // upgrades module — registers every upgrade definition with the core registry.
 // DOM-free (runs in Node for the economy sim). Never throws from init.
-import { registerUpgrade } from '../core/registry.js';
+import { registerUpgrade, registerTickHandler } from '../core/registry.js';
 import { reportError } from '../core/safe.js';
-import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS } from './data.js';
+import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, BOND_RUNGS, horizonCost } from './data.js';
 
-export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS };
+export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, BOND_RUNGS, horizonCost };
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 
 // Balance overrides live in src/balance/config.js as `config.upgrades[id]`, either a bare
-// number (cost) or `{ cost }`. The balance module may not exist yet, so load it lazily
-// and tolerate its absence.
-async function loadUpgradeOverrides() {
+// number (cost) or `{ cost, tier?, category? }`. The balance module may not exist yet, so
+// load it lazily and tolerate its absence.
+async function loadBalanceConfig() {
   const candidates = ['../balance/config.js', '../balance/index.js'];
   for (const path of candidates) {
     try {
       const mod = await import(path);
       const cfg = mod?.config ?? mod?.default;
-      const overrides = cfg?.upgrades;
-      if (overrides && typeof overrides === 'object') return overrides;
+      if (cfg && typeof cfg === 'object') return cfg;
     } catch {
       // module missing or broken: fall through to the next candidate / defaults
     }
@@ -46,24 +45,48 @@ export function sortedUpgrades(defs = UPGRADES) {
     .map(([d]) => d);
 }
 
+// ---------- earnings-priced rungs ----------
+//
+// Rungs carrying `priced: { seconds, floor }` (the horizon ladder in data.js) cost
+// `max(floor, seconds × current income)` — see data.js for why they are not priced in
+// dollars. The registry stores a plain `cost` number that api/ui/bot read, so a tick
+// handler (priority −10, i.e. before simulate, reading last tick's derived.income) rewrites
+// it every tick; the pure rule is `horizonCost` in data.js. At 35 rungs that is a handful
+// of multiplies per tick.
+
 export async function init(game) {
-  let overrides = {};
+  let cfg = {};
   try {
-    overrides = await loadUpgradeOverrides();
+    cfg = await loadBalanceConfig();
   } catch (e) {
     reportError('upgrades:config', e);
   }
+  const overrides = cfg.upgrades && typeof cfg.upgrades === 'object' ? cfg.upgrades : {};
+  const priced = []; // registered definitions whose cost tracks the run's income
   let registered = 0;
   for (const raw of UPGRADES) {
     try {
       const def = applyOverride(raw, overrides[raw.id]);
       if (def.desc.length > 70) reportError('upgrades:lint', new Error(`${def.id}: desc longer than 70 chars`));
       if (!CATEGORY_IDS.has(def.category)) reportError('upgrades:lint', new Error(`${def.id}: unknown category ${def.category}`));
-      if (registerUpgrade(def)) registered++;
+      const reg = registerUpgrade(def);
+      if (reg) {
+        registered++;
+        if (reg.priced && typeof reg.priced === 'object') priced.push(reg);
+      }
     } catch (e) {
       reportError('upgrades:' + raw.id, e);
     }
   }
+
+  const syncPricedCosts = (derived) => {
+    for (const def of priced) def.cost = horizonCost(def, derived);
+  };
+  if (priced.length) {
+    registerTickHandler('upgrades:income-prices', (state, derived) => syncPricedCosts(derived), -10);
+    if (game && game.derived) syncPricedCosts(game.derived);
+  }
+
   if (game && typeof game === 'object') {
     game.upgradeCategories = UPGRADE_CATEGORIES;
     game.upgradeMilestoneIds = MILESTONE_IDS;

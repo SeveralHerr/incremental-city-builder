@@ -68,14 +68,25 @@ let minRatio = 1;
 let bestIncome = 0;
 let maxMoney = 0;
 let tensionHits = 0; // samples where the priciest unlocked, unowned money item sits at 3–50× cash
+let tensionNextHits = 0; // samples where the cheapest unlocked, unowned money item above cash sits at 3–50× cash
 const t0 = Date.now();
 
-function nextBigThing() {
-  // Most expensive unlocked, unowned money-priced item (upgrade or next building unit).
+// The money-priced frontier: the priciest unlocked, unowned item (upgrade or next building
+// unit) and the cheapest one priced above the current cash.
+function frontierPrices(cash) {
   let max = 0;
-  for (const u of api.upgrades()) if (u.unlocked && !u.owned && u.currency !== 'legacy' && u.cost > max) max = u.cost;
-  for (const b of api.buildings()) if (b.unlocked && b.cost > max) max = b.cost;
-  return max;
+  let next = Infinity;
+  for (const u of api.upgrades()) {
+    if (!u.unlocked || u.owned || u.currency === 'legacy') continue;
+    if (u.cost > max) max = u.cost;
+    if (u.cost > cash && u.cost < next) next = u.cost;
+  }
+  for (const b of api.buildings()) {
+    if (!b.unlocked) continue;
+    if (b.cost > max) max = b.cost;
+    if (b.cost > cash && b.cost < next) next = b.cost;
+  }
+  return { max, next: Number.isFinite(next) ? next : 0 };
 }
 
 for (let t = 0; t < TICKS; t += BOT_EVERY) {
@@ -99,9 +110,11 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
 
   if (state.tick % SAMPLE < BOT_EVERY) {
     const bcount = Object.values(state.buildings).reduce((a, b) => a + b, 0);
-    const big = nextBigThing();
+    const { max: big, next } = frontierPrices(state.res.money);
     const ratio = state.res.money > 0 ? big / state.res.money : Infinity;
+    const nextRatio = state.res.money > 0 && next > 0 ? next / state.res.money : Infinity;
     if (ratio >= 3 && ratio <= 50) tensionHits++;
+    if (nextRatio >= 3 && nextRatio <= 50) tensionNextHits++;
     samples.push({
       tick: state.tick,
       min: +(state.stats.playtime / 60).toFixed(1),
@@ -119,7 +132,9 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
       legacySpent: state.prestige.spent || 0,
       prestiges: state.stats.prestiges,
       nextBig: big,
+      nextStep: next,
       tension: Number.isFinite(ratio) ? +ratio.toFixed(2) : null,
+      tensionNext: Number.isFinite(nextRatio) ? +nextRatio.toFixed(2) : null,
     });
     for (const [k, v] of Object.entries(state.res)) {
       if (!Number.isFinite(v)) issues.push({ tick: state.tick, kind: 'overflow', msg: `${k} is ${v}` });
@@ -160,9 +175,13 @@ if (hours >= 6 && (underPowerShare < 0.03 || underPowerShare > 0.2)) issues.push
 if (minRatio < 0.6) issues.push({ tick: 0, kind: 'power', msg: `power ratio floor ${minRatio.toFixed(2)} < 0.6` });
 const happyDips = cycles.filter((c) => c.minHappiness !== null && c.minHappiness < 1).length;
 if (hours >= 6 && cycles.length >= 4 && happyDips < cycles.length * 0.5) issues.push({ tick: 0, kind: 'happiness', msg: `happiness dipped below 1.0 in only ${happyDips}/${cycles.length} cities (contract ≥ 50%)` });
-// Income should grow roughly 10x per game-hour early on; flag flat stretches within a run.
+// Income should grow roughly 10x per game-hour early on; flag flat stretches within the
+// first city. Later cities are excluded on purpose: a replay re-buys its whole ladder in the
+// first three minutes and then earns its way toward the next founding on a near-flat income,
+// which is the cadence contract's 15–45 minute plateau, not a stall (stalls are caught above).
 for (let i = 10; i < samples.length; i++) {
   const a = samples[i - 10], b = samples[i];
+  if (b.prestiges !== 0) break;
   if (b.prestiges === a.prestiges && b.income > 0 && b.income / Math.max(a.income, 1e-9) < 1.05 && b.min - a.min >= 10) {
     issues.push({ tick: b.tick, kind: 'flat', msg: `income grew <5% over 10 min (${a.income.toExponential(2)} -> ${b.income.toExponential(2)})` });
     i += 10;
@@ -201,6 +220,7 @@ const report = {
   metrics: {
     cycles: cycles.map((c) => c.minutes),
     tensionShare: +tensionShare.toFixed(3),
+    tensionNextShare: +(samples.length ? tensionNextHits / samples.length : 0).toFixed(3),
     underPowerShare: +underPowerShare.toFixed(4),
     brownoutShare: +(brownoutTicks / TICKS).toFixed(4),
     minPowerRatio: +minRatio.toFixed(3),
@@ -225,7 +245,7 @@ console.log(
   )} prestiges=${state.stats.prestiges} legacy=${state.prestige.legacy} (spent ${state.prestige.spent || 0}) issues=${issues.length} errors=${report.errors.length}`
 );
 console.log(`[sim] cycles(min): ${report.metrics.cycles.map((m) => m.toFixed(1)).join(' ')}`);
-console.log(`[sim] tension=${(tensionShare * 100).toFixed(0)}% underPower=${(underPowerShare * 100).toFixed(1)}% minRatio=${minRatio.toFixed(2)} happyDips=${happyDips}/${cycles.length} emptyLate=${emptyCycles.length}`);
+console.log(`[sim] tension=${(tensionShare * 100).toFixed(0)}% (next-step ${(report.metrics.tensionNextShare * 100).toFixed(0)}%) underPower=${(underPowerShare * 100).toFixed(1)}% minRatio=${minRatio.toFixed(2)} happyDips=${happyDips}/${cycles.length} emptyLate=${emptyCycles.length}`);
 for (const i of issues.slice(0, 14)) console.log(`  - [${i.kind}] t=${i.tick} ${i.msg}`);
 console.log(`[sim] wrote ${OUT}`);
 process.exit(report.pass ? 0 : 1);

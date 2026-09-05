@@ -305,8 +305,17 @@ export const CHARTER_MAX_COST = 2e5;
 // A perk opens once the bank holds half its price (the whole bank, spent or not).
 export const CHARTER_GATE = 0.5;
 
-const charterTier = (cost) => (cost <= 25 ? 1 : cost <= 600 ? 2 : cost <= 12000 ? 3 : 4);
+export const charterTier = (cost) => (cost <= 25 ? 1 : cost <= 600 ? 2 : cost <= 12000 ? 3 : 4);
 const charterUnlock = (cost) => hasLegacy(cost * CHARTER_GATE);
+
+// Unlock rule + hint + progress mirror + tier for a perk priced at `def.cost` legacy. Like
+// `frontierUnlock`, this is the one place the rule lives: index.js rebuilds it after a
+// config override so a config-priced perk still opens at half *its* price.
+export function charterUnlockFor(def) {
+  const cost = def && Number.isFinite(def.cost) && def.cost > 0 ? def.cost : CHARTER_MIN_COST;
+  const fn = charterUnlock(cost);
+  return { unlock: fn, unlockHint: fn.hint.charAt(0).toUpperCase() + fn.hint.slice(1), unlockAt: { legacy: cost * CHARTER_GATE }, tier: charterTier(cost) };
+}
 
 const charter = (def) => ({
   ...def,

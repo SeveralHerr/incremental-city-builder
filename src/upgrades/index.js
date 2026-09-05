@@ -4,9 +4,9 @@ import { registerUpgrade, registerTickHandler, registerAction, registry } from '
 import { reportError } from '../core/safe.js';
 import { on, emit } from '../core/events.js';
 import { addLog } from '../core/state.js';
-import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, keptUpgradeIds, isPermanent } from './data.js';
+import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, charterUnlockFor, keptUpgradeIds, isPermanent } from './data.js';
 
-export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, keptUpgradeIds, isPermanent };
+export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, CHARTER_GATE, frontierUnlock, charterUnlockFor, keptUpgradeIds, isPermanent };
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 const DESC_MAX = 70;
@@ -33,13 +33,17 @@ export function applyOverride(def, override) {
   const out = { ...def };
   const cost = typeof override === 'number' ? override : override.cost;
   if (Number.isFinite(cost) && cost > 0) out.cost = cost;
+  // Rungs whose gate is a share of their own price (frontier: earned ≥ cost/4; charter
+  // perks: legacy ≥ cost/2) get a new gate, hint, progress mirror — and, for a perk, the
+  // tier bracket — with the new price. The rules live in data.js so this stays two lines.
+  if (out.cost !== def.cost) {
+    if (out.earnedGate) Object.assign(out, frontierUnlock(out));
+    else if (out.currency === 'legacy') Object.assign(out, charterUnlockFor(out));
+  }
   if (typeof override === 'object') {
     if (Number.isInteger(override.tier) && override.tier > 0) out.tier = override.tier;
     if (typeof override.category === 'string' && CATEGORY_IDS.has(override.category)) out.category = override.category;
   }
-  // Frontier rungs gate on a share of their own price: a new price means a new gate, hint
-  // and progress mirror (the rule lives in data.js so this stays one line).
-  if (out.earnedGate && out.cost !== def.cost) Object.assign(out, frontierUnlock(out));
   return out;
 }
 

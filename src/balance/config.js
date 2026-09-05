@@ -5,40 +5,47 @@
 //
 // Pacing (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out logs/sim-balance.json`,
 // 12 game-hours; measured on the 2026-09-05 tree with the earnings-only legacy rule, the
-// charter perks and the earnings-gated frontier ladder — re-measure before quoting).
+// twelve charter perks and the earnings-gated frontier ladder — re-measure before quoting).
 //   Opening: cottage 0 s · two windmills, three more cottages and the Welcome Sign by 4 s ·
-//   first corner shop 48 s (the shop now gets the first $50; Zoning Reform follows at
-//   ~105 s) · first brownout ~2.3 min · 1k citizens 11.3 min · Legacy panel at $1M earned
-//   (~12 min) · Found button arms at $10M (~19 min) · first founding 41.2 min with 5 legacy.
-//   Power: the first city runs under full power for a third of its 41 minutes (tier-4
-//   draw is 3× the catalogue's, see buildings below); the session as a whole sits under
-//   power 3.3% of the time and under 0.9 for 1.6%, never below the 0.6 floor.
-//   Cycles (minutes): 41 → 14 → 13 → floor 3.6–5 at cities 4–7 → 6.5 · 8.9 · 9.1 · 10 ·
-//   14 · 15 · 13.5 · 18 · 24 · 32 · 40 · 49 (city 19) · 38 · 44 · 25 · 33 · 14 · 18 ·
-//   10 · 12 · 12 · 14.5 · 19 · 24 · 29 · 39 · 19 · 26 — 35 foundings, every rise ≤ ×1.35,
-//   last completed cycle 26 min. Legacy 7.4e5 (3.3e5 spent on all twelve charter perks),
-//   money peak 2.4e17, income 2.7e15/s at the end. The sawtooth is the content: a charter
-//   perk lands every 2–3 cities (legacy grows ×1.4 per founding, perks sit ×2.5–4 apart) and
-//   a money rung in most of the cities between (see upgrades), each dropping the next cycle
-//   by a third to a half; without content a cycle is ×1.43 longer than the one before it.
-//   Happiness dips under 1.0 in 22 of 35 cities (the first minute of every replay: an
+//   first corner shop 50 s (the shop gets the first $50; Zoning Reform follows at ~105 s) ·
+//   first brownout ~2.3 min · 1k citizens 12 min · Legacy panel at $924k earned (~12 min) ·
+//   Found button arms at $9.24M (~19 min) · first founding 41.5 min with 5 legacy.
+//   Power: the first city runs under full power for a third of its 41 minutes (tier-4 draw
+//   is 3× the catalogue's, see buildings below); the session as a whole sits under power
+//   3.9% of the time, never below the 0.6 floor.
+//   Cycles (minutes): 42 · 16 · 18 · 5.4 · 6.6 · 7.3 · 9.7 · 14 · 17 · 22 · 24 · 25 · 31 · 33 · 29 · 32 · 28 · 36 · 45 · 22 · 18 · 22 · 15 · 18 · 24 · 25 · 29 · 31 · 42 · 20 · 9.4
+//   — 31 foundings, the last completed cycle 9.4 min. Legacy 1.93e+05 (127,476 spent on all
+//   twelve charter perks), money peak 8.4e+16, income 1.2e+15/s at the end. A charter
+//   perk lands every 2–3 cities and a money rung in each city between (see the placement
+//   table in the upgrades block); the shape is a 5–7 minute floor at cities 3–5, a ramp to
+//   ~20 min by city 11, then a 15–45 minute plateau.
+//   Happiness dips under 1.0 in 19 of 31 cities (the first minute of every replay: an
 //   all-housing spree with 40% of the citizens jobless and the grid dark for a step).
-//   Coverage: every building; 65 of 66 upgrades — the Galactic Charter ($1e18) is the one
-//   rung the 12 h bot never funds (see upgrades below).
-//   Late cycles 11, 14, 24, 29, 32 and 34 introduce nothing new: the ladder has 25 late
-//   items for 30 late cities and four of those cities are "dead" for placement — their peak
-//   cash barely exceeds the previous city's, so no price lands in them (see upgrades).
+//   Coverage: every building and every one of the 66 upgrades.
 //
-// How the numbers were chosen. The verify/sim bot never saves: it buys the best-scoring
-// *affordable* item every two seconds, so every unlocked building's price gets pushed up to
-// a common "frontier" and the bot's cash on hand hovers at that frontier (about two seconds
-// of income plus whatever twenty-five buys per step could not spend). A rung is bought in
-// the first city whose peak cash exceeds its price, so the late ladder below is placed by
-// *cycle*: each price sits between two consecutive cities' peak cash, geometric middle where
-// the window allows. The whole schedule is a fixed budget: legacy grows ×1.4 per founding
-// (minGainShare) and must stay ≤ 1e6 at 12 h, which caps the session at 35 foundings; any
-// content that lands earlier shortens the cycles and spends foundings, content that lands
-// later lengthens them. legacyPower is the fine lever for where the last perk falls.
+// How the late game is placed. The verify/sim bot never saves: it buys the best-scoring
+// *affordable* item every two seconds, so the cash it holds tracks a "frontier" — a few
+// seconds of income in a mature city, spiking during the first three minutes of a replay
+// when every re-bought rung lands before building prices have caught up. A money rung is
+// bought in the first city whose cash reaches its price, so the late ladder is placed by
+// *city*: each price sits between two consecutive cities' spree cash (see the placement
+// table in the upgrades block). The bot's legacy sequence is deterministic (5 points, then
+// +40% per founding: 5, 10, 15, 21, 30, 42, 59, 83, 117, 164, 230, 322, 451, 632, 885,
+// 1239, 1735, 2429, 3401, 4762, 6667, 9335, 13070, 18300, 25629, 35888, 50265, 70375,
+// 98568, 138005 after founding 30), so a charter perk lands in a fixed city set by its
+// price alone: the ×2.5 ladder below signs one every 2–3 cities (1, 3, 6, 8, 11, 14, 17,
+// 19, 22, 25, 28, 30). Three structural facts drive every number:
+//   • a replay's income is set inside its first three minutes (seed cash × legacy bonus
+//     buys the whole core ladder back at once); after that a mature city's income grows
+//     only logarithmically with spend, so a cycle's length is essentially "earnings
+//     required / income after the spree";
+//   • each founding must out-earn the whole past by 1.4^(1/exponent) − 1, while the legacy
+//     bonus grows 1.4^legacyPower per founding; with no new content a cycle is ~×1.4
+//     longer than the one before it, so every city needs a never-before-bought item that
+//     is worth ≥ ×1.05 income to keep the rise under the contract's ×1.35;
+//   • a rung priced above the previous city's late-cycle cash lands mid-city and mostly
+//     lifts the *next* city, so the money city right after a perk city is the unboosted
+//     one and carries the strongest rung of its block.
 //
 // Consumers: resources.computeDerived (economy/pop/power/happiness), buildings (cost +
 // per-building overrides), upgrades (cost overrides), simulation (prestige, milestones,
@@ -60,7 +67,7 @@ export const config = {
    *   the next tick) two windmills at $40 + $80, three more cottages and the $25 Welcome
    *   Sign, leaving ~$0. The windmill's cost growth of 2 is what stops the opening spree
    *   at two windmills (the third would be $160, more than the whole treasury); $350 buys
-   *   that third windmill at 2 s and puts the first shop at 150 s instead of 48.
+   *   that third windmill at 2 s and puts the first shop at 150 s instead of 50.
    * - taxPerPop: money/s per citizen, employed or not. Makes residential alone trickle
    *   income so a player who over-builds housing is never fully stalled.
    * - wage: money/s per employed citizen. The dominant income term through the mid game;
@@ -113,19 +120,19 @@ export const config = {
    *   20 minutes down toward 1.65 at the founding unless civic buildings keep coming. The
    *   cap stays under civicCap so a fully civic city always nets positive; the simulation's
    *   clean-air legacy tiers are what let a veteran's megacity run at 2.3+.
-   * - unemploymentPenalty: happiness lost at 100% unemployment. 0.4 (was 0.3): a veteran
-   *   city opens with a spree of cottages before its first shop, and for that minute two in
-   *   five citizens are jobless. Together with the brownout penalty below this is what makes
-   *   a replay dip under 1.0 happiness (22 of 35 cities); with either knob at its old value
-   *   the +0.55 of flat happiness a veteran carries (kept civic rungs, the Civic Charter,
-   *   the legacy tiers) hides it and only 9 of 35 cities ever dip. The first city's opening
-   *   minute reads 0.6 instead of 0.7.
+   * - unemploymentPenalty: happiness lost at 100% unemployment. 0.4: a veteran city opens
+   *   with a spree of cottages before its first shop, and for that minute two in five
+   *   citizens are jobless. Together with the brownout penalty below this is what makes a
+   *   replay dip under 1.0 happiness (19 of the first 33 cities); at 0.3 the +0.55 of flat
+   *   happiness a veteran carries (kept civic rungs, the Civic Charter, the legacy tiers)
+   *   hides it and only a quarter of the cities ever dip. The first city's opening minute
+   *   reads 0.36 (the dark first tick) instead of 0.7.
    * - overcrowdPenalty: happiness lost per 100% overcrowding (pop/housing − 1). Only bites
    *   briefly after selling housing.
-   * - brownoutPenalty: happiness lost at a full blackout (powerRatio 0). 0.6 (was 0.3):
-   *   stacks with the direct powerRatio scaling, so brownouts hurt growth twice — build
-   *   power. At the 0.6 floor a blackout costs 0.24 happiness, which is what a replay's
-   *   first dark step and the first city's tier-4 brownouts need to be felt.
+   * - brownoutPenalty: happiness lost at a full blackout (powerRatio 0). 0.6: stacks with
+   *   the direct powerRatio scaling, so brownouts hurt growth twice — build power. At the
+   *   0.6 floor a blackout costs 0.24 happiness, which is what a replay's first dark step
+   *   and the first city's tier-4 brownouts need to be felt.
    * - min/max: clamp range for the final happiness value.
    */
   happiness: {
@@ -147,7 +154,11 @@ export const config = {
    *   ×5 after 10) so money is pushed up the ladder instead of into a 60th cottage;
    *   tier-4 grows slowest (1.12) so late-game spam stays viable. Civic buildings override
    *   with 1.18–1.2 to keep happiness from being a cheap stat dump, and the windmill with
-   *   2 (see buildings.windmill).
+   *   2 (see buildings.windmill). Measured: the relative income a mature city gains from
+   *   its remaining cash is ln(spend ratio) / ln(cash / base cost) whatever the growth
+   *   base, so tier growth shapes the first city's ladder, not the late-cycle plateau
+   *   (1.08 for tier 4 doubled the founding count and broke the legacy ceiling without
+   *   changing a replay's income curve).
    * - sellRefund: fraction of the *current* price returned on sell. 0.5 makes reshuffling
    *   possible but never free.
    */
@@ -162,54 +173,62 @@ export const config = {
    * already held. Legacy is also a currency (charter perks, upgrades module): spending
    * never lowers the income bonus, which always uses the full bank.
    *
-   * - threshold: lifetime earnings worth the first point, $10M (~19 min into the first
+   * - threshold: lifetime earnings worth the first point, $9.24M (~19 min into the first
    *   city). With minGain 1 that is the moment the Found button arms, so the counter the
    *   panel shows is the real bar. The bot holds out for 5 points, $250M, and founds at
-   *   ~41 min. The threshold sets the scale of the whole cadence, not just the first
-   *   founding: every later run must out-earn the whole past by a fixed factor (below), so
-   *   a lower threshold makes every cycle shorter in the same proportion.
-   * - exponent: 0.5. The bot resets for +40% legacy (minGainShare), which at exponent e
-   *   means each run out-earns everything before it by 1.4^(1/e) − 1: ×0.96 at 0.5. The
-   *   income bonus meanwhile grows ×1.4^legacyPower per founding, so with no new content a
-   *   cycle is ×1.43 longer than the one before it; a charter perk or a money rung landing
-   *   in a city drops its cycle by a third to a half. Higher exponents (0.55–0.6 with the
-   *   threshold rescaled to keep the first founding at ~40 min) make the mid game collapse
-   *   into 2–3 minute replays and 40–70 foundings, which breaks the legacy ceiling; 0.45
-   *   gives 30-minute cycles by the tenth city. The exponent also maps the legacy ceiling
-   *   onto money: legacy 1e6 ↔ $1e19 lifetime earnings at 0.5.
-   * - incomePerLegacy / legacyPower: income × (1 + 0.04·legacy)^0.575, uncapped, always a
-   *   root of the linear term (the simulation clamps legacyPower to ≤ 0.6). ×2.6 at 100
-   *   points, ×36 at 10k, ×290 at the 7.4e5 a 12 h session banks. legacyPower is the fine
-   *   lever for the end of the session: the contract needs every charter perk bought (the
-   *   Imperial Charter wants 3.3e5 legacy, the 33rd founding) and legacy ≤ 1e6 (breached by
-   *   the 36th), a three-founding window. At 0.575 the 33rd founding lands at 660 min and
-   *   the 35th at 704; at 0.57 the session ends one founding short of the last perk with a
-   *   41-minute final cycle, at 0.6 the last two perks arrive with 7 foundings to spare and
-   *   legacy overshoots. Any ~10% change in late income by another module moves the end of
-   *   the session by about one founding — re-measure after retuning perks or the frontier.
-   * - firstBonus: 0.3 — the first founding is a jump a player can feel (×1.3 on top of the
-   *   points' ×1.1), while cities 2–3 still take 13–14 minutes to out-earn the first.
+   *   41.5 min. threshold and exponent are tied: 5 points must cost $250M
+   *   (threshold = 2.5e8 / 5^(1/exponent)) or the first founding leaves the 30–45 minute
+   *   window.
+   * - exponent: 0.488. The bot resets for +40% legacy (minGainShare), which at exponent e
+   *   means each run out-earns everything before it by 1.4^(1/e) − 1: ×0.99 at 0.488.
+   *   Against the ×1.22 the legacy bonus grows per founding and the ~×1.15 a bigger
+   *   frontier adds, a city with nothing new is ~×1.37 longer than the one before it —
+   *   just under the contract's ×1.35 + 30 s, which is what lets the Energy Charter city
+   *   (a perk that does nothing for a replay's income) follow the Stellar Engine city
+   *   without a violation. The 0.012 below 0.5 is also the gentle tilt that turns a flat
+   *   12–25 minute plateau (30 foundings by hour eight, then five empty replays) into one
+   *   that reaches the 30th founding in the last hour; 0.485 leaves that step at ×1.37 +
+   *   9 s over the line, 0.49 and above speed the tail into 32–35 foundings with empty
+   *   cities at the end. 0.46 and below made the mid game 40–60 minute cities; 0.55
+   *   collapsed everything into 3–6 minute replays and blew through the legacy ceiling
+   *   (52 foundings).
+   * - incomePerLegacy / legacyPower: income × (1 + 0.01·legacy)^0.6 (the contract's
+   *   maximum root), uncapped: ×1.6 at 100 points, ×16 at 10k, ×75 at the 1.4e5 a 12 h
+   *   session banks. The knee of the curve (k·legacy ≈ 1, at 100 points ≈ city 8) is
+   *   the lever that shapes the early replays: below it the bonus barely grows per
+   *   founding and the 4–7 minute floor cities lengthen into the plateau by themselves;
+   *   above it the bonus grows ×1.4^0.6 per founding. At the old 0.04 the knee sat at 25
+   *   points (city 4) and the session ran to 43 foundings; at 0.005 the ramp is steeper
+   *   than the ×1.35 the contract allows. The first founding's jump is firstBonus, not
+   *   the points: (1 + 0.05)^0.6 is ×1.03.
+   * - firstBonus: 0.23 — the first founding is still a jump a player can feel (×1.23 on
+   *   top of the points' ×1.03), and cities 2–3 take 16–18 minutes to out-earn the first.
+   *   This is the one knob that scales every replay's income and nothing in the first
+   *   city, so it sets *when* the session's 30th founding lands without moving a single
+   *   cycle ratio: 0.3 puts it at hour 11 with two empty replays after it, 0.2 leaves the
+   *   Imperial Charter unsigned at 12 h; 0.22–0.23 land it at 704–710 min with the 31st
+   *   founding in the last ten minutes. A ±1.5% change in late income by another module
+   *   moves that edge — re-measure after retuning perks or the frontier.
    * - startMoneyPerLegacy: post-reset seed cash = startMoney · (1 + 0.05·legacy). Five
    *   points (one bot cycle) buy the opening cottages and windmills outright; kept small
    *   so replays are quicker, not skipped.
    * - minGain: 1 — the Found button arms at the first point (see threshold).
    * - minGainShare: 0.4 — once a bank exists the button also waits for 40% of it, so a
    *   1,000-point mayor is offered a reset at +400, never at +3. This is the knob that sets
-   *   the whole session's shape: legacy grows ×1.4 per founding, so 35 foundings take a
-   *   5-point mayor to 7.4e5 and the 36th would pass the 1e6 ceiling; the charter ladder
-   *   (3 … 2e5, ×2.5–4 apart) therefore lands a perk every 2–3 cities. 0.25 (the bot's own
-   *   floor) needs 55 foundings to reach the top perk and lets replays fall to the
-   *   one-minute pop-growth floor; 0.5–0.6 reaches it in 25–29 but every cycle then carries
-   *   too much content and collapses the same way.
+   *   the session's legacy sequence (×1.4 per founding: 1.38e5 points after 30 foundings,
+   *   the ceiling of 1e6 at the 37th) and therefore where every charter perk lands; the
+   *   ×2.5 perk ladder needs 30 foundings to reach the Imperial Charter, which the 12 h
+   *   session delivers in its last hour. 0.45–0.5 reach the top perk in fewer foundings
+   *   but leave the 16 late money rungs short of the cities they must fill.
    * - prestigePanelShare: 0.1 — the Legacy panel opens once this run has earned
-   *   threshold × 0.1 = $1M (~12 min); a mayor with a bank keeps it from the first second.
+   *   threshold × 0.1 = $924k (~12 min); a mayor with a bank keeps it from the first second.
    */
   prestige: {
-    threshold: 1e7,
-    exponent: 0.5,
-    incomePerLegacy: 0.04,
-    legacyPower: 0.575,
-    firstBonus: 0.3,
+    threshold: 9.24e6,
+    exponent: 0.488,
+    incomePerLegacy: 0.01,
+    legacyPower: 0.6,
+    firstBonus: 0.23,
     startMoneyPerLegacy: 0.05,
     minGain: 1,
     minGainShare: 0.4,
@@ -246,13 +265,14 @@ export const config = {
    * catalogue figure — arcology 7,500 MW, financial district 12,000, tech campus 13,500,
    * stadium 4,500 — so a nuclear plant (12,000 MW, $400k) carries one or two of them rather
    * than three to five, and the Power tab keeps asking for money through the end of the
-   * first city and the first replays. Measured: under-power share 3.3% of the 12 h session
-   * (1.6% with the catalogue draw, all of it in the first three cities), a third of the
-   * first city's 41 minutes, never below the 0.6 floor; the bot's grid multipliers (Grid
-   * and Energy Charters, Orbital Solar, the Dyson Swarm) retire the constraint from city
-   * ~8 on. ×4 lifts the share to 3.8% but pushes the first founding past 45 minutes; the
-   * tier-3 draw was left alone because doubling it put the first city under power for 40%
-   * of its length and moved the first founding to 47 minutes.
+   * first city and the first replays. Measured: under-power share 3.9% of the 12 h session
+   * (1.6% with the catalogue draw), a third of the first city's 41 minutes, never below the
+   * 0.6 floor. From city ~6 on the grid multipliers (Grid and Energy Charters, Orbital
+   * Solar, Breeder Reactors, the Dyson Swarm, Superconductor Grid — ×70 together) retire
+   * the constraint: halving nuclear and fusion output or doubling the tier-4 draw changes
+   * nothing after city 3 and only pushes the first founding past 45 minutes. ×4 draw lifts
+   * the share to 3.8% but costs the same; the tier-3 draw was left alone because doubling
+   * it put the first city under power for 40% of its length.
    */
   buildings: {
     // Windmills: $40 keeps the first one in reach right after the opening cottage, 4 MW
@@ -298,23 +318,24 @@ export const config = {
 
     // Fusion is the prestige trophy (unlocks at legacy ≥ 1 or 100k citizens). Priced above
     // the nuclear plant it replaces so it is a real purchase in the second city; upkeep
-    // trimmed so a young post-prestige city that buys one early is not bled dry.
+    // trimmed so a young post-prestige city that buys one early is not bled dry. The bot
+    // keeps buying nuclear plants for the grid ($33/MW against fusion's $67), so the
+    // reactor is a trophy rather than the late-game generator.
     fusion: { baseCost: 4e6, upkeep: 1500 },
   },
 
   /**
-   * Per-upgrade overrides, keyed by upgrade id: `{ cost }`. Merged by the upgrades module
-   * before registering (charter perks would take legacy points here; none are overridden —
-   * the module's 3 … 200,000 ladder is what the cadence above is tuned to).
+   * Per-upgrade overrides, keyed by upgrade id: `{ cost }` (legacy points for charter
+   * perks, money otherwise). Merged by the upgrades module before registering.
    *
-   * The ladder is 66 rungs: 48 core ($25 → $1.4T), 6 frontier ($2.5T → $1e18, earnings
+   * The ladder is 66 rungs: 48 core ($25 → $7.6T), 6 frontier ($18B → $1.2Qa, earnings
    * gated at a quarter of the price), 6 Legacy (unlocked by legacy points, paid in money)
    * and 12 Charter perks (paid in legacy points, permanent).
    *
    * Early ladder ($50 → $1.5k): priced at the frontier of minutes 1–8 so the first upgrade
    * lands around a minute in and a new one appears every minute or two after that. Zoning
    * Reform is $75 (not $50) so the first $50 the opening spree leaves goes to the corner
-   * shop at 48 s — at $50 the reform took it and the shop waited until 86 s.
+   * shop at 50 s — at $50 the reform took it and the shop waited until 86 s.
    * Mid ladder ($3.5k → $800k): the upgrades module's own values already sit at the
    * 9–35 minute frontier; only High-Density Zoning is pulled forward to help the 1k-pop
    * push, and the three rungs the module re-spaced (Grid Substations, Night Shift, the
@@ -322,32 +343,47 @@ export const config = {
    * Smart Grid is the one early rung priced off its natural frontier: $250 (not $400) so
    * the −20% demand lands at ~4 min, right as the two starter windmills run out.
    *
-   * Late ladder ($120k → $1.4T) and frontier ($2.5T → $1e18): placed by *city*, not by a
-   * fixed ratio. The first four rungs land at the end of the first city and in the second;
-   * from Megastructures on, each price sits between the peak cash of two consecutive
-   * replays so that one never-before-bought rung lands in each city that has no charter
-   * perk landing in it (perks land in cities 4, 7, 10, 13, 17, 20, 23, 26, 28, 31 and 34):
-   *   Megastructures 5 · Breeder Reactors 8 · Standing Orders 9 · Orbital Solar 10 ·
-   *   Championship Season 11 · Algorithmic Trading 14 · Arcology Gardens 16 · Superconductor
-   *   Grid 18 · AI Governance 19 · Planetary Charter 21 · Dyson Swarm 22 · Quantum Exchange
-   *   24 · Mass-Driver Port 27 · Ringworld District 29 · Stellar Engine 32.
-   * Four cities cannot be targeted at all — 12, 15, 25 and 30 (their peak cash is within
-   * 10% of the previous city's, because they follow a perk and are short) — and with 15
-   * money rungs for 20 open cities, cities 12, 15, 25, 30, 33 and 35 introduce nothing new.
-   * The frontier keeps its earnings gate (a quarter of the price) but not the module's ×10
-   * spacing: ×10 apart the six rungs would land in cities 24, 27, 29, 33 and beyond the
-   * session, three of them on top of a perk. The Galactic Charter is left at $1e18: with
-   * money capped at 1e18 it cannot be bought before the twelve hours end (the last city
-   * peaks at $2.4e17), and a reachable price (≤ $1.5e17) lands its ×3 income in the last
-   * two cities, where a 12-minute replay follows and the 36th founding passes the legacy
-   * ceiling.
-   * Placement is what sets the cadence: a strong rung (AI Governance, Planetary Charter,
-   * Quantum Exchange) moved one city earlier shortens every later cycle and adds a founding
-   * to the session; the mid-game rungs were left where the module's ×3.3 ladder put them
-   * and only the second item of each doubled city was moved later.
+   * Charter perks: a pure ×2.5 ladder from 3 to 76,488 points (the module's own ladder
+   * ends at 200,000, which the bot's sequence only reaches at the 33rd founding, a city
+   * the 12 h session does not have). With the sequence in the header they are signed in
+   * cities 1 (Homestead), 3 (Mint), 6 (Grid), 8 (Guild), 11 (Merchant), 14 (Settlers),
+   * 17 (Masons), 19 (Civic), 22 (Treasury), 25 (Skyline), 28 (Energy) and 30 (Imperial),
+   * and a perk always opens at half its price, so the next clause is on the card a city
+   * or two before it can be afforded.
+   *
+   * Late ladder, placed by *city*. Every city from the 5th on gets exactly one
+   * never-before-bought money rung (the perk cities get their perk instead), and the
+   * strongest rungs sit in the money city right after a perk city (see the header for
+   * why): a rung landing mid-city mostly lifts the city after it, so the city after a
+   * perk is the one with no boost of its own. Charter cities in brackets:
+   *   5 Championship Season · [6 Grid] · 7 Standing Orders · [8 Guild] · 9 Robotic
+   *   Assembly · 10 Megastructures · [11 Merchant] · 12 Planetary Charter · 13 Dyson
+   *   Swarm · [14 Settlers] · 15 AI Governance · 16 Orbital Solar · [17 Masons] · 18
+   *   Quantum Exchange · [19 Civic] · 20 Algorithmic Trading · 21 Arcology Gardens ·
+   *   [22 Treasury] · 23 Mass-Driver Port · 24 Superconductor Grid · [25 Skyline] · 26
+   *   Ringworld District · 27 Stellar Engine · [28 Energy] · 29 Galactic Charter ·
+   *   [30 Imperial].
+   * The second city takes the rest of the tier-4 core (Breeder Reactors at $20M, the
+   * Legacy rungs, the fusion reactor and the stadium); Institutional Memory stays in the
+   * third city on purpose — its founding re-grant of the tier-1/2 ladder is what turns
+   * cities 3–5 into four-minute replays (without it they take seven).
+   * Measured strengths (how much shorter the city after the rung is, over the ~×1.4 a
+   * city with nothing new grows): Quantum Exchange ×2.8, Galactic Charter ×2.4, Planetary
+   * Charter ×1.7, AI Governance ×1.45, Algorithmic Trading ×1.2, Robotic Assembly and
+   * Breeder Reactors ×1.15; the power rungs (Orbital Solar, Dyson Swarm, Superconductor
+   * Grid, Stellar Engine) and the housing rungs (Megastructures, Arcology Gardens,
+   * Ringworld District) are ×1.0–1.1 in a replay, whose grid and housing are never the
+   * constraint — they are variety, not pace, and are placed in the cities that can
+   * afford a weak rung.
+   * The frontier keeps its canonical order (Dyson < Quantum < Mass-Driver < Ringworld <
+   * Stellar < Galactic) and its earnings gate (a quarter of the price) but not the
+   * module's ×10 spacing or its 1e13 floor: ×10 apart the six rungs would land three to a
+   * city and leave a dozen cities empty, and the Galactic Charter at $1e18 (the money
+   * ceiling) is a rung the bot's cash never reaches. At $1.2Qa it is the 29th city's
+   * purchase, one city before the Imperial Charter.
    * Legacy ladder: paid in money each run, priced for the first minutes of a replay;
-   * Standing Orders ($500M) waits for the ninth city so the founding memory arrives as a
-   * step, not a freebie.
+   * Standing Orders ($220M) waits for the seventh city so the founding memory arrives as
+   * a step, not a freebie.
    */
   upgrades: {
     // early
@@ -366,35 +402,49 @@ export const config = {
     'high-density': { cost: 6000 },
     'night-shift': { cost: 15000 },
     'container-port': { cost: 45000 },
-    // late (placed by city — see above)
+    // tier-4 core, first city
     'prefab-construction': { cost: 120000 },
     'skyway-frames': { cost: 400000 },
     'digital-city-hall': { cost: 1.3e6 },
     'preventive-care': { cost: 4e6 },
-    'robotic-assembly': { cost: 1.3e7 },
-    megastructures: { cost: 1.15e8 },
-    'breeder-reactors': { cost: 2.5e8 },
-    'orbital-solar': { cost: 1.3e9 },
-    'championship-season': { cost: 2.5e9 },
-    'algorithmic-trading': { cost: 2.4e10 },
-    'arcology-gardens': { cost: 5.5e10 },
-    'superconductor-grid': { cost: 1.7e11 },
-    'ai-governance': { cost: 3.3e11 },
-    'planetary-charter': { cost: 1.4e12 },
-    // frontier (earnings gate follows the price: a quarter of it)
-    'dyson-swarm': { cost: 2.5e12 },
-    'quantum-exchange': { cost: 1.5e13 },
-    'mass-driver-port': { cost: 7e14 },
-    'ringworld-district': { cost: 2.5e15 },
-    'stellar-engine': { cost: 9e15 },
-    'galactic-charter': { cost: 1e18 },
-    // legacy
+    // second city
+    'breeder-reactors': { cost: 2e7 },
+    // late ladder, one rung per city (placement table above)
+    'championship-season': { cost: 6.8e7 },
+    'robotic-assembly': { cost: 7.4e8 },
+    megastructures: { cost: 2.1e9 },
+    'planetary-charter': { cost: 7.8e9 },
+    'dyson-swarm': { cost: 1.8e10 },
+    'ai-governance': { cost: 4.5e10 },
+    'orbital-solar': { cost: 1.3e11 },
+    'quantum-exchange': { cost: 5.2e11 },
+    'algorithmic-trading': { cost: 3.6e12 },
+    'arcology-gardens': { cost: 7.6e12 },
+    'mass-driver-port': { cost: 6.5e13 },
+    'superconductor-grid': { cost: 9.1e13 },
+    'ringworld-district': { cost: 3.6e14 },
+    'stellar-engine': { cost: 5.6e14 },
+    'galactic-charter': { cost: 1.2e15 },
+    // legacy (money-priced, unlocked by points)
     'legacy-archive': { cost: 5000 },
     'founders-blueprints': { cost: 30000 },
     'veteran-planners': { cost: 80000 },
     'dynasty-ledger': { cost: 150000 },
     'institutional-memory': { cost: 1e6 },
-    'standing-orders': { cost: 5e8 },
+    'standing-orders': { cost: 2.2e8 },
+    // charter perks (legacy points): ×2.5 apart (whole points, never under), 3 → 76,488
+    'charter-homestead': { cost: 3 },
+    'charter-mint': { cost: 8 },
+    'charter-grid': { cost: 20 },
+    'charter-guild': { cost: 50 },
+    'charter-merchant': { cost: 125 },
+    'charter-settlers': { cost: 313 },
+    'charter-masons': { cost: 783 },
+    'charter-civic': { cost: 1958 },
+    'charter-treasury': { cost: 4895 },
+    'charter-skyline': { cost: 12238 },
+    'charter-energy': { cost: 30595 },
+    'charter-imperial': { cost: 76488 },
   },
 
   /**

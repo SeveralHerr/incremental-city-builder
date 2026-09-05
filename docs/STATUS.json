@@ -1,6 +1,6 @@
 {
-  "updated": "2026-09-05T03:47:40.789Z",
-  "iteration": 3,
+  "updated": "2026-09-05T15:41:05.910Z",
+  "iteration": 4,
   "passThreshold": 8.5,
   "modules": {
     "core": {
@@ -156,7 +156,7 @@
   "verify": {
     "pass": true,
     "errors": 0,
-    "tickAvgMs": 0.017166666785875955,
+    "tickAvgMs": 0.008500000238418579,
     "fps": 60.3
   },
   "history": [
@@ -188,6 +188,21 @@
         "ui": 8.5,
         "save": 9
       }
+    },
+    {
+      "iteration": 4,
+      "timestamp": "2026-09-05T15:41:05.910Z",
+      "scores": {
+        "core": 8.7,
+        "balance": 7.5,
+        "resources": 8.8,
+        "buildings": 8.5,
+        "upgrades": 8.5,
+        "simulation": 8.4,
+        "ui": 8.5,
+        "save": 9
+      },
+      "note": "late-game rebuild: earnings-only legacy, charter perks (legacy currency), earnings-gated frontier ladder, UI charter section, balance retune; sim PASS, contract FAIL only on tension 19% (<30%), all tests pass"
     }
   ]
 }

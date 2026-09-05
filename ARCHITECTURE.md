@@ -128,7 +128,9 @@ UI renders on its own rAF, reading `state`/`derived`; never inside tick handlers
 - Power: `powerRatio = demand>0 ? min(1, cap/demand) : 1`. Brownout scales income & growth.
 - Happiness: base 1 + civic buildings − overcrowding/unemployment penalties.
 - Costs: exponential `baseCost * growth^count` (growth 1.12–1.18 by tier).
-- Prestige ("Found a new city"): legacy = floor((totalEarned/1e6)^0.5); each legacy +5% income.
+- Prestige ("Found a new city"): legacy total = floor((lifetimeEarned/threshold)^exponent), a founding
+  banks the difference; income × (1 + k·legacy)^p (p ≤ 0.6). Legacy is also a currency: charter
+  perks (`currency: 'legacy'`) debit `prestige.spent`; the bonus always uses the full bank.
 - Milestones (`unlocks`) expand the dashboard: power panel at first plant, upgrades at $500, etc.
 
 ## Verification loop

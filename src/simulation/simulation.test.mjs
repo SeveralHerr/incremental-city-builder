@@ -96,7 +96,9 @@ test('the shipped config resolves knob for knob (no hand-mirrored numbers in thi
 });
 
 test('tuning falls back to DEFAULTS for a missing or malformed config and clamps every knob', () => {
-  for (const cfg of [undefined, null, {}, { prestige: 'nope', economy: 7 }, { prestige: { threshold: -1, exponent: 'x', minGain: NaN } }]) {
+  // `undefined` would select the default parameter (the shipped config); null is the
+  // "no config at all" case the resolver treats as an empty section.
+  for (const cfg of [null, {}, { prestige: 'nope', economy: 7 }, { prestige: { threshold: -1, exponent: 'x', minGain: NaN } }]) {
     const p = prestigeTuning(cfg);
     assert.equal(p.threshold, DEFAULTS.prestige.threshold);
     assert.equal(p.exponent, DEFAULTS.prestige.exponent);

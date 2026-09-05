@@ -378,22 +378,33 @@ test('applyOverride: bare number, object, junk; a frontier override moves its ga
   assert.equal(applyOverride(perk, { cost: 10 }).currency, 'legacy', 'currency survives an override');
 });
 
-test('config overrides resolve to the documented costs and name only known rungs', () => {
+test('config overrides resolve to the config costs, name only known rungs, and move the self-priced gates', () => {
+  // src/balance/config.js owns the shipped ladder; the literals in data.js are the module's
+  // own self-consistent defaults, so this pins the *resolution*, never the numbers.
   const overrides = config.upgrades || {};
-  const resolved = (id) => applyOverride(byId(id), overrides[id]).cost;
-  assert.equal(resolved('zoning-reform'), 50);
-  assert.equal(resolved('grant-writing'), 150);
-  assert.equal(resolved('high-density'), 6000);
-  assert.equal(resolved('prefab-construction'), 120000);
-  assert.equal(resolved('ai-governance'), 1e11);
-  assert.equal(resolved('planetary-charter'), 3e12);
-  assert.equal(resolved('dynasty-ledger'), 150000);
+  const resolved = (id) => applyOverride(byId(id), overrides[id]);
   for (const id of Object.keys(overrides)) assert.ok(byId(id), `config overrides unknown upgrade ${id}`);
-  // The data.js literals match the config ladder, so the file reads true on its own.
   for (const [id, o] of Object.entries(overrides)) {
     const cost = typeof o === 'number' ? o : o && o.cost;
-    if (Number.isFinite(cost)) assert.equal(byId(id).cost, cost, `${id}: data.js says ${byId(id).cost}, config ${cost}`);
+    if (!Number.isFinite(cost)) continue;
+    const def = resolved(id);
+    assert.equal(def.cost, cost, `${id}: resolves to the config price`);
+    if (def.earnedGate) {
+      assert.deepEqual(def.unlockAt, { earned: cost * FRONTIER_GATE }, `${id}: frontier gate follows the config price`);
+      assert.equal(def.unlock({ stats: { totalEarned: cost * FRONTIER_GATE } }), true);
+      assert.equal(def.unlock({ stats: { totalEarned: cost * FRONTIER_GATE - 1 } }), false);
+    } else if (def.currency === 'legacy') {
+      const gate = cost * CHARTER_GATE;
+      assert.deepEqual(def.unlockAt, { legacy: gate }, `${id}: charter gate follows the config price`);
+      assert.equal(def.unlock({ prestige: { legacy: Math.ceil(gate) } }), true);
+      assert.equal(def.unlock({ prestige: { legacy: Math.ceil(gate) - 1 } }), false);
+      assert.equal(def.tier, cost <= 25 ? 1 : cost <= 600 ? 2 : cost <= 12000 ? 3 : 4, `${id}: tier bracket follows the config price`);
+      assert.match(def.unlockHint, /legacy|Found a new city/);
+    }
   }
+  // Untouched rungs keep the data.js literal.
+  const untouched = UPGRADES.find((d) => !(d.id in overrides));
+  assert.equal(resolved(untouched.id).cost, untouched.cost);
 });
 
 test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkeep −15%) or adds ≥0.1 happiness', () => {
@@ -498,7 +509,9 @@ test('init registers the ladder, sortedUpgrades reads the live registry, grants 
   for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i].cost >= sorted[i - 1].cost, 'ascending');
   assert.equal(sorted[0].id, 'charter-homestead', 'three legacy points sort first');
   assert.equal(sorted[sorted.length - 1].id, 'galactic-charter');
-  assert.equal(sorted.find((d) => d.id === 'ai-governance').cost, 1e11);
+  const cfgCost = (id) => config.upgrades?.[id]?.cost ?? byId(id).cost;
+  assert.equal(sorted.find((d) => d.id === 'ai-governance').cost, cfgCost('ai-governance'), 'the registry carries the config price');
+  assert.equal(registry.upgrades.get('charter-imperial').unlockAt.legacy, cfgCost('charter-imperial') * CHARTER_GATE, 'a config-priced perk opens at half its config price');
   assert.equal(registry.upgrades.get('charter-mint').currency, 'legacy');
   assert.ok(!registry.tickHandlers.some((t) => t.name === 'upgrades:income-prices'), 'no price-rewriting handler');
   assert.ok(registry.tickHandlers.some((t) => t.name === 'upgrades:memory'), 'memory handler registered');

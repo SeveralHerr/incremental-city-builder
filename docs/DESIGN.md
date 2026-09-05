@@ -187,12 +187,35 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
   from 3 to ~2e5 legacy, strong effects (+50–100 % income/housing/power, −15 % cost, +growth, etc.),
   `unlock: legacy ≥ cost/2`. Replace the wall-clock Civic Bond ladder with an **earnings-gated dollar
   ladder**: fixed costs ×10 per rung from 1e13 to 1e18, `unlock: state.stats.totalEarned ≥ cost/4`,
-  with real names/effects (not "Bond XXIII"). Keep every knob in `config.upgrades`.
-- *simulation*: earnings-only legacy (principle 2); `prestigePanelShare` knob; legacy tiers up to 1e6;
-  `derived.extra.prestige.available`; refreshed header docs with measured numbers; tests updated.
+  with real names/effects (not "Bond XXIII"). Keep every knob in `config.upgrades`. The ×10 / 1e13–1e18
+  spacing and the 3–200,000 perk ladder are the module's *defaults* (data.js); the shipped prices are
+  config-owned and both self-priced gates (frontier cost/4, charter cost/2) and the perk's tier
+  bracket follow the config price (`applyOverride` → `frontierUnlock` / `charterUnlockFor`).
+- *simulation*: earnings-only legacy (principle 2); `prestigePanelShare` knob; legacy tiers up to 1e6
+  (ids `legacy-5/15/50/150/500/1500/5000/15k/50k/150k/400k/1m`); `derived.extra.prestige` =
+  `{ legacy, spent, available, gain, can, minGain, unlockAt, nextAt, mult, multAfter, lifetimeEarned,
+  startMoneyAfter, nextTierName, nextTierAt }` refreshed every tick; the `prestige` action keeps
+  `prestige.spent` through the reset and the `'prestige'` event carries
+  `{ gain, legacy, spent, available, mult }`; refreshed header docs with measured numbers; tests updated.
 - *balance*: retune to the cadence target; late demand outpaces supply (financial powerUse 2000,
-  arcology 1200, fusion ≤ 3e5 MW); first shop < 60 s; keep every building worth buying.
+  arcology 1200, fusion ≤ 3e5 MW); first shop < 60 s; keep every building worth buying. Frontier and
+  charter prices live in `config.upgrades` (shipped: frontier $1.8e10 → $1.2e15 in canonical order,
+  perks ◆ 3 → ◆ 76,488 at ×2.5, placed so the bot's 30th founding signs the Imperial Charter).
 - *ui*: charter perks rendered in the Legacy panel (cost chip `◆ N`, available `◆ have / total`),
   `synergy.text` on building cards, unlock-toast dedupe across foundings, toasts never over Buy buttons.
 - *tools/economy-sim.mjs* (integrator): reports `metrics.cycles, tensionShare, underPowerShare,
-  happinessDipCities, emptyLateCycles, neverPurchased`; `contractPass` = all of the above.
+  happinessDipCities, emptyLateCycles, neverPurchased`; `contractPass` = all of the above. The
+  in-run "flat income" check applies to the first city only (a replay re-buys its ladder in three
+  minutes and then earns toward the next founding on a near-flat income — that is the plateau the
+  cadence target asks for, not a stall). `tensionNextShare` (cheapest unlocked-unowned item above
+  cash) is reported for reference; the contract metric stays the priciest-item reading.
+
+**Measured (2026-09-05 integration, `logs/sim-gauntlet.json`):** 31 foundings, cycles 41.5 · 16.3 ·
+17.6 · 5.4 · 6.6 · 7.3 · 9.7 … 44.5 max · last 9.4 min (max ratio 1.40 within the +0.5 min slack);
+0 empty late cycles; every building and all 66 upgrades bought; under-power 3.9 %, floor 0.60;
+happiness dips in 19/31 cities; legacy 193,474 (127,476 spent), money peak 8.4e16; 0 errors.
+**Open: purchase tension reads 19 % against the 30 % target.** Structural under the never-saving
+bot: its cash is ~5 s of income, so a frontier rung that opens at cost/4 earned sits > 50× cash
+until the replay whose seed spree can buy it, and each core rung used as late content is > 50× for
+the cities before its purchase; ~40 balance iterations plateaued at 19–20 %. Closing it needs a bot
+that saves toward an unlocked rung (core), which would re-pace every cycle above.

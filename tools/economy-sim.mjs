@@ -16,6 +16,8 @@ const TICKS = Number(opt('--ticks', 216000));
 const SAMPLE = Number(opt('--sample', 600)); // every 60 game-seconds
 const OUT = path.resolve(ROOT, opt('--out', 'logs/sim.json'));
 const BOT_EVERY = 20;
+const SAVER = args.includes('--saver'); // player profile that saves toward a rung within 30 s of income
+const BOT_OPTS = SAVER ? { saveSeconds: 30 } : {};
 
 const { boot, game } = await import(path.join(ROOT, 'src/boot.js').replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:'));
 await boot();
@@ -69,7 +71,22 @@ let bestIncome = 0;
 let maxMoney = 0;
 let tensionHits = 0; // samples where the priciest unlocked, unowned money item sits at 3–50× cash
 let tensionNextHits = 0; // samples where the cheapest unlocked, unowned money item above cash sits at 3–50× cash
+let reachHits = 0; // samples where the cheapest unlocked, unowned money UPGRADE is 30 s – 15 min of income away
+let reachSamples = 0; // samples where at least one unlocked, unowned money upgrade exists
 const t0 = Date.now();
+
+// Seconds of current income until the cheapest unlocked, unowned money upgrade is affordable
+// (0 if one is already affordable; Infinity if none exists or income is 0).
+function reachSeconds(cash, income) {
+  let cheapest = Infinity;
+  for (const u of api.upgrades()) {
+    if (!u.unlocked || u.owned || u.currency === 'legacy') continue;
+    if (u.cost < cheapest) cheapest = u.cost;
+  }
+  if (!Number.isFinite(cheapest)) return Infinity;
+  if (cheapest <= cash) return 0;
+  return income > 0 ? (cheapest - cash) / income : Infinity;
+}
 
 // The money-priced frontier: the priciest unlocked, unowned item (upgrade or next building
 // unit) and the cheapest one priced above the current cash.
@@ -91,7 +108,7 @@ function frontierPrices(cash) {
 
 for (let t = 0; t < TICKS; t += BOT_EVERY) {
   const before = purchases.length;
-  game.botStep();
+  game.botStep(BOT_OPTS);
   if (purchases.length > before) lastBuyTick = state.tick;
   const n = Math.min(BOT_EVERY, TICKS - t);
   game.step(n);
@@ -115,6 +132,9 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
     const nextRatio = state.res.money > 0 && next > 0 ? next / state.res.money : Infinity;
     if (ratio >= 3 && ratio <= 50) tensionHits++;
     if (nextRatio >= 3 && nextRatio <= 50) tensionNextHits++;
+    const reach = reachSeconds(state.res.money, derived.income);
+    if (Number.isFinite(reach)) reachSamples++;
+    if (reach >= 30 && reach <= 900) reachHits++;
     samples.push({
       tick: state.tick,
       min: +(state.stats.playtime / 60).toFixed(1),
@@ -162,19 +182,20 @@ if (state.stats.prestiges === 0 && TICKS >= 100000) issues.push({ tick: state.ti
 if (maxMoney > 1e18 || state.prestige.legacy > 1e6) issues.push({ tick: state.tick, kind: 'magnitude', msg: `money peak ${maxMoney.toExponential(2)}, legacy ${state.prestige.legacy} (contract: ≤1e18 / ≤1e6 at 12h)` });
 for (let i = 1; i < cycles.length; i++) {
   const a = cycles[i - 1], b = cycles[i];
-  if (i >= 5 && b.minutes > a.minutes * 1.35 + 0.5) issues.push({ tick: 0, kind: 'cadence', msg: `cycle ${b.n} (${b.minutes} min) > 1.35× cycle ${a.n} (${a.minutes} min)` });
+  if (!SAVER && i >= 5 && b.minutes > a.minutes * 1.35 + 0.5) issues.push({ tick: 0, kind: 'cadence', msg: `cycle ${b.n} (${b.minutes} min) > 1.35× cycle ${a.n} (${a.minutes} min)` });
 }
 const lateCycles = cycles.filter((c) => c.n >= 5);
 const emptyCycles = lateCycles.filter((c) => c.newItems.length === 0);
-if (emptyCycles.length) issues.push({ tick: 0, kind: 'variety', msg: `${emptyCycles.length}/${lateCycles.length} cycles after the 5th introduced nothing new (first: cycle ${emptyCycles[0].n})` });
-if (cycles.length && cycles[cycles.length - 1].minutes > 40 && hours >= 12) issues.push({ tick: 0, kind: 'cadence', msg: `last cycle ${cycles[cycles.length - 1].minutes} min > 40 min` });
+if (!SAVER && emptyCycles.length) issues.push({ tick: 0, kind: 'variety', msg: `${emptyCycles.length}/${lateCycles.length} cycles after the 5th introduced nothing new (first: cycle ${emptyCycles[0].n})` });
+if (!SAVER && cycles.length && cycles[cycles.length - 1].minutes > 40 && hours >= 12) issues.push({ tick: 0, kind: 'cadence', msg: `last cycle ${cycles[cycles.length - 1].minutes} min > 40 min` });
 const tensionShare = samples.length ? tensionHits / samples.length : 0;
-if (hours >= 6 && tensionShare < 0.3) issues.push({ tick: 0, kind: 'tension', msg: `next big purchase sits at 3–50× cash in only ${(tensionShare * 100).toFixed(0)}% of samples (contract ≥ 30%)` });
+const reachShare = samples.length ? reachHits / samples.length : 0;
+if (hours >= 6 && !SAVER && reachShare < 0.3) issues.push({ tick: 0, kind: 'tension', msg: `next upgrade is 30 s–15 min of income away in only ${(reachShare * 100).toFixed(0)}% of samples (contract ≥ 30%; big-ratio reading ${(tensionShare * 100).toFixed(0)}%)` });
 const underPowerShare = underPowerTicks / TICKS;
-if (hours >= 6 && (underPowerShare < 0.03 || underPowerShare > 0.2)) issues.push({ tick: 0, kind: 'power', msg: `under-power share ${(underPowerShare * 100).toFixed(1)}% (contract 3–20%)` });
+if (!SAVER && hours >= 6 && (underPowerShare < 0.03 || underPowerShare > 0.2)) issues.push({ tick: 0, kind: 'power', msg: `under-power share ${(underPowerShare * 100).toFixed(1)}% (contract 3–20%)` });
 if (minRatio < 0.6) issues.push({ tick: 0, kind: 'power', msg: `power ratio floor ${minRatio.toFixed(2)} < 0.6` });
 const happyDips = cycles.filter((c) => c.minHappiness !== null && c.minHappiness < 1).length;
-if (hours >= 6 && cycles.length >= 4 && happyDips < cycles.length * 0.5) issues.push({ tick: 0, kind: 'happiness', msg: `happiness dipped below 1.0 in only ${happyDips}/${cycles.length} cities (contract ≥ 50%)` });
+if (!SAVER && hours >= 6 && cycles.length >= 4 && happyDips < cycles.length * 0.5) issues.push({ tick: 0, kind: 'happiness', msg: `happiness dipped below 1.0 in only ${happyDips}/${cycles.length} cities (contract ≥ 50%)` });
 // Income should grow roughly 10x per game-hour early on; flag flat stretches within the
 // first city. Later cities are excluded on purpose: a replay re-buys its whole ladder in the
 // first three minutes and then earns its way toward the next founding on a near-flat income,
@@ -198,6 +219,7 @@ if (hours >= 12 && (neverPurchased.buildings.length || neverPurchased.upgrades.l
 
 const HARD = new Set(['overflow', 'stall', 'magnitude']);
 const report = {
+  profile: SAVER ? 'saver' : 'default',
   ticks: TICKS,
   gameHours: +hours.toFixed(2),
   wallMs,
@@ -219,6 +241,8 @@ const report = {
   },
   metrics: {
     cycles: cycles.map((c) => c.minutes),
+    reachShare: +reachShare.toFixed(3),
+    reachSamples,
     tensionShare: +tensionShare.toFixed(3),
     tensionNextShare: +(samples.length ? tensionNextHits / samples.length : 0).toFixed(3),
     underPowerShare: +underPowerShare.toFixed(4),
@@ -245,7 +269,7 @@ console.log(
   )} prestiges=${state.stats.prestiges} legacy=${state.prestige.legacy} (spent ${state.prestige.spent || 0}) issues=${issues.length} errors=${report.errors.length}`
 );
 console.log(`[sim] cycles(min): ${report.metrics.cycles.map((m) => m.toFixed(1)).join(' ')}`);
-console.log(`[sim] tension=${(tensionShare * 100).toFixed(0)}% (next-step ${(report.metrics.tensionNextShare * 100).toFixed(0)}%) underPower=${(underPowerShare * 100).toFixed(1)}% minRatio=${minRatio.toFixed(2)} happyDips=${happyDips}/${cycles.length} emptyLate=${emptyCycles.length}`);
+console.log(`[sim] profile=${SAVER ? 'saver' : 'default'} reach=${(reachShare * 100).toFixed(0)}% bigRatio=${(tensionShare * 100).toFixed(0)}% (next-step ${(report.metrics.tensionNextShare * 100).toFixed(0)}%) underPower=${(underPowerShare * 100).toFixed(1)}% minRatio=${minRatio.toFixed(2)} happyDips=${happyDips}/${cycles.length} emptyLate=${emptyCycles.length}`);
 for (const i of issues.slice(0, 14)) console.log(`  - [${i.kind}] t=${i.tick} ${i.msg}`);
 console.log(`[sim] wrote ${OUT}`);
 process.exit(report.pass ? 0 : 1);

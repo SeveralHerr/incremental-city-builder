@@ -177,7 +177,12 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
 - first founding 30–45 min; cycles fall to a floor of 4–8 min by founding 6–10, then rise gently:
   each cycle ≤ 1.35× the previous, last cycle ≤ 40 min; ~18–35 foundings in 12 h.
 - every founding after the 5th introduces ≥ 1 never-before-bought item (perk, rung, building, tier).
-- **purchase tension:** the priciest unlocked-unowned money item sits at 3–50× cash in ≥ 30 % of samples.
+- **purchase tension:** in ≥ 30 % of samples the cheapest unlocked-unowned money *upgrade* is
+  30 s – 15 min of current income away (`(cost − cash) / income`): a visible target worth waiting
+  for, neither instant nor hopeless. (Measured independently of how the bot hoards; the sim also
+  reports the old "priciest item at 3–50× cash" ratio for reference.) The sim's `--saver` flag
+  runs a bot that saves for a rung within 30 s of income; both profiles must stay free of
+  overflow/stall/magnitude issues, only the default profile is held to the cadence numbers.
 - **power matters:** under-power (ratio < 1) share 3–20 % of the session, floor ≥ 0.6.
 - **civic matters:** happiness dips below 1.0 in ≥ 50 % of cities.
 - every building and upgrade bought at least once in 12 h; zero `overflow/stall/magnitude` issues.

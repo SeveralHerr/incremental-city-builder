@@ -11,10 +11,14 @@
 //     bank exists at least `prestigeScale` of it (a 100-point mayor waits for 25 more), so
 //     late cycles go deep enough to exercise the tier-4 ladder instead of resetting every
 //     minute on a fixed 5-point rule.
+//   - (opt-in, saveSeconds > 0) it saves toward the next money upgrade it can see: once the cheapest unlocked, unowned
+//     rung above its cash is within `saveSeconds` of income, it stops spending on buildings
+//     that are not fixing a bottleneck (power, happiness) until the rung is bought, the way a
+//     player eyes a card that is "almost there" instead of spamming cottages.
 import { state, derived } from './state.js';
 import { api } from './api.js';
 
-export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, tapBelow = 1 } = {}) {
+export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, tapBelow = 1, saveSeconds = 0 } = {}) {
   let buys = 0;
   let bought = true;
   // Grid delta from purchases made this step (derived lags by one tick).
@@ -38,19 +42,25 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
 
     // Upgrades: cheapest affordable, unlocked. Legacy-priced charter perks first (they are a
     // separate currency and always worth taking), then money upgrades.
-    const allUps = api.upgrades().filter((u) => u.unlocked && !u.owned && u.affordable);
-    const perks = allUps.filter((u) => u.currency === 'legacy').sort((a, b) => a.cost - b.cost);
+    const open = api.upgrades().filter((u) => u.unlocked && !u.owned);
+    const perks = open.filter((u) => u.currency === 'legacy' && u.affordable).sort((a, b) => a.cost - b.cost);
     if (perks.length && api.buyUpgrade(perks[0].id)) {
       buys++;
       bought = true;
       continue;
     }
-    const ups = allUps.filter((u) => u.currency !== 'legacy').sort((a, b) => a.cost - b.cost);
+    const ups = open.filter((u) => u.currency !== 'legacy' && u.affordable).sort((a, b) => a.cost - b.cost);
     if (ups.length && api.buyUpgrade(ups[0].id)) {
       buys++;
       bought = true;
       continue;
     }
+    // Saving: cheapest money rung above cash that is within reach.
+    let saving = false;
+    const income = Number.isFinite(derived.income) ? Math.max(0, derived.income) : 0;
+    let nextRung = Infinity;
+    for (const u of open) if (u.currency !== 'legacy' && u.cost > state.res.money && u.cost < nextRung) nextRung = u.cost;
+    if (saveSeconds > 0 && Number.isFinite(nextRung) && nextRung <= state.res.money + income * saveSeconds) saving = true;
 
     const unlocked = api.buildings().filter((b) => b.unlocked);
     const demand = derived.powerDemand + pendingDemand;
@@ -66,6 +76,10 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
       // power until it is bought.
       const fix = unlocked.filter((b) => b.powerGen > 0).sort((a, b) => a.cost - b.cost)[0];
       if (!fix || !fix.affordable) bs = bs.filter((b) => !(b.powerUse > 0));
+    }
+    if (saving) {
+      // Only bottleneck fixes while saving for the rung.
+      bs = bs.filter((b) => (needPower && b.powerGen > 0) || (needHappy && b.happiness > 0));
     }
     if (!bs.length) break;
 

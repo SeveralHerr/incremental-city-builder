@@ -6,13 +6,16 @@
 //   3. integrate money and population over dt, keep the stats honest,
 //   4. refresh derived.extra.prestige (legacy, spent, available, gain, can, targets) for the
 //      dashboard and for the goals that read it,
-//   5. latch milestones and dashboard gates, keep the city log lively.
+//   5. latch milestones and dashboard gates, keep the city log lively; a milestone that
+//      carries a reward is folded into derived on the tick it latches (one extra fold,
+//      only then), so the dashboard, a tap and the next goal read the reward at once.
 // Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
 // prestige, tap, setting, brownout ({ active, ratio } on both grid transitions). The
 // prestige rules live in prestige.js, the goals in milestones.js, every config knob read
 // here in tuning.js (resolved once and shared, so the tick allocates nothing but the mods
-// bag; measured 0.008 ms average / 0.10 ms p99 per tick in the browser over a 12 h bot
-// session, ~48k ticks/s in the Node sim including the bot and the other modules' handlers).
+// bag; measured 0.010 ms average / 0.10 ms p99 / 0.20 ms max per tick in the browser (verify,
+// logs/fix-simulation.json), ~40k ticks/s in the Node sim including the bot and the other
+// modules' handlers).
 //
 // The mods bag carries two fields core's createMods does not: `inflow` (resources scales
 // baseInflow by it) and `tap` (seconds of output a tap pays, ×1 by default; the tap ladder
@@ -312,10 +315,12 @@ function justHappened(ms, state) {
   return true;
 }
 
+// Returns true when a milestone with a mods reward latched this call (the caller re-folds).
 function checkMilestones(state, derived) {
   if (pendingDirty) refreshPending(state);
   const unlocks = state.unlocks;
   const replayStart = state.stats.prestiges > 0 && state.time < CARRY_OVER_WINDOW;
+  let rewarded = false;
   for (let i = 0; i < pendingCount; i++) {
     const ms = MILESTONES[pending[i]];
     if (unlocks[ms.key]) {
@@ -337,10 +342,12 @@ function checkMilestones(state, derived) {
     unlocks[ms.key] = true;
     dropPending(i);
     i--;
+    if (ms.reward) rewarded = true;
     if (replayStart && !justHappened(ms, state)) continue;
     addLog(ms.rewardText ? `Milestone: ${ms.name} (${ms.rewardText})` : `Milestone: ${ms.name}`, 'milestone');
     emit('milestone', ms);
   }
+  return rewarded;
 }
 
 // Gates re-latch every run (unlocks reset on founding) so the UI can keep reading them, but
@@ -393,7 +400,12 @@ export function simulate(state, derived, dt) {
   // The snapshot is refreshed before the goals are checked, so the Founding Charter
   // milestone (and every gate) reads this tick's figures, not the previous tick's.
   prestigeStatus(state, ensurePrestigeExtra(derived), config);
-  checkMilestones(state, derived);
+  if (checkMilestones(state, derived)) {
+    // A reward latched: fold it now rather than a tick later, so what the frame renders
+    // (and what a tap pays) already includes it. Rare — once per milestone per run.
+    derived.mods = foldMods(state);
+    computeDerived(state, derived, derived.mods, config);
+  }
   checkGates(state, derived);
   watchGrid(state, derived);
 }

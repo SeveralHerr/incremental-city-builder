@@ -24,14 +24,18 @@
 // legacy tiers in milestones.js (5 … 1M points, ×2.5–3.3 apart) give every later founding a
 // target in sight.
 //
-// Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000`, logs/sim-gauntlet.json,
-// 2026-09-05 tree, shipped knobs: threshold $9.24M, exponent 0.488, k 0.01, p 0.6,
-// firstBonus 0.23, minGainShare 0.4): the Legacy panel opens at $924k earned (~12 min), the
-// Found button arms at $9.24M (~19 min), the bot holds out for 5 points and founds at
-// 41.5 min; cycles then run 16.3 → 17.6 → 5.4 → 6.6 → 7.3 → 9.7 → 13.6 → 16.5 → 22 … a
-// 15–45 minute plateau from the 12th founding (44.5 min at most, the 19th), 9.4 min last —
-// 31 foundings in 12 h, legacy 193,474 (127,476 spent on all twelve charter perks), money
-// peak 8.4e16, income 1.2e15/s at the end; zero overflow/stall/magnitude issues, 0 errors.
+// Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out
+// logs/sim-fix-simulation-12h.json`, 2026-09-07 tree, shipped knobs: threshold $9.24M,
+// exponent 0.488, k 0.01, p 0.6, firstBonus 0.23, minGainShare 0.4): the Legacy panel opens
+// at $924k earned (~12 min), the Found button arms at $9.24M (~19 min), the bot holds out
+// for 5 points and founds at 39.7 min; cycles then run 15.7 → 16.8 → 5.1 → 6.5 → 7.7 →
+// 10.3 → 13.2 → 16.0 → 20.4 → 27.7 … a 25–48 minute plateau from the 12th founding (48 min
+// at most, the 19th), 33 min last — 28 foundings in 12 h, legacy 70,420 (50,988 spent on
+// charter perks), money peak 4.4e14, income 3.2e13/s at the end; every cycle ratio ≤ 1.36
+// (c10, inside the tool's slack; the founding ladder in milestones.js took c7 / c9 from
+// ×1.40 / ×1.38 to ×1.28 / ×1.28), zero overflow/stall/magnitude issues, 0 errors. That
+// tree had the upgrades and buildings ladders mid-retune (four rungs above 1e15 unbought,
+// three empty cycles from the 21st founding): re-measure before quoting the tail.
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
 // means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
 // while the bonus grows only ×1.4^0.6 = ×1.22 per founding, so a city with nothing new is

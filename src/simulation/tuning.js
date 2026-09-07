@@ -35,7 +35,7 @@
 // compoundCap, ripenSeconds, legacyDiscount) and the soft-cap knobs (legacyCap,
 // legacyCapTail, legacyCapTailPower) are gone; a config that still carries them is read
 // without them. Measured pacing with the shipped config: see the header of prestige.js and
-// logs/sim-gauntlet.json (node tools/economy-sim.mjs --ticks 432000).
+// logs/sim-fix-simulation-12h.json (node tools/economy-sim.mjs --ticks 432000).
 import { config } from '../balance/config.js';
 
 // Hard ceiling on the payoff power (contract principle 4: p ≤ 0.6, no soft-cap machinery).

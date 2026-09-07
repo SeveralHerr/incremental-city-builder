@@ -465,7 +465,7 @@ test('performPrestige refuses below minGain and leaves the state untouched', () 
 
 // --- milestones -----------------------------------------------------------------
 
-test('legacy tiers: 5 → 1,000,000 points, ×2.5–4 apart, each with a reward', () => {
+test('legacy tiers: 5 → 1,000,000 points, ×1.5–4 apart (×2.5+ except around the Century Bank), each with a reward', () => {
   assert.equal(LEGACY_MILESTONES[0].target, 5);
   assert.equal(LEGACY_MILESTONES[LEGACY_MILESTONES.length - 1].target, 1e6);
   assert.ok(LEGACY_MILESTONES.length >= 10);
@@ -473,7 +473,8 @@ test('legacy tiers: 5 → 1,000,000 points, ×2.5–4 apart, each with a reward'
   for (const m of LEGACY_MILESTONES) {
     if (prev > 0) {
       const ratio = m.target / prev;
-      assert.ok(ratio >= 2.5 && ratio <= 4, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
+      assert.ok(ratio >= 1.5 && ratio <= 4, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
+      if (m.id !== 'legacy-100' && m.id !== 'legacy-150') assert.ok(ratio >= 2.5, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
     }
     assert.equal(typeof m.reward, 'function', `${m.id} rewards`);
     assert.ok(m.rewardText, `${m.id} names its reward`);
@@ -481,11 +482,39 @@ test('legacy tiers: 5 → 1,000,000 points, ×2.5–4 apart, each with a reward'
   }
   assert.equal(nextLegacyMilestone(0).id, 'legacy-5');
   assert.equal(nextLegacyMilestone(5).id, 'legacy-15');
+  assert.equal(nextLegacyMilestone(83).id, 'legacy-100', 'the 9th founding of the shipped bot sequence (83 → 117) crosses the Century Bank');
+  assert.equal(nextLegacyMilestone(100).id, 'legacy-150');
   assert.equal(nextLegacyMilestone(499).id, 'legacy-500');
   assert.equal(nextLegacyMilestone(500).id, 'legacy-1500');
   assert.equal(nextLegacyMilestone(42000).id, 'legacy-50k');
   assert.equal(nextLegacyMilestone(1e6), null);
   assert.equal(nextLegacyMilestone(NaN).id, 'legacy-5');
+});
+
+test('founding ladder: 1 · 5 · 7 · 10 · 25 · 50 cities, every rung past the first rewarded, and the income budget balance placed the late ladder against', () => {
+  const ladder = MILESTONES.filter((m) => m.metric === 'prestiges');
+  assert.deepEqual(ladder.map((m) => m.target), [1, 5, 7, 10, 25, 50]);
+  for (const m of ladder) {
+    assert.equal(m.check({ stats: { prestiges: m.target } }), true);
+    assert.equal(m.check({ stats: { prestiges: m.target - 1 } }), false);
+    if (m.target > 1) assert.equal(typeof m.reward, 'function', `${m.id} rewards`);
+  }
+  // Seven Skylines and the Century Bank pay income; Founding Dynasty pays growth, so the
+  // permanent income multiplier a 10-city, 164-point mayor folds from the founding ladder
+  // and the legacy tiers stays ×1.27 — the figure the late rung/perk placement in
+  // src/balance/config.js is measured against (see the ladder comment in milestones.js).
+  const s = createInitialState();
+  s.stats.prestiges = 10;
+  s.prestige.legacy = 164;
+  for (const m of MILESTONES) if ((m.metric === 'prestiges' || m.metric === 'legacy') && m.check(s)) s.unlocks[m.key] = true;
+  const mods = applyMilestoneMods(createMods(), s);
+  near(mods.income, 1.1 * 1.1 * 1.05, 'founding + legacy income budget by the 10th city');
+  near(mods.growth, 1.25, 'Founding Dynasty pays in growth');
+  assert.equal(mods.happiness, 0.15, 'only Civic Memory touches happiness by then (the dip contract)');
+  assert.equal(s.unlocks['m:prestige-7'], true);
+  assert.equal(s.unlocks['m:legacy-100'], true);
+  assert.equal(s.unlocks['m:legacy-150'], true, 'Scrubber Mandate (no income) is crossed too');
+  assert.equal(s.unlocks['m:legacy-500'], undefined);
 });
 
 test('milestone list: unique ids, precomputed keys, the ids other modules depend on, rewards fold', () => {

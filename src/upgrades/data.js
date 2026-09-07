@@ -20,23 +20,45 @@
 // cards, without every definition spelling the hint out twice. Hand-written rules carry an
 // explicit `unlockHint`.
 //
-// The ladder has four parts:
-//   • the core ladder, $25 → $3e12 (config.upgrades in src/balance/config.js wins when both
-//     exist; the literals here match it so the file is self-consistent on its own);
-//   • the frontier ladder, six fixed-dollar rungs ×10 apart from $1e13 to $1e18 (Dyson
-//     Swarm … Galactic Charter). Each opens once this run has earned a quarter of its price
-//     (`earnedGate: 0.25`, see `frontierUnlock`), so a founding closes the whole ladder
-//     again and the next city has to earn its way back — and the rule follows the price,
-//     so a config override moves the gate with it;
+// Prices: src/balance/config.js owns every shipped price (`config.upgrades[id]`, merged by
+// index.js before registering) and the balance builder retunes it without touching this
+// file. The dollar literals below are the shipped prices as of 2026-09-07 so the file reads
+// true on its own and a missing config still gives the tuned game; the charter perks are
+// the one ladder whose defaults differ (see below). Re-sync after a balance pass.
+//
+// The ladder has five parts:
+//   • the core ladder, $25 → $2e7: the first city's rungs, unlocked by what the city has
+//     built (shops, parks, plants …). Institutional Memory / Standing Orders grant tiers 1–3
+//     back at every founding, so a replay starts at the decisions below;
+//   • the pace ladder (`pace: true`), ten tier-4 rungs from $68M to $91T placed one per
+//     city by the balance builder: each opens once this run has earned a hundred times its
+//     price (`earnedGate: PACE_GATE`, see `earnedUnlock`). That is the point at which the
+//     replay's cash — a few seconds of income in a mature city — is about to reach it, so a
+//     pace rung arrives as a reward that can be funded on the spot, not a card that sits
+//     "almost affordable" for twenty minutes (measured: the greedy bot buys each pace rung
+//     for the first time when the city has earned 100–130× its price);
+//   • the frontier ladder (`frontier: true`), eight fixed-dollar rungs from $18B to $40Qa
+//     (Dyson Swarm … Exchange Ring), each opening once this run has earned a quarter of its
+//     price (`earnedGate: FRONTIER_GATE`). Deliberately sparse (×2–125 apart — the balance
+//     builder places them by city, see config.js): with the pace rungs hidden until they are
+//     affordable, the cheapest frontier rung is the money target the Upgrades panel shows,
+//     and its spacing is what keeps that target 30 s – 15 min of income away instead of an
+//     "almost there" card, for most of a replay. The design sketch's ×10 from $1e13 to $1e18
+//     is what these rungs were before the first balance pass; the ×10 spacing never shipped;
 //   • the Legacy rungs (category 'prestige'): unlocked by legacy points, paid in money each
 //     run;
 //   • the Charter perks (category 'charter', currency 'legacy'): twelve permanent perks
 //     bought with legacy points (core's api.buyUpgrade debits state.prestige.spent; the
 //     income bonus keeps using the whole bank). Costs run ×2.5–4 apart from 3 to 200,000
 //     points, each opening once the bank holds half its price, and every one is a real
-//     jump: +50–200% income, +50–100% housing, ×2–3 power, −15% cost. A founding wipes
-//     state.upgrades, so index.js grants every owned perk back the moment a city is
+//     jump: +50–200% income, +50–100% housing, ×2–3 power, −15% cost. Config compresses the
+//     ladder to 3 → 76,488 (a pure ×2.5) so the top perk lands inside a 12 h session; the
+//     unlock rule and tier bracket follow the config price (`charterUnlockFor`). A founding
+//     wipes state.upgrades, so index.js grants every owned perk back the moment a city is
 //     founded (`keptUpgradeIds` is the pure rule).
+//
+// Both self-priced gates (frontier cost/4, pace cost×100) are rebuilt by index.js after a
+// config override, so a retuned price moves its gate, hint and progress mirror with it.
 //
 // Nothing here reads the run clock: content gates on the economy, never on elapsed time.
 //
@@ -46,9 +68,12 @@
 // here on purpose: they feed the saturating civic sum, civic = 1.25·(1 − e^(−Σ/1.5)), and
 // past three parks and a school that sum is already near the cap, so a "+6% per hospital"
 // rung measured +0.01–0.05 happiness in the sim — a desc that reads as a promise the
-// curve never keeps. The civic rungs below therefore add flat happiness — kept small
-// (+5–10%, 0.55 in total across the whole ladder) — and, since +0.1 happiness is only ~+3%
-// income at h≈2, each pairs it with a real multiplier (growth or jobs).
+// curve never keeps. Flat happiness is only worth its wording while happiness is low
+// (+0.1 at h≈0.85 is ~+6% income and growth; at the h≈2–2.8 of a late city it is ~+3%), so
+// only the three rungs that open while a city is still unhappy carry it — Community Events
+// and Green Belts in the first ten minutes, Veteran Planners in a replay's jobless opening
+// minute — 0.25 in total, each paired with a real growth multiplier. Everything later
+// (Modern Curriculum, Preventive Care, the Civic Charter) moves jobs, growth or income.
 import { buildingMod } from '../core/mods.js';
 
 export const MILESTONE_IDS = [
@@ -146,6 +171,8 @@ const owns = (id) => {
   return fn;
 };
 const hasBuilt = (id, n) => rule((state) => count(state, id) >= n, `Build ${buildingName(id, n)}`, { building: id, count: n });
+const cash = (state) => (state && state.res && state.res.money) || 0;
+const holds = (n) => rule((state) => cash(state) >= n, `hold ${fmtMoney(n)}`);
 const hasPop = (n, ms) => rule((state) => pop(state) >= n || (ms ? milestone(state, ms) : false), `Reach ${fmtInt(n)} citizens`, { pop: n });
 const hasEarned = (n, ms) =>
   rule((state) => earned(state) >= n || (ms ? milestone(state, ms) : false), `Earn ${fmtMoney(n)} in this city`, { earned: n });
@@ -220,26 +247,54 @@ const INDUSTRY = ['factory', 'refinery', 'techpark'];
 const COMMERCE = ['shop', 'office', 'mall', 'financial'];
 const incomeOfEach = (ids, mult) => compose(...ids.map((id) => incomeOf(id, mult)));
 
-// ---------- frontier ladder (earnings-gated, fixed dollars) ----------
+// ---------- earnings gates: the frontier and pace ladders ----------
 //
-// Six rungs ×10 apart from $1e13 to $1e18, each a different lever, each opening once this
-// run has earned a quarter of its price. The gate is a share of the *registered* price
-// (`earnedGate`), so index.js rebuilds the rule after a config override: `frontierUnlock`
-// is the one place the rule lives. A founding zeroes totalEarned and the whole ladder
-// locks again — the late game is "earn your way back", never "wait".
+// A rung with `earnedGate` opens once this run has earned `earnedGate × cost`. The gate is
+// a share of the *registered* price, so index.js rebuilds the rule after a config override:
+// `earnedUnlock` is the one place the rule lives. A founding zeroes totalEarned and both
+// ladders lock again — the late game is "earn your way back", never "wait".
+//
+//   • FRONTIER_GATE 0.25 — a frontier rung shows up while it is still far off (its price is
+//     four times what the city has earned so far) and stays on the card as the goal the
+//     next minutes of income are for.
+//   • PACE_GATE 100 — a pace rung stays hidden until the city has earned a hundred times
+//     its price *or the treasury holds the price*. In a replay the bot's cash sits at 2–10 s
+//     of income and a rung placed for this city is reached by a cash spike when earnings
+//     pass ~100–130× its price; opening it earlier only parks an "almost affordable" card
+//     on top of the frontier target for the rest of the city. The second door is what keeps
+//     the founding spree intact: a rung bought in an earlier city costs a replay a few
+//     seconds of income, and it must come back the moment the cash is there (measured:
+//     without that door every replay re-bought its ladder minutes later and the 12 h
+//     session lost seven foundings). A player who saves therefore finds every pace rung
+//     fundable the moment it appears. Re-measure with tools/economy-sim.mjs after a
+//     balance pass.
 
 export const FRONTIER_GATE = 0.25;
+export const PACE_GATE = 100;
 
-// Unlock rule + hint + progress mirror for a def whose gate is `earnedGate × cost`.
-export function frontierUnlock(def) {
+// Unlock rule + hint + progress mirror for a def whose gate is `earnedGate × cost`; a pace
+// rung (`pace: true`) also opens while the treasury holds its price.
+export function earnedUnlock(def) {
   const share = def && Number.isFinite(def.earnedGate) && def.earnedGate > 0 ? def.earnedGate : FRONTIER_GATE;
   const cost = def && Number.isFinite(def.cost) && def.cost > 0 ? def.cost : 0;
   const at = cost * share;
-  const fn = hasEarned(at);
+  const fn = def && def.pace ? any(hasEarned(at), holds(cost)) : hasEarned(at);
   return { unlock: fn, unlockHint: fn.hint.charAt(0).toUpperCase() + fn.hint.slice(1), unlockAt: { earned: at } };
 }
+// The seam docs/DESIGN.md names (`applyOverride` → `frontierUnlock`); same function.
+export const frontierUnlock = earnedUnlock;
 
-const frontier = (def) => ({ ...def, category: def.category || 'global', tier: 4, earnedGate: FRONTIER_GATE, ...frontierUnlock({ ...def, earnedGate: FRONTIER_GATE }) });
+const frontier = (def) => ({ ...def, category: def.category || 'global', tier: 4, frontier: true, earnedGate: FRONTIER_GATE, ...earnedUnlock({ ...def, earnedGate: FRONTIER_GATE }) });
+const pace = (def) => ({ ...def, category: def.category || 'global', tier: 4, pace: true, earnedGate: PACE_GATE, ...earnedUnlock({ ...def, pace: true, earnedGate: PACE_GATE }) });
+
+// ---------- frontier ladder (fixed dollars, each opens at a quarter of its price) ----------
+//
+// Eight rungs, each a different lever. Prices are config's placement-by-city (see the
+// header): the Dyson Swarm is the target of cities 5–12, the Quantum Exchange of 14–18,
+// the Mass-Driver Port of 19–22, then Ringworld / Stellar / Galactic land one per city,
+// and the two rungs above the Galactic Charter carry the last hour of a 12 h session
+// (the Exchange Ring at $40Qa is the priciest thing in the game — a 12 h bot's cash peaks
+// at ~$1e17 — and stays under the $1e18 money ceiling).
 
 const FRONTIER = [
   frontier({
@@ -247,7 +302,7 @@ const FRONTIER = [
     name: 'Dyson Swarm',
     icon: '🌞',
     desc: 'All power generation ×4',
-    cost: 1e13,
+    cost: 1.8e10,
     category: 'power',
     effect: global('power', 4),
   }),
@@ -256,7 +311,7 @@ const FRONTIER = [
     name: 'Quantum Exchange',
     icon: '💹',
     desc: 'All income +100% · financial districts earn +100%',
-    cost: 1e14,
+    cost: 5.2e11,
     category: 'commercial',
     effect: compose(global('income', 2), incomeOf('financial', 2)),
   }),
@@ -265,7 +320,7 @@ const FRONTIER = [
     name: 'Mass-Driver Port',
     icon: '🚀',
     desc: 'All buildings cost −25% · industry earns +100% income',
-    cost: 1e15,
+    cost: 6.5e13,
     category: 'industrial',
     effect: compose(global('cost', 0.75), incomeOfEach(INDUSTRY, 2)),
   }),
@@ -274,7 +329,7 @@ const FRONTIER = [
     name: 'Ringworld District',
     icon: '🪐',
     desc: 'All housing +150% and all jobs +50%',
-    cost: 1e16,
+    cost: 3.6e14,
     category: 'residential',
     effect: compose(global('housing', 2.5), global('jobs', 1.5)),
   }),
@@ -283,7 +338,7 @@ const FRONTIER = [
     name: 'Stellar Engine',
     icon: '🌟',
     desc: 'Population grows +200% faster · buildings use −40% power',
-    cost: 1e17,
+    cost: 5.6e14,
     category: 'global',
     effect: compose(global('growth', 3), global('demand', 0.6)),
   }),
@@ -291,10 +346,31 @@ const FRONTIER = [
     id: 'galactic-charter',
     name: 'Galactic Charter',
     icon: '🌌',
-    desc: 'All income +200% and all buildings cost −20%',
-    cost: 1e18,
+    desc: 'All income +100% · all buildings cost −20%',
+    cost: 1.2e15,
     category: 'global',
-    effect: compose(global('income', 3), global('cost', 0.8)),
+    // ×2, not ×3: it is bought from the 29th city on, so it is the one income lever that
+    // shapes only the session's last hour. At ×3 the 31st city completes with nothing new
+    // to buy before 12 h; at ×2 the session ends inside it, the way config places it.
+    effect: compose(global('income', 2), global('cost', 0.8)),
+  }),
+  frontier({
+    id: 'orbital-shipyard',
+    name: 'Orbital Shipyard',
+    icon: '🛸',
+    desc: 'All jobs +75% · buildings use −30% power',
+    cost: 6e15,
+    category: 'industrial',
+    effect: compose(global('jobs', 1.75), global('demand', 0.7)),
+  }),
+  frontier({
+    id: 'exchange-ring',
+    name: 'Exchange Ring',
+    icon: '💱',
+    desc: 'All housing +100% · commerce provides ×2 jobs',
+    cost: 4e16,
+    category: 'commercial',
+    effect: compose(global('housing', 2), ...COMMERCE.map((id) => jobsOf(id, 2))),
   }),
 ];
 
@@ -354,7 +430,7 @@ const CHARTER = [
     effect: compose(global('growth', 2), global('inflow', 3)),
   }),
   charter({ id: 'charter-masons', name: "Masons' Charter", icon: '🧱', desc: 'All buildings cost −15%', cost: 1600, effect: global('cost', 0.85) }),
-  charter({ id: 'charter-civic', name: 'Civic Charter', icon: '🎭', desc: 'Happiness +10% and all jobs +50%', cost: 4500, effect: compose(happier(0.1), global('jobs', 1.5)) }),
+  charter({ id: 'charter-civic', name: 'Civic Charter', icon: '🎭', desc: 'All jobs +50% · population grows +50% faster', cost: 4500, effect: compose(global('jobs', 1.5), global('growth', 1.5)) }),
   charter({ id: 'charter-treasury', name: 'Treasury Charter', icon: '💎', desc: 'All income +100% and building upkeep −50%', cost: 12000, effect: compose(global('income', 2), global('upkeep', 0.5)) }),
   charter({ id: 'charter-skyline', name: 'Skyline Charter', icon: '🌇', desc: 'All housing +100% and all jobs +50%', cost: 30000, effect: compose(global('housing', 2), global('jobs', 1.5)) }),
   charter({
@@ -387,7 +463,7 @@ const CHARTER = [
 // index.js listens for the prestige event and re-owns all of them, at no cost, so the
 // mayor starts the replay at the decisions that matter (tier 4 and the frontier).
 // `keptUpgradeIds` is the pure rule so it can be tested without a game.
-const isCore = (def) => !def.earnedGate && def.category !== 'prestige' && def.currency !== 'legacy';
+const isCore = (def) => !def.frontier && !def.pace && def.category !== 'prestige' && def.currency !== 'legacy';
 export const isPermanent = (def) => !!def && def.currency === 'legacy';
 
 export function keptUpgradeIds(ownedIds, defs = UPGRADES) {
@@ -402,7 +478,7 @@ export function keptUpgradeIds(ownedIds, defs = UPGRADES) {
   return [...out];
 }
 
-// ---------- definitions (grouped by phase: $25 → $3e12 core ladder, the frontier, Legacy, then the Charter) ----------
+// ---------- definitions (grouped by phase: $25 → $2e7 core ladder, the pace and frontier ladders, Legacy, then the Charter) ----------
 
 export const UPGRADES = [
   // ===== Early game ($25 – $3.5k): first ten minutes =====
@@ -422,7 +498,8 @@ export const UPGRADES = [
     name: 'Zoning Reform',
     icon: '📐',
     desc: 'Houses hold +25% residents',
-    cost: 50,
+    // $75, not $50: the first $50 the opening spree leaves goes to the corner shop.
+    cost: 75,
     category: 'residential',
     tier: 1,
     unlock: hasBuilt('house', 4),
@@ -470,6 +547,9 @@ export const UPGRADES = [
     category: 'power',
     tier: 1,
     unlock: hasBuilt('windmill', 2),
+    // Plant-specific on purpose (same for Coal Scrubbers): a city-wide floor here (+5% /
+    // +10% power) eased the first city's tier-4 brownouts enough to drop the session's
+    // under-power share from 3.3% to 2.5%, under the 3% the power contract asks for.
     effect: powerOf('windmill', 2),
   },
   {
@@ -667,14 +747,18 @@ export const UPGRADES = [
     id: 'modern-curriculum',
     name: 'Modern Curriculum',
     icon: '🎓',
-    desc: 'Happiness +10% and all jobs +25%',
+    desc: 'All jobs +25% and all income +8%',
     cost: 150000,
     category: 'civic',
     tier: 3,
     unlock: hasBuilt('school', 3),
     // An educated workforce fills more desks: jobs pay wages directly, and at the 3-school
-    // mark (~minute 20) unemployment is the penalty a growing city feels most.
-    effect: compose(happier(0.1), global('jobs', 1.25)),
+    // mark (~minute 20) unemployment is the penalty a growing city feels most. The income
+    // term replaces the +10% happiness this and Preventive Care used to add (≈ +6% income
+    // between them in a replay, where Standing Orders re-grants both): +8% here keeps the
+    // 12 h session on the balance builder's placement — +10% ends it a city early, +6% a
+    // city late, and a replay's cash spikes then miss the rungs placed at their edge.
+    effect: compose(global('jobs', 1.25), global('income', 1.08)),
   },
   {
     id: 'maintenance-contracts',
@@ -736,7 +820,7 @@ export const UPGRADES = [
     effect: compose(incomeOf('mall', 2), jobsOf('mall', 1.25)),
   },
 
-  // ===== Late game ($120k – $3e12, ×3.3 per rung): around and after the first founding =====
+  // ===== Late game ($120k – $2e7): the first city's tier 4 and the second city =====
   {
     id: 'prefab-construction',
     name: 'Prefab Construction',
@@ -774,127 +858,115 @@ export const UPGRADES = [
     id: 'preventive-care',
     name: 'Preventive Care',
     icon: '🩺',
-    desc: 'Happiness +10% and population grows +50% faster',
+    desc: 'Population grows +75% faster',
     cost: 4e6,
     category: 'civic',
     tier: 3,
     unlock: hasBuilt('hospital', 2),
-    effect: compose(happier(0.1), global('growth', 1.5)),
-  },
-  {
-    id: 'robotic-assembly',
-    name: 'Robotic Assembly',
-    icon: '🤖',
-    desc: 'Factories, refineries and tech parks earn +100% income',
-    cost: 1.3e7,
-    category: 'industrial',
-    tier: 4,
-    unlock: hasBuilt('techpark', 1),
-    effect: incomeOfEach(INDUSTRY, 2),
+    // Healthy citizens draw newcomers: one honest growth term instead of a late +10%
+    // happiness that was worth +3% income at the h≈1.9 this opens at.
+    effect: global('growth', 1.75),
   },
   {
     id: 'breeder-reactors',
     name: 'Breeder Reactors',
     icon: '☢️',
     desc: 'Nuclear plants generate ×2 power',
-    cost: 4e7,
+    cost: 2e7,
     category: 'power',
     tier: 4,
     unlock: hasBuilt('nuclear', 2),
     effect: powerOf('nuclear', 2),
   },
-  {
-    id: 'megastructures',
-    name: 'Megastructures',
-    icon: '🏙️',
-    desc: 'All housing +100%',
-    cost: 1.3e8,
-    category: 'residential',
-    tier: 4,
-    unlock: any(hasBuilt('arcology', 3), hasPop(50000)),
-    effect: global('housing', 2),
-  },
-  {
-    id: 'algorithmic-trading',
-    name: 'Algorithmic Trading',
-    icon: '📈',
-    desc: 'Financial districts earn +100% income',
-    cost: 4e8,
-    category: 'commercial',
-    tier: 4,
-    unlock: hasBuilt('financial', 2),
-    effect: incomeOf('financial', 2),
-  },
-  {
-    id: 'orbital-solar',
-    name: 'Orbital Solar',
-    icon: '🛰️',
-    desc: 'All power generation ×3',
-    cost: 1.3e9,
-    category: 'power',
-    tier: 4,
-    unlock: any(hasPop(100000, 'pop-100k'), hasBuilt('fusion', 1)),
-    effect: global('power', 3),
-  },
-  {
+
+  // ===== Pace ladder ($68M – $91T): one rung per replay city, each opens once the city has earned 100× its price =====
+  // In ladder order. Config places them by city (5 Championship Season · 9 Robotic Assembly
+  // · 10 Megastructures · 12 Planetary Charter · 15 AI Governance · 16 Orbital Solar · 20
+  // Algorithmic Trading · 21 Arcology Gardens · 24 Superconductor Grid); the frontier rungs
+  // sit between them (see FRONTIER above).
+  pace({
     id: 'championship-season',
     name: 'Championship Season',
     icon: '🏆',
     desc: 'Stadiums earn ×2 income and provide ×2 jobs',
-    cost: 4e9,
+    cost: 6.8e7,
     category: 'civic',
-    tier: 4,
-    unlock: hasBuilt('stadium', 1),
     effect: compose(incomeOf('stadium', 2), jobsOf('stadium', 2)),
-  },
-  {
-    id: 'superconductor-grid',
-    name: 'Superconductor Grid',
-    icon: '🧲',
-    desc: 'All buildings use −30% power',
-    cost: 1.3e10,
-    category: 'power',
-    tier: 4,
-    // Follows Orbital Solar (or a real reactor fleet) so the two power rungs read as a
-    // sequence rather than appearing together.
-    unlock: any(owns('orbital-solar'), hasBuilt('nuclear', 4)),
-    effect: global('demand', 0.7),
-  },
-  {
-    id: 'arcology-gardens',
-    name: 'Arcology Gardens',
-    icon: '🌺',
-    desc: 'Arcologies hold +100% residents and provide +50% jobs',
-    cost: 4e10,
+  }),
+  pace({
+    id: 'robotic-assembly',
+    name: 'Robotic Assembly',
+    icon: '🤖',
+    desc: 'Factories, refineries and tech parks earn +100% income',
+    cost: 7.4e8,
+    category: 'industrial',
+    effect: incomeOfEach(INDUSTRY, 2),
+  }),
+  pace({
+    id: 'megastructures',
+    name: 'Megastructures',
+    icon: '🏙️',
+    desc: 'All housing +100%',
+    cost: 2.1e9,
     category: 'residential',
-    tier: 4,
-    unlock: hasBuilt('arcology', 10),
-    effect: compose(housingOf('arcology', 2), jobsOf('arcology', 1.5)),
-  },
-  {
-    id: 'ai-governance',
-    name: 'AI Governance',
-    icon: '🧠',
-    desc: 'All income +100%',
-    cost: 1e11,
-    category: 'global',
-    tier: 4,
-    unlock: any(hasEarned(1e9, 'money-1b'), hasPop(250000)),
-    effect: global('income', 2),
-  },
-  {
+    effect: global('housing', 2),
+  }),
+  pace({
     id: 'planetary-charter',
     name: 'Planetary Charter',
     icon: '🌍',
     desc: 'All income +150% and population grows +100% faster',
-    cost: 3e12,
+    cost: 7.8e9,
     category: 'global',
-    tier: 4,
-    unlock: any(hasEarned(2e10), hasPop(1e6)),
     effect: compose(global('income', 2.5), global('growth', 2)),
-  },
+  }),
+  pace({
+    id: 'ai-governance',
+    name: 'AI Governance',
+    icon: '🧠',
+    desc: 'All income +100%',
+    cost: 4.5e10,
+    category: 'global',
+    effect: global('income', 2),
+  }),
+  pace({
+    id: 'orbital-solar',
+    name: 'Orbital Solar',
+    icon: '🛰️',
+    desc: 'All power generation ×3',
+    cost: 1.3e11,
+    category: 'power',
+    effect: global('power', 3),
+  }),
+  pace({
+    id: 'algorithmic-trading',
+    name: 'Algorithmic Trading',
+    icon: '📈',
+    desc: 'Financial districts earn +100% income',
+    cost: 3.6e12,
+    category: 'commercial',
+    effect: incomeOf('financial', 2),
+  }),
+  pace({
+    id: 'arcology-gardens',
+    name: 'Arcology Gardens',
+    icon: '🌺',
+    desc: 'Arcologies hold +100% residents and provide +50% jobs',
+    cost: 7.6e12,
+    category: 'residential',
+    effect: compose(housingOf('arcology', 2), jobsOf('arcology', 1.5)),
+  }),
+  pace({
+    id: 'superconductor-grid',
+    name: 'Superconductor Grid',
+    icon: '🧲',
+    desc: 'All buildings use −30% power',
+    cost: 9.1e13,
+    category: 'power',
+    effect: global('demand', 0.7),
+  }),
 
-  // ===== Frontier ($1e13 – $1e18, ×10 per rung, each opens at a quarter of its price earned this run) =====
+  // ===== Frontier ($18B – $40Qa, each opens at a quarter of its price earned this run) =====
   ...FRONTIER,
 
   // ===== Legacy (prestige) — unlocked by legacy points, paid in money each run =====
@@ -962,11 +1034,27 @@ export const UPGRADES = [
     effect: noEffect,
   },
   {
+    id: 'city-archives',
+    name: 'City Archives',
+    icon: '📚',
+    desc: 'Population grows +50% faster and all jobs +25%',
+    cost: 2e7,
+    category: 'prestige',
+    tier: 3,
+    // Lands in the fourth city (the bot banks 21 points by then): the one replay between
+    // the Mint Charter and Championship Season that had nothing new to buy. Growth and
+    // jobs, not income: it is re-granted in every later city, and an income term here
+    // compounds through thirty foundings (measured: +40% income turned the 12 h session
+    // into 43 foundings and 1e7 legacy).
+    unlock: hasLegacy(20),
+    effect: compose(global('growth', 1.5), global('jobs', 1.25)),
+  },
+  {
     id: 'standing-orders',
     name: 'Standing Orders',
     icon: '📑',
     desc: 'Tier 3 and Legacy upgrades are yours from the day a city is founded',
-    cost: 5e7,
+    cost: 2.2e8,
     category: 'prestige',
     tier: 4,
     unlock: all(hasLegacy(50), owns('institutional-memory')),

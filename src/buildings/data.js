@@ -29,10 +29,22 @@
 // - Unlock spacing. Population gates are placed just below the population the greedy bot
 //   has when the price frontier reaches each building, so a freshly unlocked card is
 //   affordable within a few minutes rather than glowing unaffordably for a quarter hour,
-//   and no two cards open in the same minute. The windmill gates on live power demand, so
-//   the first cottage is always followed by one dark tick (the simulation's fresh-state hook
-//   is the place to seed a free windmill if that ever matters; the sim's "civic matters"
-//   metric currently leans on that dip, so the gate is left alone here).
+//   and after the opening minutes no two cards open within a minute of each other.
+//   `node src/buildings/cadence.mjs` measures this (first-city open / first-buy per
+//   building, exit 1 on a collision or a > 5 min glow). Measured on the 2026-09-07 tree:
+//   tower 8.7 min · school 10.7 · refinery 14.9 · mall 16.4 · solar 17.7 · arcology 19.5 ·
+//   hospital 21.5 · tech campus + nuclear 27.1 · financial 29.0 · stadium 34.0 (bought
+//   38.5, founding 39.9), lag 2–4 min except the arcology (7.5) and financial (5.4).
+//   The three remaining faults are config-owned: config.buildings pins techpark and
+//   nuclear to the same 8,000 gate (this file's default puts nuclear at 10,000) and sets
+//   the arcology/financial base costs; moving nuclear to ~6,000 and trimming those two
+//   costs (or raising their gates) in config closes them — nothing in this folder can.
+//   The windmill gates on live power demand, so the first cottage is always followed by
+//   one dark tick. Measured (12 h sim): opening the windmill from the start drops the
+//   "happiness dips below 1.0" count from 19 to 8 of 32 cities, under the ≥ 50% contract
+//   in docs/DESIGN.md — replay cities bottom out at 0.96 and only the tick-0 brownout puts
+//   them under — so the gate stays until the simulation's civic pressure comes from
+//   elsewhere (the fresh-state hook is where a free windmill would be seeded).
 //
 // Signature mechanics (`synergy`). Six buildings carry a per-unit stat that scales with the
 // city instead of being a bigger copy of the tier below. The rule is data:
@@ -48,7 +60,9 @@
 //   fusion     output grows with nuclear plants (research spillover; ×2 at 10)
 // The two power hooks give the Power tab a second axis: a green city's solar farms out-
 // produce their sticker, and a reactor fleet makes fusion match nuclear's $/MW instead of
-// being a trophy — so the late grid is a choice, not a $/MW sort.
+// being a trophy — so the late grid is a choice, not a $/MW sort. The strengths are
+// pinned by the power contract: ×2 solar (at 40 or 25 parks) puts the 12 h under-power
+// share at 2.8% against the ≥ 3% floor; ×1.5 at 25 parks reads 3.1% (3.9% with no hook).
 // Static two-axis identities: the arcology also employs 500 (a sealed, self-contained
 // block), the stadium pays and cheers, the tech campus hires and cleans the air.
 
@@ -118,9 +132,12 @@ export const BUILDINGS = [
     jobs: 500, // self-contained: the block staffs its own shops, clinics and corridors
     powerUse: 2500,
     happiness: 0.02,
-    unlock: pop(5000),
-    unlockAt: { pop: 5000 },
-    unlockHint: 'Reach 5,000 citizens',
+    // Default 6,000 sits a clear step above the hospital (4,800); config ships 4,000 with
+    // a lower base cost and housing. If that override is ever lifted, 5,000 would open the
+    // arcology 4% (≈ 40 s) behind the hospital.
+    unlock: pop(6000),
+    unlockAt: { pop: 6000 },
+    unlockHint: 'Reach 6,000 citizens',
   },
 
   // ----------------------------------------------------------------- commercial
@@ -285,11 +302,14 @@ export const BUILDINGS = [
     // Panels want open land: every city park lifts the farm's output.
     synergy: { stat: 'powerGen', source: 'building:park', per: 50, cap: 1.5, text: 'Output +2% per City Park (up to ×1.5)' },
     happiness: 0.03,
-    // 3,500: halfway between the mall (3,000) and the arcology (config: 4,000), so the three
-    // cards open ~1.5 minutes apart instead of the mall and the farm landing 12 s apart.
-    unlock: pop(3500),
-    unlockAt: { pop: 3500 },
-    unlockHint: 'Reach 3,500 citizens',
+    // 3,600: between the mall (3,000) and the arcology (config: 4,000). The first city
+    // passes 3,000 at ~16.4 min and 4,000 at ~19.5, so the farm opens ~17.7 min — 1.3 min
+    // after the mall and 1.8 before the arcology — instead of 12 s behind the mall (3,200)
+    // or 50 s (3,500); 3,800 landed 40 s before the arcology. Measured with
+    // `node src/buildings/cadence.mjs`.
+    unlock: pop(3600),
+    unlockAt: { pop: 3600 },
+    unlockHint: 'Reach 3,600 citizens',
   },
   {
     id: 'nuclear',

@@ -1,5 +1,7 @@
 // buildings module — registers the 20 Metropolis structures with core.
 // DOM-free (runs in Node for the economy sim). Never throws from init.
+// Files: data.js (catalogue + rationale), cadence.mjs (first-city unlock/first-buy probe,
+// `node src/buildings/cadence.mjs`), buildings.test.mjs (`node --test src/buildings/`).
 //
 // Balance integration: `src/balance/config.js` owns every tuning number. It is loaded
 // via a guarded dynamic import inside init() rather than a static import so that a

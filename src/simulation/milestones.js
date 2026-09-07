@@ -301,17 +301,34 @@ export const MILESTONES = [
   moneyMilestone('money-1t', 1e12, 'Trillion Club', '🪐', 'Earn $1,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
   // Beyond the first ladder: the horizon for a mayor with a legacy bank. Interleaved with
   // the founding tiers in roughly the order a veteran's runs reach them. The legacy tiers
-  // run 5 → 1,000,000 points ×2.5–3.3 apart: legacy comes from lifetime earnings only
-  // (floor((lifetime / threshold) ^ exponent)), so a bank that grows by a quarter per
-  // founding reaches a new tier every four or five foundings, and every late reset has a
-  // target in sight that pays out something a player can read on the dashboard.
+  // run 5 → 1,000,000 points, ×2.5–3.3 apart except for the Century Bank at 100 (a round
+  // number a player watches for, ×2 / ×1.5 from its neighbours): legacy comes from
+  // lifetime earnings only (floor((lifetime / threshold) ^ exponent)), so a bank that
+  // grows by 40% per founding reaches a new tier every two to five foundings, and every
+  // late reset has a target in sight that pays out something readable on the dashboard.
+  // The founding ladder (1 · 5 · 7 · 10 · 25 · 50 cities) fills the gaps between tiers.
+  //
+  // Income budget. Balance places every late money rung and charter perk by city against
+  // the income these rewards fold in (config.js, "How the late game is placed"): the bot's
+  // legacy sequence is fixed by minGainShare, so a rung lands in the first city whose
+  // seed spree can pay for it, and a few percent of income either way slides a rung a
+  // city and leaves a founding with nothing new. Seven Skylines (+10%) and the Century
+  // Bank (+5%) exist because the 8th and 10th cities were ×1.41 / ×1.38 the previous one
+  // (contract: ≤ ×1.35); Founding Dynasty pays in growth, not income, so the product of
+  // the permanent income rewards by the 10th founding stays ×1.27 (×1.1 · ×1.1 · ×1.05,
+  // the ×1.1 · ×1.15 it was) and every later city keeps its placement. The test suite
+  // pins that product: change it together with the placement table in config.js.
   legacyMilestone('legacy-5', 5, 'Old Hands', '🧭', 'Bank five legacy points.', 'All buildings cost −5%', costReward(0.95)),
   buildMilestone('buildings-1k', 1000, 'Thousand Rooftops', '🏘️', 'Raise a thousand structures.', '+5% income', incomeReward(1.05)),
   prestigeMilestone('prestige-5', 5, 'Serial Founder', '🏁', 'Found five cities.', '+10% income', incomeReward(1.1)),
   legacyMilestone('legacy-15', 15, 'Clean Air Act', '🍃', 'Bank fifteen legacy points.', 'Polluting buildings emit 25% less smog', cleanAirReward(0.25)),
+  prestigeMilestone('prestige-7', 7, 'Seven Skylines', '🎇', 'Found seven cities.', '+10% income', incomeReward(1.1)),
   popMilestone('pop-10m', 1e7, 'Ten Million Voices', '🎆', 'Ten million citizens. The city has its own time zone.'),
   legacyMilestone('legacy-50', 50, 'Civic Memory', '🏺', 'Bank fifty legacy points.', '+0.15 happiness', happinessReward(0.15)),
-  prestigeMilestone('prestige-10', 10, 'Founding Dynasty', '🏰', 'Found ten cities.', '+15% income', incomeReward(1.15)),
+  legacyMilestone('legacy-100', 100, 'Century Bank', '💯', 'Bank a hundred legacy points.', '+5% income', incomeReward(1.05)),
+  prestigeMilestone('prestige-10', 10, 'Founding Dynasty', '🏰', 'Found ten cities.', 'Population grows 25% faster', (mods) => {
+    mods.growth *= 1.25;
+  }),
   moneyMilestone('money-10t', 1e13, 'Ten Trillion', '💫', 'Earn $10,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
   legacyMilestone('legacy-150', 150, 'Scrubber Mandate', '🌬️', 'Bank 150 legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
   buildMilestone('buildings-10k', 10000, 'Endless Skyline', '🌉', 'Raise ten thousand structures.', '+10% income', incomeReward(1.1)),

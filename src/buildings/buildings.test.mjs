@@ -257,3 +257,27 @@ test('no tier-4 building is strictly dominated by a cheaper one on income per do
   const factory = perK('factory');
   assert.ok(office >= factory * 0.8 && office <= factory * 1.25, `office ${office.toFixed(1)}/$k vs factory ${factory.toFixed(1)}/$k`);
 });
+
+test('catalogue defaults: population gates are distinct and climb ≥ 15% per step, tiers open in order', () => {
+  // The gates this folder owns (config may re-pin some; those are checked by the cadence
+  // probe, not here). Two defaults on the same number would open two cards in one tick.
+  const gates = BUILDINGS.filter((b) => Number.isFinite(b.unlockAt?.pop)).map((b) => ({ id: b.id, pop: b.unlockAt.pop, tier: b.tier }));
+  assert.equal(new Set(gates.map((g) => g.pop)).size, gates.length, 'no two defaults share a population gate');
+  const sorted = [...gates].sort((a, b) => a.pop - b.pop);
+  for (let i = 1; i < sorted.length; i++) {
+    const a = sorted[i - 1], b = sorted[i];
+    if (a.pop >= 500) assert.ok(b.pop >= a.pop * 1.15, `${b.id} (${b.pop}) too close to ${a.id} (${a.pop})`);
+  }
+  // Within a category, a higher tier never opens before a lower one.
+  for (const cat of CATEGORIES) {
+    const col = BUILDINGS.filter((b) => b.category === cat.id).sort((a, b) => a.tier - b.tier);
+    for (let i = 1; i < col.length; i++) {
+      const lo = col[i - 1].unlockAt?.pop ?? 0, hi = col[i].unlockAt?.pop ?? Infinity;
+      assert.ok(hi > lo, `${cat.id}: ${col[i].id} gate ${hi} must be above ${col[i - 1].id} gate ${lo}`);
+    }
+  }
+  // The windmill's demand gate is deliberate (see data.js "Unlock spacing"); the coal
+  // plant's must sit above it so the two never open together.
+  assert.equal(BUILDINGS.find((b) => b.id === 'windmill').unlockAt.powerDemand, 0.001);
+  assert.ok(BUILDINGS.find((b) => b.id === 'coal').unlockAt.powerDemand >= 20);
+});

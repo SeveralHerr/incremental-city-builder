@@ -122,15 +122,45 @@ test('charter perks: all twelve priced here, whole points, x2.5-4 apart from 3, 
   assert.ok(bank[29] <= 1e6, 'legacy at founding 30 stays under the 1e6 ceiling');
 });
 
-test('frontier ladder: six rungs, config-owned, ascending in canonical order, earnings gate follows the price', () => {
-  const order = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter'];
+test('frontier ladder: eight rungs, config-owned, ascending in canonical order, earnings gate follows the price', () => {
+  const order = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter', 'orbital-shipyard', 'exchange-ring'];
+  assert.deepEqual(
+    UPGRADES.filter((d) => d.frontier).map((d) => d.id),
+    order,
+    'the frontier ladder in upgrades/data.js is the eight rungs this config places'
+  );
   const costs = order.map((id) => config.upgrades[id]?.cost);
   for (let i = 0; i < order.length; i++) {
     assert.ok(isNum(costs[i]) && costs[i] > 0, `${order[i]} priced in config`);
     if (i) assert.ok(costs[i] > costs[i - 1], `${order[i]} costs more than ${order[i - 1]}`);
   }
-  assert.ok(costs[costs.length - 1] <= 1e18, 'the top rung is reachable under the 1e18 money ceiling');
+  assert.ok(costs[costs.length - 1] <= 1e16 * 10, 'the top rung stays two orders under the 1e18 money ceiling');
   assert.equal(FRONTIER_GATE, 0.25);
+});
+
+test('pace ladder and money-priced Legacy rungs are placed here, one price per rung, in ascending city order', () => {
+  // Pace rungs open once the city has earned 100× the price (or holds it): every one is
+  // config-priced so the placement table in config.js is the shipped one.
+  const pace = UPGRADES.filter((d) => d.pace).map((d) => d.id);
+  assert.ok(pace.length >= 9, 'nine pace rungs');
+  for (const id of pace) assert.ok(isNum(config.upgrades[id]?.cost), `${id} priced in config`);
+  // The two Legacy rungs used as late content sit above every first-city price and below
+  // the frontier rung of the city after them (City Archives before the Grid Charter city,
+  // Standing Orders before the Orbital Solar city).
+  const price = (id) => config.upgrades[id].cost;
+  assert.ok(price('city-archives') > price('breeder-reactors') && price('city-archives') < price('championship-season'));
+  assert.ok(price('standing-orders') > price('ai-governance') && price('standing-orders') < price('orbital-solar'));
+  // Planetary Charter is priced under the 14th city's replay spree (see config.js) and
+  // the Galactic Charter just above the Stellar Engine so both land at the Energy city.
+  assert.ok(price('planetary-charter') < price('dyson-swarm'));
+  assert.ok(price('galactic-charter') > price('stellar-engine') && price('galactic-charter') < price('orbital-shipyard'));
+});
+
+test('tier-4 draw keeps late demand ahead of supply (under-power share >= 3% needs more than the x3 catalogue draw)', () => {
+  assert.ok(config.buildings.arcology.powerUse >= 9000 && config.buildings.techpark.powerUse >= 16000);
+  assert.ok(config.buildings.financial.powerUse >= 14000 && config.buildings.stadium.powerUse >= 5000);
+  const fusionGen = config.buildings.fusion?.powerGen ?? buildingById.get('fusion').powerGen;
+  assert.ok(fusionGen <= 3e5);
 });
 
 test('the core money ladder stays monotone from the first shop-priced rung to the top core rung', () => {

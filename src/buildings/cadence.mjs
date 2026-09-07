@@ -1,8 +1,12 @@
 // First-city cadence probe for the building catalogue. DOM-free, Node only.
-//   node src/buildings/cadence.mjs [--ticks 30000] [--json]
+//   node src/buildings/cadence.mjs [--ticks 30000] [--json] [--curve [30]]
+// --curve prints the first city's population, power demand, cash and income every N
+// seconds (default 30) — the curve a population or demand gate is placed on.
 // Boots the game, plays the greedy bot through the first city (stops at the first
 // founding or after --ticks), and prints, per building: the resolved gate, when the card
-// opened, when the first unit was bought, and the lag between the two. Three rules, all
+// opened, when the first unit was bought, and the lag between the two. A legacy-gated card
+// (the tier-5 megastructures) never opens here and is listed with a dash; columns.mjs
+// covers the session those open in. Three rules, all
 // measured from minute 5 on (the opening minutes deal tier-1 cards every few seconds on
 // purpose — shop, park, apartment, factory — and that is the tutorial, not a cadence fault):
 //   spacing   no two cards open within 90 s of each other;
@@ -27,6 +31,8 @@ const opt = (k, d) => {
 };
 const TICKS = Number(opt('--ticks', 30000));
 const JSON_OUT = args.includes('--json');
+const CURVE = args.includes('--curve');
+const CURVE_S = Number(opt('--curve', 30)) || 30;
 const BOT_EVERY = 20;
 export const SPACING_S = 90;
 export const LAG_S = 300;
@@ -65,7 +71,9 @@ for (const id of registry.buildingOrder) {
       ? `pop ${at.pop.toLocaleString('en-US')}${Number.isFinite(at.legacy) ? ' | legacy ' + at.legacy : ''}`
       : Number.isFinite(at.powerDemand)
         ? `demand ${at.powerDemand >= 1 ? at.powerDemand + ' MW' : '> 0'}`
-        : '?';
+        : Number.isFinite(at.legacy)
+          ? `legacy ${at.legacy.toLocaleString('en-US')}`
+          : '?';
   rows.set(id, { id, tier: d.tier, gate, gateOwner: ownerOf(id, 'gate'), costOwner: ownerOf(id, 'baseCost'), unlockS: null, buyS: null });
 }
 const sec = () => state.time;
@@ -85,9 +93,15 @@ events.on('prestige', () => {
   founded = true;
 });
 
+const curve = [];
+let nextCurve = 0;
 for (let t = 0; t < TICKS && !founded; t += BOT_EVERY) {
   popAtEnd = state.res.pop;
   if (popAtEnd > peakPop) peakPop = popAtEnd;
+  if (CURVE && state.time >= nextCurve) {
+    nextCurve += CURVE_S;
+    curve.push({ s: Math.round(state.time), pop: Math.round(state.res.pop), demand: +derived.powerDemand.toFixed(1), cap: +derived.powerCap.toFixed(1), money: Math.round(state.res.money), income: +derived.income.toFixed(2) });
+  }
   game.botStep();
   if (founded) break;
   game.step(Math.min(BOT_EVERY, TICKS - t));
@@ -149,9 +163,14 @@ const report = {
   problems,
   errors: game.errors,
 };
+if (CURVE) report.curve = curve;
 if (JSON_OUT) {
   console.log(JSON.stringify(report, null, 1));
 } else {
+  if (CURVE) {
+    console.log('  min      pop    demand       cap        money      income');
+    for (const c of curve) console.log(`${min(c.s).padStart(5)}  ${String(c.pop).padStart(7)}  ${String(c.demand).padStart(8)}  ${String(c.cap).padStart(8)}  ${String(c.money).padStart(11)}  ${String(c.income).padStart(10)}`);
+  }
   console.log(`first city: ${min(endS)} min${founded ? ' (founded)' : ' (cut off)'}, peak pop ${Math.round(peakPop).toLocaleString('en-US')}, errors ${game.errors.length}`);
   console.log('building     tier  gate                    owner       open   bought   lag (min)');
   for (const r of list) {

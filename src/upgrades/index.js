@@ -4,9 +4,9 @@ import { registerUpgrade, registerTickHandler, registerAction, registry } from '
 import { reportError } from '../core/safe.js';
 import { on, emit } from '../core/events.js';
 import { addLog } from '../core/state.js';
-import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, charterUnlockFor, keptUpgradeIds, isPermanent } from './data.js';
+import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, charterUnlockFor, keptUpgradeIds, isPermanent } from './data.js';
 
-export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, charterUnlockFor, keptUpgradeIds, isPermanent };
+export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, charterUnlockFor, keptUpgradeIds, isPermanent };
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 const DESC_MAX = 70;
@@ -33,12 +33,14 @@ export function applyOverride(def, override) {
   const out = { ...def };
   const cost = typeof override === 'number' ? override : override.cost;
   if (Number.isFinite(cost) && cost > 0) out.cost = cost;
-  // Rungs whose gate is a share of their own price (frontier: earned ≥ cost/4; pace rungs:
-  // earned ≥ 100 × cost; charter perks: spendable legacy ≥ cost/2) get a new gate, hint, progress
-  // mirror — and, for a perk, the tier bracket — with the new price. The rules live in
-  // data.js so this stays two lines.
+  // Rungs whose gate reads their own price (frontier: earned ≥ cost/4; pace rungs: earned
+  // ≥ 100 × cost or the treasury holds the price; funded core rungs: their economy gate and
+  // the treasury holding the price; charter perks: spendable legacy ≥ cost/2) get a new
+  // gate, hint, progress mirror — and, for a perk, the tier bracket — with the new price.
+  // The rules live in data.js so this stays three lines.
   if (out.cost !== def.cost) {
     if (out.earnedGate) Object.assign(out, earnedUnlock(out));
+    else if (out.hold) Object.assign(out, holdUnlock(out));
     else if (out.currency === 'legacy') Object.assign(out, charterUnlockFor(out));
   }
   if (typeof override === 'object') {
@@ -48,15 +50,17 @@ export function applyOverride(def, override) {
   return out;
 }
 
-// Sorted view of the *registered* definitions (config overrides applied): by cost
-// ascending, then registration order. Handy for UI/bots. Before init (or in a test with
-// an empty registry) it falls back to the raw data. Legacy-priced perks sort by their
-// point price among the dollar rungs; callers that care split on `currency`.
+// Sorted view of the *registered* definitions (config overrides applied): every
+// dollar rung by cost ascending, then every legacy-priced charter perk by its point
+// price, registration order breaking ties — two contiguous runs, so a caller never sees
+// a ◆ 3 perk sorted ahead of the $25 Welcome Sign. Handy for UI/bots. Before init (or
+// in a test with an empty registry) it falls back to the raw data.
 export function sortedUpgrades(defs) {
   const list = defs || (registry.upgradeOrder.length ? registry.upgradeOrder.map((id) => registry.upgrades.get(id)) : UPGRADES);
+  const run = (d) => (d.currency === 'legacy' ? 1 : 0);
   return list
     .map((d, i) => [d, i])
-    .sort((a, b) => a[0].cost - b[0].cost || a[1] - b[1])
+    .sort((a, b) => run(a[0]) - run(b[0]) || a[0].cost - b[0].cost || a[1] - b[1])
     .map(([d]) => d);
 }
 

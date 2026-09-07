@@ -1,4 +1,4 @@
-// buildings module — registers the 20 Metropolis structures with core.
+// buildings module — registers the 22 Metropolis structures with core.
 // DOM-free (runs in Node for the economy sim). Never throws from init.
 // Files: data.js (catalogue), README.md (the rationale behind the ladder, the signature
 // mechanics and the unlock spacing), catalogue.mjs (prints the *shipped* catalogue,
@@ -12,7 +12,7 @@
 // spread over each definition before `registerBuilding`. Since the 2026-09-07 polish pass
 // data.js carries the shipped numbers, so the fallback ladder is the one the sim was run on.
 //
-// Hard caps. A def may carry `maxCount` (windmill: 12). Core owns the cap — `api.buy` and
+// Hard caps. A def may carry `maxCount` (windmill: 8). Core owns the cap — `api.buy` and
 // `maxAffordable` refuse past it and `api.buildings()` rows carry `maxed` — and this module
 // only validates the field (a non-integer override is dropped rather than handed to the
 // registry, which throws). As a belt to core's braces, a `buy` listener rolls back any
@@ -60,8 +60,11 @@ import { BUILDINGS, CATEGORIES } from './data.js';
 
 export { BUILDINGS, CATEGORIES };
 
-// DESIGN.md defaults; config.cost.tierGrowth wins when present.
-const DEFAULT_TIER_GROWTH = { 1: 1.15, 2: 1.14, 3: 1.13, 4: 1.12 };
+// The shipped ladder (config.cost.tierGrowth, which wins when present; the test holds the
+// two equal so a config import failure ships the curve the sim was run on, not a stale
+// sketch). Tier-5 cards pin their own costGrowth: neither this table nor config has a
+// tier 5, and balance's costGrowthFor(5) would answer with the tier-1 rate.
+export const DEFAULT_TIER_GROWTH = Object.freeze({ 1: 1.18, 2: 1.16, 3: 1.13, 4: 1.112 });
 const NUMERIC_FIELDS = ['baseCost', 'costGrowth', 'housing', 'jobs', 'powerUse', 'powerGen', 'income', 'upkeep', 'happiness', 'sellRefund', 'tier'];
 const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 // Stats a synergy may scale. Cost is deliberately excluded (cost mods belong to the mods

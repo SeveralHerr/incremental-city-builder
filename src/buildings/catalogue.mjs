@@ -21,6 +21,7 @@ const gateOf = (d) => {
   if (!d?.unlock) return 'start';
   if (Number.isFinite(at.pop)) return `pop ${at.pop}${Number.isFinite(at.legacy) ? ` | legacy ${at.legacy}` : ''}`;
   if (Number.isFinite(at.powerDemand)) return at.powerDemand >= 1 ? `demand ${at.powerDemand} MW` : 'demand > 0';
+  if (Number.isFinite(at.legacy)) return `legacy ${at.legacy}`;
   return '?';
 };
 const num = (v) => (v === undefined || v === 0 ? '' : Math.abs(v) >= 1e5 ? v.toExponential(2).replace('e+', 'e') : String(+v.toFixed(3)));

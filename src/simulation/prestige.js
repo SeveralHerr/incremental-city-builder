@@ -6,27 +6,33 @@
 // founding allowed      gain ≥ max(minGain, ceil(legacy · minGainShare))
 // income multiplier     mult(L)   = (1 + incomePerLegacy·L) ^ legacyPower · (1 + firstBonus once L > 0)
 // legacy as a currency  available = legacy − spent   (charter perks, core api.buyUpgrade)
+// seed cash             max(startMoney · (1 + startMoneyPerLegacy·L), seed window · old city's peak income)
+// tap per founding      mods.tap × (1 + tapPerFounding · min(prestiges, tapFoundingCap))
 //
 // One source of legacy, Cookie Clicker's: everything the mayor has ever earned is worth a
 // legacy total, and founding banks the difference to what is already held. Nothing gates on
 // wall-clock time and nothing compounds: a run has to out-earn the sum of every run before it
-// to bank more, so a founding is always paid for with output, and the bank can only grow as
-// fast as lifetime earnings ^ exponent (contract principle 2, docs/DESIGN.md). Legacy is also
-// a currency (principle 3): charter perks are upgrades priced in legacy, core keeps the tally
-// in state.prestige.spent, and the income bonus always uses the FULL bank — spending never
-// lowers it, and a founding keeps `spent` along with the rest of state.prestige.
+// to bank more, so the bank can only grow as fast as lifetime earnings ^ exponent (contract
+// principle 2, docs/DESIGN.md). Legacy is also a currency (principle 3): charter perks are
+// upgrades priced in legacy, core keeps the tally in state.prestige.spent, the income bonus
+// always uses the FULL bank, and a founding keeps `spent` with the rest of state.prestige.
 //
-// The payoff is a root of the linear term (legacyPower ≤ 0.6, no soft cap, no tail): the
-// marginal point keeps its relative worth, and a million-point bank is bounded by
-// construction — ×251 at the ceiling p = 0.6 with the shipped k = 0.01, ×156 (×184 with
-// the first bonus) at the shipped p — so twelve-hour money stays inside a double's
-// comfortable range (principle 4: money ≤ 1e18, legacy ≤ 1e6). The one-off first bonus
-// makes the very first founding a jump a player can feel; the legacy tiers in
-// milestones.js (5 … 1M points, ×2.5–3.3 apart) give every later founding a target in sight.
+// The payoff is a root of the linear term (legacyPower ≤ 0.6, no soft cap, no tail), so a
+// million-point bank is bounded by construction — ×251 at p = 0.6 with k = 0.01 — and
+// twelve-hour money stays inside a double's comfortable range (principle 4: money ≤ 1e18,
+// legacy ≤ 1e6). The one-off first bonus makes the first founding a jump a player can feel;
+// the legacy tiers in milestones.js give every later founding a target in sight; and every
+// founding pays something felt at once, whatever the bonus ratio reads (the shipped curve is
+// ×1.01–1.05 per founding below ~40 points, ×1.20 late): each founding makes a tap worth
+// tapPerFounding more seconds of income (tuning.js foundingTuning; bounded by the founding
+// cap and, for sustained tapping, by the tap meter's refill — never by the bank), and the
+// seed window, when balance turns it on, opens the new city with a treasury sized to the
+// city just left (seedSeconds of its peak income, ramping in with the bank) so a replay
+// starts partway up the ladder instead of re-buying cottages.
 //
-// What counts as earnings: the gross output of a solvent city (index.js integrate() — a
-// city in upkeep deficit earns nothing; a tap counts in full). Nothing else feeds
-// lifetimeEarned.
+// What counts as earnings: the gross output of a solvent city (index.js integrate()). The
+// old city's peak net income (stats.peakIncome, tracked there) sizes the seed and nothing
+// else: it never feeds legacy.
 //
 // Shipped knobs (simulation.test.mjs asserts this line against src/balance/config.js, so
 // it cannot drift): threshold 1.1e7, exponent 0.488, incomePerLegacy 0.01, legacyPower
@@ -36,28 +42,15 @@
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
 // means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
 // while the bonus grows only ×1.4^0.548 = ×1.20 per founding, so a city with nothing new
-// is ~×1.35 longer than the one before it. Two things keep the plateau flat: the late
-// ladder (one rung or perk per city, placed by balance in config.upgrades) and the
-// founding / legacy tiers in milestones.js, which land a +5% income rung in the cities
-// that would otherwise run long (see the ladder comment there). A same-tree sweep of
-// minGainShare (0.35 / 0.3 / 0.25 → more, faster foundings, same max ratio) showed the
-// prestige knobs set the cadence and not the purchase tension, which is the rung prices
-// against the plateau income (docs/DESIGN.md, "Late game contract").
-//
-// Measured numbers live in the logs, not here — read the latest 12 h run (`node
-// tools/economy-sim.mjs --ticks 432000 --out logs/<tag>.json`, `metrics` and `cycles`)
-// and docs/DESIGN.md "Late game contract" after any balance pass. Snapshot for
-// orientation only (logs/sim-polish-simulation.json, 2026-09-07, greedy bot): the Legacy
-// panel opens at $1.1M earned and the Found button arms at $11M; the bot holds out for 5
-// points and founds at 43.4 min, then 12.2 → 11.0 → 6.9 → 6.3 → 8.2 → 11.0 → 14.5 …; 32
-// foundings in 12 h, every cycle ≤ ×1.35 the previous (max 1.346, cycle 19), last cycle
-// 23.4 min (three mid-session cycles run 45–50 min); legacy 271,118 (127,476 spent, the
-// Imperial Charter signed), money peak 2.8e16, income 8.4e14/s; under-power 3.5%, floor
-// 0.60; happiness dips in 22/32 cities; 0 issues, 0 errors, contract PASS.
+// is ~×1.35 longer than the one before it. The late ladder (one rung or perk per city,
+// placed by balance in config.upgrades) and the founding / legacy tiers in milestones.js
+// keep that plateau flat; the prestige knobs set the cadence, the rung prices set the
+// purchase tension. Measured pacing: docs/DESIGN.md "Late game contract" and the latest
+// logs/sim-*.json (`node tools/economy-sim.mjs --ticks 432000`, `metrics` and `cycles`).
 import { config } from '../balance/config.js';
 import { resetState, addLog } from '../core/state.js';
 import { emit } from '../core/events.js';
-import { prestigeTuning, economyTuning } from './tuning.js';
+import { prestigeTuning, economyTuning, foundingTuning } from './tuning.js';
 import { nextLegacyMilestone } from './milestones.js';
 
 // How many log lines survive a founding (the run's story is worth keeping).
@@ -151,16 +144,55 @@ export function canPrestige(state, cfg = config) {
   return prestigeGain(state, cfg) >= requiredGain(state, cfg);
 }
 
-// Seed cash for a run started with `legacy` points banked.
-export function startMoneyFor(legacy, cfg = config) {
-  const n = Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
-  return economyTuning(cfg).startMoney * (1 + n * prestigeTuning(cfg).startMoneyPerLegacy);
+// The old city's peak net income (index.js integrate() tracks it per run).
+export function peakIncomeOf(state) {
+  const v = state && state.stats ? state.stats.peakIncome : 0;
+  return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-// Fold prestige into the per-tick mods bag: the full bank, whatever has been spent.
+// Seconds of the old city's income a founding at `legacy` points seeds: the window opens
+// with the bank (seedSeconds · min(1, legacy / seedLegacy)).
+export function seedWindowFor(legacy, cfg = config) {
+  const n = Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
+  const f = foundingTuning(cfg);
+  if (!(f.seedLegacy > 0)) return f.seedSeconds;
+  return n >= f.seedLegacy ? f.seedSeconds : (f.seedSeconds * n) / f.seedLegacy;
+}
+
+// Seed cash for a run started with `legacy` points banked, after a city that peaked at
+// `peakIncome` per second: the legacy seed or the seed window of that income, whichever is more.
+export function startMoneyFor(legacy, cfg = config, peakIncome = 0) {
+  const n = Number.isFinite(legacy) && legacy > 0 ? legacy : 0;
+  const base = economyTuning(cfg).startMoney * (1 + n * prestigeTuning(cfg).startMoneyPerLegacy);
+  const rate = Number.isFinite(peakIncome) && peakIncome > 0 ? peakIncome : 0;
+  const seed = rate * seedWindowFor(n, cfg);
+  return seed > base ? seed : base;
+}
+
+// Foundings so far (stats.prestiges), whole and non-negative.
+export function foundingsOf(state) {
+  const v = state && state.stats ? state.stats.prestiges : 0;
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+// What a tap is worth after `foundings` foundings, relative to a first city: linear in the
+// founding count up to tapFoundingCap. Sustained tap income is capped by the meter's
+// refill regardless (index.js tap()), so this scales the tap after a pause, not the ceiling.
+export function foundingTapMult(foundings, cfg = config) {
+  const f = foundingTuning(cfg);
+  const n = Number.isFinite(foundings) && foundings > 0 ? Math.min(Math.floor(foundings), f.tapFoundingCap) : 0;
+  const mult = 1 + n * f.tapPerFounding;
+  return Number.isFinite(mult) && mult >= 1 ? mult : 1;
+}
+
+// Fold prestige into the per-tick mods bag: the full bank, whatever has been spent, and the
+// per-founding tap value (mods.tap is seeded by index.js foldMods; a bare core bag reads
+// as 1 so an older caller never turns it into NaN).
 export function applyPrestigeMods(mods, state, cfg = config) {
   const legacy = legacyOf(state);
   if (legacy > 0) mods.income *= legacyIncomeMult(legacy, cfg);
+  const tapMult = foundingTapMult(foundingsOf(state), cfg);
+  if (tapMult > 1) mods.tap = (Number.isFinite(mods.tap) && mods.tap > 0 ? mods.tap : 1) * tapMult;
   return mods;
 }
 
@@ -194,7 +226,8 @@ export function prestigeUnlockAt(state, cfg = config) {
 //   unlockAt, nextAt           this run's totalEarned at which founding arms / the next point
 //   mult, multAfter            the real income multiplier now / after founding
 //   lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt
-//   nextIn, unlockIn           seconds of the given gross income until nextAt / unlockAt
+//   nextIn, unlockIn           seconds at the given earning rate (index.js earningRate: the
+//                              gross output a solvent city scores) until nextAt / unlockAt
 //                              (0 once reached, Infinity with no income or no target), so a
 //                              plateau city with no rung in reach still shows a waiting
 //                              target: "next legacy point in 4 min"
@@ -218,7 +251,7 @@ export function prestigeStatus(state, out, cfg = config, incomePerSec = 0) {
   out.unlockIn = out.can ? 0 : secondsUntil(out.unlockAt, earned, incomePerSec);
   out.mult = legacyIncomeMult(legacy, cfg);
   out.multAfter = legacyIncomeMult(legacy + gain, cfg);
-  out.startMoneyAfter = startMoneyFor(legacy + gain, cfg);
+  out.startMoneyAfter = startMoneyFor(legacy + gain, cfg, peakIncomeOf(state));
   const tier = nextLegacyMilestone(legacy);
   out.nextTierName = tier ? tier.name : '';
   out.nextTierAt = tier ? tier.target : 0;
@@ -258,6 +291,7 @@ export function performPrestige(state, cfg = config, onReset) {
   const cityNo = (Number.isFinite(state.stats.prestiges) ? state.stats.prestiges : 0) + 2;
   const earnedText = '$' + Math.round(totalEarnedOf(state)).toLocaleString('en-US');
   const peakPop = Number.isFinite(state.stats.peakPop) ? Math.floor(state.stats.peakPop) : 0;
+  const peakIncome = peakIncomeOf(state);
   const keptLog = Array.isArray(state.log) ? state.log.slice(-KEEP_LOG_LINES) : [];
 
   state.prestige.legacy = legacy;
@@ -269,7 +303,8 @@ export function performPrestige(state, cfg = config, onReset) {
   // totalEarned is per run: it drives the money milestones and the prestige bar. Lifetime
   // earnings (what legacy is computed from) live in state.prestige.lifetimeEarned.
   state.stats.totalEarned = 0;
-  state.res.money = startMoneyFor(legacy, cfg);
+  state.stats.peakIncome = 0; // per run, like peakPop: the new city sizes the next seed
+  state.res.money = startMoneyFor(legacy, cfg, peakIncome);
   state.res.pop = 0;
 
   // The old city's story survives the move (timestamps restart with the new run).
@@ -283,25 +318,38 @@ export function performPrestige(state, cfg = config, onReset) {
 
   const multBefore = legacyIncomeMult(before, cfg);
   const multAfter = legacyIncomeMult(legacy, cfg);
-  addLog(foundingLine(gain, legacy, multBefore, multAfter, state.res.money), 'prestige');
+  addLog(foundingLine(gain, legacy, multBefore, multAfter, state.res.money, peakIncome, foundingTapMult(cityNo - 1, cfg)), 'prestige');
   emit('prestige', { gain, legacy, spent, available: legacy > spent ? legacy - spent : 0, mult: multAfter });
   return true;
 }
 
-// The founding line: while a founding still moves the income bonus by a few percent it
-// leads with the ratio; once the bonus has flattened it leads with what did change — the
-// bank, the seed cash and the next legacy tier — instead of advertising a ×1.00.
+// The founding line. Every founding pays more than once — the bonus ratio (forever), the
+// tap value (every founding), the seed (now, when the window is on) — and the line leads
+// with the bigger news: the ratio while a founding still moves the bonus by NOTABLE_RATIO
+// or more, else the treasury and the tap. A seed that is real is sized in seconds of the
+// old city's income so it reads as time saved rather than as a figure. Neither branch
+// advertises a ×1.00; the next legacy tier closes both.
 const NOTABLE_RATIO = 1.05;
 
-export function foundingLine(gain, legacy, multBefore, multAfter, seedMoney) {
+export function foundingLine(gain, legacy, multBefore, multAfter, seedMoney, peakIncome = 0, tapMult = 1) {
   const got = gain.toLocaleString('en-US');
   const total = legacy.toLocaleString('en-US');
-  const ratio = multAfter / multBefore;
-  if (ratio >= NOTABLE_RATIO) {
-    return `+${got} legacy (${total} total): income ×${ratio.toFixed(2)} on top of the old bonus, +${fmtPct(multAfter)} over a fresh start, forever.`;
-  }
+  const ratio = multBefore > 0 && Number.isFinite(multAfter / multBefore) ? multAfter / multBefore : 1;
+  const seed = '$' + Math.round(seedMoney).toLocaleString('en-US');
   const tier = nextLegacyMilestone(legacy);
   const next = tier ? ` Next tier: ${tier.name} at ${tier.target.toLocaleString('en-US')} legacy.` : '';
-  const seed = '$' + Math.round(seedMoney).toLocaleString('en-US');
-  return `+${got} legacy (${total} total): the bank keeps every point, the new city opens with ${seed}, and the income bonus holds at +${fmtPct(multAfter)}.${next}`;
+  const window = peakIncome > 0 && seedMoney > 0 ? seedMoney / peakIncome : 0;
+  const opens = window >= 1 ? `opens with ${seed} — ${fmtSeconds(window)} of the old city's income` : `opens with ${seed}`;
+  const taps = tapMult > 1.005 ? ` Taps pay ×${(Math.round(tapMult * 10) / 10).toLocaleString('en-US')} a first city's.` : '';
+  if (ratio >= NOTABLE_RATIO) {
+    return `+${got} legacy (${total} total): income ×${ratio.toFixed(2)} on top of the old bonus, +${fmtPct(multAfter)} over a fresh start, forever. The new city ${opens}.${taps}${next}`;
+  }
+  const bonus = ratio > 1.005 ? `the income bonus grows to +${fmtPct(multAfter)}` : `the income bonus stands at +${fmtPct(multAfter)}`;
+  return `+${got} legacy (${total} total): the new city ${opens}, and ${bonus}.${taps}${next}`;
+}
+
+function fmtSeconds(s) {
+  if (s >= 3600) return `${(Math.round(s / 360) / 10).toLocaleString('en-US')} h`;
+  if (s >= 90) return `${Math.round(s / 60).toLocaleString('en-US')} min`;
+  return `${Math.round(s).toLocaleString('en-US')} s`;
 }

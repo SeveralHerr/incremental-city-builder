@@ -1,4 +1,7 @@
-// Building catalogue — the 20 structures of Metropolis, five categories, four tiers.
+// Building catalogue — the 22 structures of Metropolis: five categories, four tiers in
+// every column plus two legacy-gated tier-5 megastructures (the Orbital Ring and the Space
+// Elevator) that open in the 17th and 24th city of a session, so the catalogue keeps
+// unveiling after the first founding instead of being spent in its first forty minutes.
 // Pure data, DOM-free. These are the module's *defaults*: `config.buildings[id]` in
 // src/balance/config.js may override any field per building and index.js merges it before
 // `registerBuilding`. Since the 2026-09-07 polish pass the defaults below are the shipped
@@ -6,7 +9,7 @@
 // import failure ships the same ladder the balance sim was run on); a genuine delta shows
 // in brackets in `node src/buildings/catalogue.mjs`, which prints the resolved catalogue.
 // Why the ladder has this shape (columns, power steps, air quality, unlock spacing, the
-// signature mechanics) is in README.md.
+// signature mechanics, the jobs-to-housing ratio) is in README.md.
 //
 // Per-unit fields: housing (citizens), jobs, income ($/s), powerGen / powerUse (MW),
 // happiness (additive, civic curve), upkeep ($/s). costGrowth defaults to the tier's
@@ -31,6 +34,8 @@ export const CATEGORIES = [
 
 const pop = (n) => (state) => (state?.res?.pop ?? 0) >= n;
 const demand = (n) => (state, derived) => (derived?.powerDemand ?? 0) >= n;
+// Banked legacy points (the full bank; spending on charter perks never lowers it).
+const legacy = (n) => (state) => (state?.prestige?.legacy ?? 0) >= n;
 
 export const BUILDINGS = [
   // ---------------------------------------------------------------- residential
@@ -57,7 +62,7 @@ export const BUILDINGS = [
     desc: 'Six floors of neighbors who all know when you get home.',
     category: 'residential',
     tier: 2,
-    baseCost: 280,
+    baseCost: 260,
     housing: 24,
     powerUse: 6,
     unlock: pop(20),
@@ -71,7 +76,7 @@ export const BUILDINGS = [
     desc: 'Glass and steel stacked skyward; the elevators hum all night.',
     category: 'residential',
     tier: 3,
-    baseCost: 3000,
+    baseCost: 2800,
     housing: 160,
     powerUse: 40,
     unlock: pop(250),
@@ -87,18 +92,62 @@ export const BUILDINGS = [
     tier: 4,
     baseCost: 120000,
     housing: 1000,
+    // Commuter belt: every financial district's payroll pulls more people into the blocks
+    // (+2.5% housing per district, ×3 at 80). This is what keeps the housing column level
+    // with the jobs column in a mature city — with a flat 1,000 the greedy bot's district
+    // and campus fleet ran jobs at 3–7× the population from the 6th city on and most of a
+    // tier-4 employer's job sticker was decorative (README "Jobs and housing"). The base
+    // stays at 1,000 because a 2,500 arcology tripped every later first-city gate within a
+    // minute; the rule only reaches ×1.15 in the first city's last five minutes.
+    synergy: { stat: 'housing', source: 'building:financial', per: 40, cap: 3, text: 'Commuter belt: +2.5% housing per Financial District (up to ×3)' },
     jobs: 500, // self-contained: the block staffs its own shops, clinics and corridors
-    // 10.5 MW per citizen, 42× the tower's 0.25: the sticker is deliberately a power bill
-    // (~0.9 nuclear plants per block) so the Power tab keeps asking for money late; the
-    // strain below is the second, quadratic axis. README "Power" quotes these rates.
-    powerUse: 10500,
+    // 6.5 MW per citizen, 26× the tower's 0.25: the sticker is deliberately a power bill
+    // (~0.5 nuclear plants per block) so the Power tab keeps asking for money late; the
+    // strain below is the second, quadratic axis. README "Power" quotes these rates. The
+    // four tier-4 draws mirror config.buildings (balance trimmed them from 10,500 / 18,700 /
+    // 16,500 / 6,200 when it re-pinned the strain rule to +12.5 % per unit up to ×40; this
+    // folder's fallback strain stays the documented +2.5 % / ×1.5 tax).
+    powerUse: 6500,
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Arcology owned (up to ×1.5)' },
     happiness: 0.1, // gardens, clinics and corridors of its own: two parks' worth, felt on the card
-    // 6,300: a clear step (≥ 15%) above the hospital (5,400) and ~3.4 min behind it in the
-    // first city; nuclear (11,000) follows ~3.4 min later.
-    unlock: pop(6300),
-    unlockAt: { pop: 6300 },
-    unlockHint: 'Reach 6,300 citizens',
+    // 6,600 (mirrors config): a clear step above the hospital (5,000) and ~2.6 min behind
+    // it in the first city; nuclear (12,500) follows ~4 min later.
+    unlock: pop(6600),
+    unlockAt: { pop: 6600 },
+    unlockHint: 'Reach 6,600 citizens',
+  },
+  {
+    id: 'ring',
+    name: 'Orbital Ring',
+    icon: '🛸',
+    desc: 'A habitat wrapped around the planet; the sunsets are on a schedule.',
+    category: 'residential',
+    tier: 5,
+    // Legacy-gated megastructure: opens at 500 banked points (the 14th city of a greedy
+    // 12 h session, a legacy tier the simulation announces), so the catalogue keeps
+    // unveiling after the first founding — and it lands one city after the Megastructures
+    // rung doubles the housing column, which is where its hiring is first needed. $2e11 is
+    // seconds of that city's income; the ×3 curve (pinned: config's tierGrowth has no tier
+    // 5) makes each further ring a real target — a city buys a handful in its spree and
+    // the next one costs more than the spree reached, so the fleet never eats the cash
+    // that re-buys the core ladder (README "Tier 5").
+    baseCost: 2e11,
+    costGrowth: 3,
+    housing: 80000, // eighty arcologies' worth
+    // Orbital industry: the ring's yards hire from the city below, +1% per 100,000
+    // citizens up to ×12 (600,000 jobs in a city of 1.1 M). This is the late jobs engine:
+    // from the 14th city on the housing rungs outrun the jobs rungs (×42 against ×12 by
+    // the 30th, columns.mjs) and a static sticker cannot follow — a jobs number that
+    // grows with the population can, and it comes online as a replay's citizens arrive,
+    // which is what keeps the jobs column within reach of the housing column through 12 h
+    // (README "Jobs and housing").
+    jobs: 50000,
+    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 12, text: 'Orbital industry: +1% jobs per 100,000 citizens (up to ×12)' },
+    powerUse: 1.2e6, // 12 MW per citizen, twice the arcology's 6.5: the card says "≈ 20 × Fusion Reactor"
+    happiness: 0.5, // ten parks: a sealed world with weather it chose
+    unlock: legacy(500),
+    unlockAt: { legacy: 500 },
+    unlockHint: 'Bank 500 legacy',
   },
 
   // ----------------------------------------------------------------- commercial
@@ -132,13 +181,16 @@ export const BUILDINGS = [
     // per dollar only once the city has citizens to fill the desks (empty desks pay
     // nothing) while the factory's flat income is guaranteed. Neither dominates.
     jobs: 50,
-    income: 4,
+    income: 4.4,
     powerUse: 8,
-    // 80 citizens lands at 4.8 min in the first city; the coal plant's demand gate is
-    // placed so the two never open in the same minute (see coal).
-    unlock: pop(80),
-    unlockAt: { pop: 80 },
-    unlockHint: 'Reach 80 citizens',
+    // 200 citizens (was 80): the first city's population sits on a 183-citizen plateau
+    // from 7.0 to 7.5 min and jumps to 216 at 8.0, so the card opens at ~7.7 — ~2.3 min
+    // after the coal plant (34 MW at 5.4) and ~110 s before the tower (250 at 9.6) — with
+    // $1,350 in the treasury, so it is bought within three minutes. At 80 it opened at 5.3,
+    // 70 s before the plant, and glowed unaffordable for five minutes (cadence.mjs --curve).
+    unlock: pop(200),
+    unlockAt: { pop: 200 },
+    unlockHint: 'Reach 200 citizens',
   },
   {
     id: 'mall',
@@ -149,13 +201,13 @@ export const BUILDINGS = [
     tier: 3,
     baseCost: 25000,
     jobs: 300,
-    income: 40,
+    income: 46,
     synergy: { stat: 'income', source: 'pop', per: 5000, cap: 3, text: 'Income +20% per 1,000 citizens (up to ×3)' },
     powerUse: 60,
     // 2,800: between the refinery (2,200) and the solar farm (3,600), ~2 min apart each.
-    unlock: pop(2800),
-    unlockAt: { pop: 2800 },
-    unlockHint: 'Reach 2,800 citizens',
+    unlock: pop(3000),
+    unlockAt: { pop: 3000 },
+    unlockHint: 'Reach 3,000 citizens',
   },
   {
     id: 'financial',
@@ -165,15 +217,20 @@ export const BUILDINGS = [
     category: 'commercial',
     tier: 4,
     baseCost: 700000,
-    jobs: 4000,
-    income: 2500,
+    // 2,000 (was 4,000): the district is the biggest employer in the game, but at 4,000 it
+    // alone carried 44% of a mature city's jobs and the jobs column ran 3–7× the housing
+    // column, so 65–80% of the sticker never met a citizen. 2,000 keeps it at a clear step
+    // above the tech campus's income-per-desk while letting the columns cross near 1:1.
+    jobs: 2000,
+    income: 2070, // mirrors config: trimmed with the campus's (2,500 → 2,070) so the two stay within the dominance band (wages included)
     synergy: { stat: 'income', source: 'employed', per: 20000, cap: 2.5, text: 'Income +5% per 1,000 employed citizens (up to ×2.5)' },
-    powerUse: 16500, // 4.1 MW per job, ~21× the mall's 0.2 — ~1.4 nuclear plants per district
+    powerUse: 10200, // 5.1 MW per job, ~26× the mall's 0.2 — ~0.9 nuclear plants per district (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per District owned (up to ×1.5)' },
-    // 22,000: ~2 min after the tech campus (14,500) in the first city, ~5 min before fusion.
-    unlock: pop(22000),
-    unlockAt: { pop: 22000 },
-    unlockHint: 'Reach 22,000 citizens',
+    // 30,000 (mirrors config): ~2.5 min after the tech campus (16,500) in the first city,
+    // ~4 min before fusion's 36,000 trophy gate.
+    unlock: pop(30000),
+    unlockAt: { pop: 30000 },
+    unlockHint: 'Reach 30,000 citizens',
   },
 
   // ----------------------------------------------------------------- industrial
@@ -186,12 +243,18 @@ export const BUILDINGS = [
     tier: 1,
     baseCost: 500,
     jobs: 20,
-    income: 3,
+    income: 3.3,
     powerUse: 10,
     happiness: -0.02,
-    unlock: pop(30),
-    unlockAt: { pop: 30 },
-    unlockHint: 'Reach 30 citizens',
+    // 65 citizens (was 45, before that 30): at 30 the $500 card opened at 1.9 min and glowed
+    // unaffordable for seven minutes while income was $3–6/s; at 45 it opened at 4.1 min and,
+    // on the final tree (cheaper apartments, growthRate 0.1), was bought at 9.4 — 20 s past
+    // the lag rule; at 65 it opens ~4.7 min, inside the exempt opening window, and is bought
+    // within 5 min. The population crawls on cottages and then jumps with the apartment
+    // spree, so the gate sits just under that jump (87 citizens at 5.0 min).
+    unlock: pop(65),
+    unlockAt: { pop: 65 },
+    unlockHint: 'Reach 65 citizens',
   },
   {
     id: 'refinery',
@@ -202,7 +265,7 @@ export const BUILDINGS = [
     tier: 2,
     baseCost: 20000,
     jobs: 200,
-    income: 60,
+    income: 66,
     synergy: { stat: 'income', source: 'building:factory', per: 50, cap: 2, text: 'Income +2% per Factory (up to ×2)' },
     powerUse: 120,
     happiness: -0.03,
@@ -219,17 +282,22 @@ export const BUILDINGS = [
     category: 'industrial',
     tier: 3,
     baseCost: 300000,
-    jobs: 2500,
-    income: 900,
+    // 1,800 (was 2,500): a quarter of a mature city's jobs at 2,500, trimmed with the
+    // district's sticker so the columns cross near 1:1 (README "Jobs and housing"). It also
+    // keeps the district within 0.8× of the campus on income per dollar with wages counted
+    // (the test below) and the district's first-city buy inside the 4-minute lag rule,
+    // which the bot's jobs-weighted scoring pushed past when only the district moved.
+    jobs: 1800,
+    income: 740, // mirrors config: balance's uniform late-income lever (was 900, then 810)
     synergy: { stat: 'income', source: 'building:school', per: 20, cap: 1.75, text: 'Income +5% per School (up to ×1.75)' },
-    powerUse: 18700, // 7.5 MW per job, ~12× the refinery's 0.6 — ~1.6 nuclear plants per campus
+    powerUse: 11600, // 6.4 MW per job, ~11× the refinery's 0.6 — ~1 nuclear plant per campus (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Campus owned (up to ×1.5)' },
     happiness: 0.05,
-    // 14,500: ~3 min after nuclear (11,000) in the first city, so the campus's bill has a
-    // plant to land on; ~2 min before the financial district.
-    unlock: pop(14500),
-    unlockAt: { pop: 14500 },
-    unlockHint: 'Reach 14,500 citizens',
+    // 16,500 (mirrors config): ~3 min after nuclear (12,500) in the first city, so the
+    // campus's bill has a plant to land on; ~2.5 min before the financial district.
+    unlock: pop(16500),
+    unlockAt: { pop: 16500 },
+    unlockHint: 'Reach 16,500 citizens',
   },
 
   // ---------------------------------------------------------------------- power
@@ -241,12 +309,14 @@ export const BUILDINGS = [
     category: 'power',
     tier: 1,
     baseCost: 40,
-    // ×2 per unit: the 12th costs $81,920 for 4 MW. That is the tutorial generator's
-    // retirement, made explicit by the cap below — without it a Buy Max on the Power tab
-    // late in a session paid ~$1e16 for the 49th (40% of a 12 h city's cash) for 4 MW.
+    // ×2 per unit and a hard cap of 8: the 8th costs $5,120 for 4 MW, about two coal plants'
+    // worth, and the eight together $10,200 for 32 MW. That is the tutorial generator's
+    // retirement — at a cap of 12 the last four cost $10k–$82k each for 4 MW and both the bot
+    // and a Buy Max on the Power tab paid ~$164k for 48 MW when a $2,500 coal plant gives 80;
+    // without any cap a late Buy Max paid ~$1e16 for the 49th (40% of a 12 h city's cash).
     costGrowth: 2,
     powerGen: 4,
-    maxCount: 12,
+    maxCount: 8,
     // Gates on live draw, so the first cottage is followed by one dark tick (README: why
     // that stays).
     unlock: (state, derived) => (derived?.powerDemand ?? 0) > 0,
@@ -268,12 +338,15 @@ export const BUILDINGS = [
     jobs: 10,
     powerGen: 80,
     happiness: -0.015,
-    // 40 MW: ten windmills' worth. At 20 MW the plant opened in the same second as the
-    // office block (4.8 min) and 24 MW still landed in that second (the apartment spree
-    // jumps the draw 18 → 34 MW); 40 MW opens it at 6.2 min, 84 s after the office.
-    unlock: demand(40),
-    unlockAt: { powerDemand: 40 },
-    unlockHint: 'Power demand reaches 40 MW',
+    // 34 MW: half a windmill more than the eight the cap can supply, so the plant opens
+    // (~6.0 min) the moment the grid falls short — the apartment spree lifts the draw 25 →
+    // 34 MW between 5.5 and 6.0 min and the next purchase jumps it straight to 40, so any
+    // gate from 35 to 40 opened at 6.5, 78 s before the office block (200 citizens, 7.8
+    // min); at 34 the office follows ~110 s later. At 20–24 MW the plant landed inside
+    // the apartment spree itself.
+    unlock: demand(34),
+    unlockAt: { powerDemand: 34 },
+    unlockHint: 'Power demand reaches 34 MW',
   },
   {
     id: 'solar',
@@ -287,7 +360,7 @@ export const BUILDINGS = [
     // Panels want open land: every city park lifts the farm's output.
     synergy: { stat: 'powerGen', source: 'building:park', per: 50, cap: 1.5, text: 'Output +2% per City Park (up to ×1.5)' },
     happiness: 0.03,
-    // 3,600: ~2 min after the mall (2,800) and ~4.5 min before the hospital (5,400); the
+    // 3,600: ~2 min after the mall (2,800) and ~3 min before the hospital (5,000); the
     // population jumps in tower sprees around 3,000, so 3,200–3,300 lands on the mall.
     unlock: pop(3600),
     unlockAt: { pop: 3600 },
@@ -306,11 +379,11 @@ export const BUILDINGS = [
     happiness: 0.02,
     // A real running cost: the bill the fusion reactor is there to replace.
     upkeep: 300,
-    // 11,000: ~3.4 min after the arcology (6,300), whose 10.5 GW draw is what the plant
-    // is sized for, and ~3 min before the tech campus (14,500).
-    unlock: pop(11000),
-    unlockAt: { pop: 11000 },
-    unlockHint: 'Reach 11,000 citizens',
+    // 12,500 (mirrors config): ~4 min after the arcology (6,600), whose 6.5 GW draw is what the plant is
+    // sized for, and ~2.7 min before the tech campus (16,500).
+    unlock: pop(12500),
+    unlockAt: { pop: 12500 },
+    unlockHint: 'Reach 12,500 citizens',
   },
   {
     id: 'fusion',
@@ -329,9 +402,35 @@ export const BUILDINGS = [
     happiness: 0.05,
     // The same bill per MW as nuclear at the sticker ($0.025/MW/s), a third of it at ×3.
     upkeep: 1500,
-    unlock: (state) => (state?.res?.pop ?? 0) >= 28000 || (state?.prestige?.legacy ?? 0) >= 1,
-    unlockAt: { pop: 28000, legacy: 1 },
-    unlockHint: 'Found a new city (or reach 28,000 citizens)',
+    // 36,000: the first-city trophy gate, placed on the curve so the reactor opens ~36.1
+    // min — ~4 min after the district (27,000 at 32.3), ~2 min before the stadium
+    // (43,000 at 37.9) — and is bought 2.3 min later; at 28,000 it opened at 32.9 and
+    // glowed for six minutes. `legacy >= 1` stays the normal route.
+    unlock: (state) => (state?.res?.pop ?? 0) >= 36000 || (state?.prestige?.legacy ?? 0) >= 1,
+    unlockAt: { pop: 36000, legacy: 1 },
+    unlockHint: 'Found a new city (or reach 36,000 citizens)',
+  },
+  {
+    id: 'elevator',
+    name: 'Space Elevator',
+    icon: '🚀',
+    desc: 'A cable to orbit. Freight goes up, sunlight comes down, all day.',
+    category: 'power',
+    tier: 5,
+    // Opens at 300,000 banked points (mirrors config: the never-bought item of city 33,
+    // re-pinned from 15,000 so it follows the Imperial Charter's city), long after the ring. $2e13 is seconds of that city's income; ×3 per unit like the
+    // ring, so the fleet is a rolling target rather than a spree. The rings are its
+    // counterweights: each one anchored to the cable lifts the beamed-down output.
+    baseCost: 2e13,
+    costGrowth: 3,
+    jobs: 40000,
+    powerGen: 3e6, // 50 fusion reactors
+    synergy: { stat: 'powerGen', source: 'building:ring', per: 10, cap: 3, text: 'Counterweights: output +10% per Orbital Ring (up to ×3)' },
+    happiness: 0.3,
+    upkeep: 7.5e4, // the cable is inspected daily: nuclear's $0.025/MW/s at the sticker, a third of it at ×3
+    unlock: legacy(300000),
+    unlockAt: { legacy: 300000 },
+    unlockHint: 'Bank 300,000 legacy',
   },
 
   // ---------------------------------------------------------------------- civic
@@ -377,11 +476,13 @@ export const BUILDINGS = [
     jobs: 200,
     powerUse: 50,
     happiness: 0.12,
-    // 5,400: bracketed by the solar farm (3,600) below and the arcology (6,300) above,
-    // ~4.5 and ~3 min apart in the first city; at 4,800 it landed 54 s behind the arcology.
-    unlock: pop(5400),
-    unlockAt: { pop: 5400 },
-    unlockHint: 'Reach 5,400 citizens',
+    // 5,000: bracketed by the solar farm (3,600, 17.5 min) below and the arcology (6,600,
+    // 22.9) above, ~2.8 and ~2.6 min apart on the first city's curve (cadence.mjs
+    // --curve); 5,400 landed at 21.4, 90 s before the arcology, once the tier-4 gates
+    // moved, and 4,800 once landed 54 s behind it.
+    unlock: pop(5000),
+    unlockAt: { pop: 5000 },
+    unlockHint: 'Reach 5,000 citizens',
   },
   {
     id: 'stadium',
@@ -390,7 +491,7 @@ export const BUILDINGS = [
     desc: 'Eighty thousand voices under the floodlights on game night.',
     category: 'civic',
     tier: 4,
-    baseCost: 3.5e6,
+    baseCost: 3e6,
     // Tier-4 cost growth (no 1.2 exception): by the time it opens the civic curve is
     // saturated, so a stadium is bought as a franchise, and a franchise needs a league.
     jobs: 500,
@@ -399,13 +500,16 @@ export const BUILDINGS = [
     // the crowd (wages plus an unemployment fix), so the card is a decision late without
     // moving city income enough to re-place the balance ladder — an income rule at ×3 did
     // (README, "Signature mechanics").
-    synergy: { stat: 'jobs', source: 'pop', per: 20000, cap: 3, text: 'Game-day hires: +5% jobs per 1,000 citizens (up to ×3)' },
-    powerUse: 6200, // floodlights and screens: about half an arcology's draw
+    // ×2 (was ×3): with the district at 2,000 jobs the stadium's payroll no longer needs
+    // to triple to matter, and at ×3 it was 15% of a jobs column already running 3× the
+    // population (README "Jobs and housing").
+    synergy: { stat: 'jobs', source: 'pop', per: 20000, cap: 2, text: 'Game-day hires: +5% jobs per 1,000 citizens (up to ×2)' },
+    powerUse: 3850, // floodlights and screens: about half an arcology's draw, four solar farms (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Stadium owned (up to ×1.5)' },
     happiness: 0.25,
-    // 43,000: the first city's last card, ~3.4 min after fusion's 35,000 trophy gate.
-    unlock: pop(43000),
-    unlockAt: { pop: 43000 },
-    unlockHint: 'Reach 43,000 citizens',
+    // 45,000 (mirrors config): the first city's last card, ~2 min after fusion's 36,000 trophy gate.
+    unlock: pop(45000),
+    unlockAt: { pop: 45000 },
+    unlockHint: 'Reach 45,000 citizens',
   },
 ];

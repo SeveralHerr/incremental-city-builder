@@ -33,6 +33,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { loadPlan, checkTargets, formatChecks } from './targets.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const args = process.argv.slice(2);
@@ -47,7 +48,7 @@ const BOT_EVERY = 20;
 const SAMPLE = 600;
 const RATIO_FROM = 4; // cycles[i] / cycles[i-1] is checked from i = 4 (the 5th founding) on
 const RATIO_MAX = 1.35; // docs/DESIGN.md: each cycle <= 1.35x the previous
-const TRACE = Number(opt('--trace', -1)); // dump one city's cash/income every 10 s
+const TRACE = Number(opt('--trace', -1)); // dump one city's cash/income/pop/earned every 10 s
 const FIRST = args.includes('--first'); // list the first city's cheapest rung per minute
 const trace = [];
 const firstCity = []; // { min, id, cost, secs, under } once a minute while no founding has happened
@@ -62,6 +63,10 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--unlock' && args[i + 1]) unlocks.push(args[++i]);
 }
 const GATE = Number(opt('--frontier-gate', 0)); // 0 = the shipped gate
+// Safety-margin targets (plan.json `targets`, see targets.mjs): printed as a margins line
+// and carried in the JSON report; `--plan file` reads another plan, `--no-margins` skips it.
+const PLAN_FILE = opt('--plan', '');
+const TARGETS = args.includes('--no-margins') ? {} : loadPlan(PLAN_FILE ? path.resolve(ROOT, PLAN_FILE) : undefined).targets;
 
 const toUrl = (p) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:');
 const { config } = await import(toUrl(path.join(ROOT, 'src/balance/config.js')));
@@ -84,6 +89,12 @@ for (const s of sets) {
     const b = config.buildings[keys[1]];
     b.unlock = (state) => (state?.res?.pop ?? 0) >= value;
     b.unlockHint = `Reach ${value.toLocaleString('en-US')} citizens`;
+  }
+  // …and a legacy-gate override (`buildings.<id>.unlockAt.legacy`, the tier-5 megastructures).
+  if (keys[0] === 'buildings' && keys[2] === 'unlockAt' && keys[3] === 'legacy' && typeof value === 'number') {
+    const b = config.buildings[keys[1]];
+    b.unlock = (state) => (state?.prestige?.legacy ?? 0) >= value;
+    b.unlockHint = `Bank ${value.toLocaleString('en-US')} legacy`;
   }
 }
 
@@ -211,7 +222,7 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
   if (derived.happiness < cur.minHappy) cur.minHappy = derived.happiness;
   if (state.time > 60 && derived.happiness < cur.minHappyMid) cur.minHappyMid = derived.happiness;
   if (state.res.money > maxMoney) maxMoney = state.res.money;
-  if (cur.n === TRACE && state.tick % 100 < BOT_EVERY) trace.push(`${(state.time / 60).toFixed(1)}:${state.res.money.toExponential(2)}/${derived.income.toExponential(1)}`);
+  if (cur.n === TRACE && state.tick % 100 < BOT_EVERY) trace.push(`${(state.time / 60).toFixed(1)}:${state.res.money.toExponential(2)}/${derived.income.toExponential(1)}/${Math.round(state.res.pop)}/${state.stats.totalEarned.toExponential(1)}`);
   lastEarned = state.stats.totalEarned;
   lastIncome = derived.income;
   if (state.time <= 240) {
@@ -284,9 +295,11 @@ const report = {
   maxMoney,
   never,
   errors: game.errors.length,
+  maxCycle: mins.length > 1 ? Math.max(...mins.slice(1)) : null, // longest cycle after the first city
   perCycle: cycles,
   rungBuys,
 };
+report.margins = checkTargets(report, TARGETS);
 if (JSON_OUT) fs.writeFileSync(path.resolve(ROOT, JSON_OUT), JSON.stringify(report, null, 2));
 
 const pass = ratioFails.length === 0 && empty.length === 0 && maxMoney <= 1e18 && legacy <= 1e6 && game.errors.length === 0 && !never.buildings.length && !never.upgrades.length;
@@ -296,9 +309,10 @@ console.log(`[probe] cycles: ${mins.map((m) => m.toFixed(1)).join(' ')}`);
 console.log(`[probe] max ratio x${maxRatio.ratio} at cycle ${maxRatio.i} (${mins[maxRatio.i - 1]} -> ${mins[maxRatio.i]}); over ${RATIO_MAX}: ${ratioFails.map((r) => `${r.i}:x${r.ratio}`).join(' ') || 'none'}; over 1.30: ${ratios.filter((r) => r.ratio > 1.3).map((r) => `${r.i}:x${r.ratio}`).join(' ') || 'none'}`);
 console.log(`[probe] first city: panel at ${panelMin} min, Found button at ${armMin} min, founding at ${firstFoundMin} min; reach ${(report.reachFirst * 100).toFixed(0)}% of its ${firstSamples} samples (${reachFirstHits} in 30 s – 15 min)`);
 console.log(`[probe] emptyLate=[${empty.join(',')}] reach=${(report.reachShare * 100).toFixed(0)}% noReach=${(report.noReachShare * 100).toFixed(0)}% under=${(underShare * 100).toFixed(1)}% byHour=[${underHours.join(' ')}] floor=${minRatio.toFixed(2)} dips=${dips}/${cycles.length} midDips=${midDips}/${cycles.length}`);
+if (report.margins.length) console.log(`[probe] margins (plan.json targets): ${formatChecks(report.margins)}`);
 if (never.buildings.length || never.upgrades.length) console.log(`[probe] never bought: ${[...never.buildings, ...never.upgrades].join(', ')}`);
 console.log(`[probe] rungs: ${rungBuys.map((r) => `${r.id}@${r.city}(${r.runMin})`).join(' ')}`);
-if (trace.length) console.log(`[probe] city ${TRACE} cash/income by 10 s: ${trace.join(' ')}`);
+if (trace.length) console.log(`[probe] city ${TRACE} cash/income/pop/earned by 10 s: ${trace.join(' ')}`);
 if (FIRST) {
   console.log(`[probe] first city, cheapest open rung by minute (id $cost → seconds of income away): ${firstCity.map((f) => `${f.min}:${f.id}${f.cost ? ' $' + f.cost.toExponential(1) : ''}→${f.secs === null ? '∞' : f.secs + 's'}`).join(' · ')}`);
   console.log(`[probe] first city, under-power share by minute: ${firstCity.map((f) => `${f.min}:${Math.round(f.under * 100)}%`).join(' ')}`);

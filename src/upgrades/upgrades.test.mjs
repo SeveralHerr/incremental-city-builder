@@ -4,9 +4,11 @@
 // gate),
 // the frontier ladder (fixed dollars matching the shipped config, earned ≥ cost/4 gate that
 // follows a config override), every config-priced literal in data.js (must equal config), the pace ladder (hidden until the city has earned 100× the
-// price or holds it), the absence of any wall-clock rule, the config override rules, the
-// founding-memory rule (charter perks and keeper rungs survive a founding), the grantUpgrade
-// seam and the registered-cost view (sortedUpgrades).
+// price or holds it; the card surfaces the hold), the funded door on the core ladder (economy
+// gate + the treasury holding the price; four goal cards open on the gate alone), the absence
+// of any wall-clock rule, the config override rules, the founding-memory rule (charter perks
+// and keeper rungs survive a founding), the grantUpgrade seam and the registered-cost view
+// (sortedUpgrades: dollar rungs, then perks).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -26,6 +28,7 @@ import {
   CHARTER_MAX_COST,
   frontierUnlock,
   earnedUnlock,
+  holdUnlock,
   keptUpgradeIds,
   isPermanent,
   fmtMoney,
@@ -37,7 +40,9 @@ const byId = (id) => UPGRADES.find((d) => d.id === id);
 const PERKS = UPGRADES.filter((d) => d.category === 'charter');
 const FRONTIER = UPGRADES.filter((d) => d.frontier);
 const PACE = UPGRADES.filter((d) => d.pace);
-const FRONTIER_IDS = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter', 'orbital-shipyard', 'exchange-ring'];
+const FRONTIER_IDS = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter', 'orbital-shipyard', 'helios-array', 'exchange-ring'];
+const GOAL_IDS = ['welcome-sign', 'grid-substations', 'regional-airport', 'breeder-reactors'];
+const isCore = (d) => !d.earnedGate && d.category !== 'prestige' && d.currency !== 'legacy';
 const PACE_IDS = ['championship-season', 'robotic-assembly', 'ai-governance', 'planetary-charter', 'megastructures', 'orbital-solar', 'arcology-gardens', 'algorithmic-trading', 'superconductor-grid'];
 
 function deepFreeze(o) {
@@ -87,10 +92,10 @@ test('definitions: unique ids, categories, tiers, short descs, hints everywhere'
   assert.ok(UPGRADES.length >= 69, `ladder has ${UPGRADES.length} rungs`);
   assert.equal(MILESTONE_IDS.length, new Set(MILESTONE_IDS).size);
   // Card variety: the thirty identical Civic Bonds are gone for good. The repeats below
-  // are money rungs whose ids and effects predate this pass (the "+25% income" trio, the
-  // two "+50% growth" rungs, the three "−20% cost" rungs, Digital City Hall and the Legacy
-  // Archive); nothing else — no perk, no frontier rung — reads the same as another card.
-  const ALLOWED_REPEATS = { 'All income +25%': 3, 'Population grows +50% faster': 2, 'All buildings cost −20%': 3, 'All income +50%': 2 };
+  // are money rungs whose ids and effects predate this pass (the two "+50% growth" rungs,
+  // the three "−20% cost" rungs, Digital City Hall and the Legacy Archive); nothing else —
+  // no perk, no frontier rung, no two adjacent income rungs — reads the same as another card.
+  const ALLOWED_REPEATS = { 'Population grows +50% faster': 2, 'All buildings cost −20%': 3, 'All income +50%': 2 };
   const cards = new Map();
   for (const d of UPGRADES) cards.set(d.desc, (cards.get(d.desc) || 0) + 1);
   for (const [desc, n] of cards) assert.ok(n <= (ALLOWED_REPEATS[desc] || 1), `${n} cards read "${desc}"`);
@@ -108,37 +113,48 @@ test('definitions: unique ids, categories, tiers, short descs, hints everywhere'
 });
 
 test('hints read as the rule they mirror', () => {
-  assert.equal(byId('neon-signage').unlockHint, 'Build 3 corner shops');
-  assert.deepEqual(byId('neon-signage').unlockAt, { building: 'shop', count: 3 });
-  assert.equal(byId('farmers-market').unlockHint, 'Build 15 corner shops');
-  assert.equal(byId('container-port').unlockHint, 'Build 20 factories');
-  assert.equal(byId('community-events').unlockHint, 'Build a City Park');
-  assert.equal(byId('franchising').unlockHint, 'Reach 100 citizens or build an Office Block');
-  assert.equal(byId('grid-substations').unlockHint, 'Draw 20 MW of power');
-  assert.deepEqual(byId('tourism-board').unlockAt, { pop: 2000 });
+  // Funded core rungs name their economy gate and the hold, and mirror the price (the door
+  // that opens last); the goal cards name the gate alone and mirror it.
+  assert.equal(byId('neon-signage').unlockHint, 'Build 3 corner shops, then hold $80');
+  assert.deepEqual(byId('neon-signage').unlockAt, { money: 80 });
+  assert.equal(byId('farmers-market').unlockHint, 'Build 15 corner shops, then hold $3,000');
+  assert.equal(byId('container-port').unlockHint, 'Build 20 factories, then hold $45,000');
+  assert.equal(byId('community-events').unlockHint, 'Build a City Park, then hold $500');
+  assert.equal(byId('franchising').unlockHint, 'Reach 100 citizens or build an Office Block, then hold $1,200');
+  assert.equal(byId('prefab-construction').unlockHint, 'Earn $1M in this city, then hold $120,000');
+  assert.equal(byId('grid-substations').unlockHint, 'Draw 10 MW of power');
+  assert.deepEqual(byId('grid-substations').unlockAt, { powerDemand: 10 });
+  assert.equal(byId('regional-airport').unlockHint, 'Reach 1,000 citizens');
+  assert.deepEqual(byId('regional-airport').unlockAt, { pop: 1000 });
+  assert.equal(byId('breeder-reactors').unlockHint, 'Reach 10,000 citizens or build a Nuclear Plant');
+  assert.deepEqual(byId('tourism-board').unlockAt, { money: 50000 });
   assert.equal(byId('legacy-archive').unlockHint, 'Found a new city');
   assert.deepEqual(byId('institutional-memory').unlockAt, { legacy: 10 });
   assert.match(byId('smart-grid').unlockHint, /brownout/i);
   assert.deepEqual(byId('standing-orders').unlockAt, { legacy: 50 });
   // Frontier rungs quote the earnings gate in the hint and mirror it for the bar.
-  assert.equal(byId('dyson-swarm').unlockHint, 'Earn $557.5M in this city');
-  assert.deepEqual(byId('dyson-swarm').unlockAt, { earned: 5.575e8 });
-  assert.equal(byId('mass-driver-port').unlockHint, 'Earn $13.9T in this city');
-  assert.equal(byId('ringworld-district').unlockHint, 'Earn $15.8T in this city');
-  assert.equal(byId('galactic-charter').unlockHint, 'Earn $107.8T in this city');
-  assert.equal(byId('exchange-ring').unlockHint, 'Earn $6.5Qa in this city');
+  assert.equal(byId('dyson-swarm').unlockHint, 'Earn $567.5M in this city');
+  assert.deepEqual(byId('dyson-swarm').unlockAt, { earned: 5.675e8 });
+  assert.equal(byId('mass-driver-port').unlockHint, 'Earn $10.8T in this city');
+  assert.equal(byId('ringworld-district').unlockHint, 'Earn $12.2T in this city');
+  assert.equal(byId('galactic-charter').unlockHint, 'Earn $130.5T in this city');
+  assert.equal(byId('helios-array').unlockHint, 'Earn $562.5T in this city');
+  assert.equal(byId('exchange-ring').unlockHint, 'Earn $1.2Qa in this city');
   assert.equal(fmtMoney(1e18), '$1Qi');
-  // Pace rungs name both doors and mirror the earnings one.
-  assert.equal(byId('robotic-assembly').unlockHint, 'Earn $30.5B in this city or hold $305M');
-  assert.deepEqual(byId('robotic-assembly').unlockAt, { earned: 3.05e10 });
-  assert.equal(byId('superconductor-grid').unlockHint, 'Earn $34.4Qa in this city or hold $344T');
+  // Pace rungs keep both doors in the rule but surface only the hold — the door that opens
+  // them in practice — so the hint is the price and the bar counts the treasury toward it,
+  // never "Earn $34.4Qa" for a $344T card.
+  assert.equal(byId('robotic-assembly').unlockHint, 'Hold $300M');
+  assert.deepEqual(byId('robotic-assembly').unlockAt, { money: 3.0e8 });
+  assert.equal(byId('superconductor-grid').unlockHint, 'Hold $435T');
+  assert.deepEqual(byId('superconductor-grid').unlockAt, { money: 4.35e14 });
   assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points');
   // Charter perks quote the spendable points they wait for (bank − spent, what the Sign
   // button checks), never the whole bank.
   assert.equal(byId('charter-homestead').unlockHint, 'Have 2 spendable legacy points');
   assert.equal(byId('charter-mint').unlockHint, 'Have 4 spendable legacy points');
-  assert.equal(byId('charter-imperial').unlockHint, 'Have 38,244 spendable legacy points');
-  assert.deepEqual(byId('charter-imperial').unlockAt, { legacyAvailable: 38244 });
+  assert.equal(byId('charter-imperial').unlockHint, 'Have 97,904 spendable legacy points');
+  assert.deepEqual(byId('charter-imperial').unlockAt, { legacyAvailable: 97904 });
   for (const d of PERKS) assert.ok(!/^Bank /.test(d.unlockHint), `${d.id}: a perk hint must count spendable points, not the bank`);
 });
 
@@ -224,9 +240,11 @@ test('every unlock tolerates {} / undefined / frozen inputs and returns a boolea
   assert.equal(byId('smart-grid').unlock(FROZEN_STATE, FROZEN_DERIVED), true);
   assert.equal(byId('grid-substations').unlock(FROZEN_STATE, FROZEN_DERIVED), true);
   assert.equal(byId('grid-substations').unlock(FROZEN_STATE, { powerDemand: 5 }), false);
+  assert.equal(byId('farmers-market').unlock({ ...FROZEN_STATE, res: { money: 2999 } }), false, 'a funded rung needs the cash as well as the shops');
+  assert.equal(byId('farmers-market').unlock({ ...FROZEN_STATE, buildings: { shop: 14 } }), false, 'and the shops as well as the cash');
   assert.equal(byId('ai-governance').unlock(FROZEN_STATE), false, '$2B earned, $1M held: short of both doors ($112B / $1.12B)');
   assert.equal(byId('robotic-assembly').unlock({ ...FROZEN_STATE, res: { money: 3.05e8 } }), true, 'holding the price opens a pace rung');
-  assert.equal(byId('dyson-swarm').unlock(FROZEN_STATE), true, '$2B earned clears the $557.5M gate');
+  assert.equal(byId('dyson-swarm').unlock(FROZEN_STATE), true, '$2B earned clears the $567.5M gate');
   assert.equal(byId('quantum-exchange').unlock(FROZEN_STATE), false, '$2B earned is short of the $7.2B gate');
   assert.equal(byId('quantum-exchange').unlock({ ...FROZEN_STATE, res: { money: 1e12 } }), false, 'a frontier rung has no cash door');
   // Charter perks gate on spendable points: 12 banked − 8 spent = 4 opens the Mint (◆ 8) and
@@ -257,13 +275,13 @@ test('nothing gates on the clock: unlocks ignore state.time / tick, and the sour
   }
 });
 
-test('charter perks: ≥12, legacy currency, ×2.5–4 apart from 3 to 76,488, open at half their price in spendable points, tiered by cost', () => {
+test('charter perks: ≥12, legacy currency, ×2.5–4 apart from 3 to 195,808, open at half their price in spendable points, tiered by cost', () => {
   assert.ok(PERKS.length >= 12, `${PERKS.length} perks`);
   const costs = PERKS.map((d) => d.cost);
   assert.equal(costs[0], CHARTER_MIN_COST);
   assert.equal(costs[costs.length - 1], CHARTER_MAX_COST);
   assert.equal(CHARTER_MIN_COST, 3);
-  assert.equal(CHARTER_MAX_COST, 76488);
+  assert.equal(CHARTER_MAX_COST, 195808);
   for (let i = 1; i < costs.length; i++) {
     const r = costs[i] / costs[i - 1];
     assert.ok(r >= 2.5 - 1e-9 && r <= 4 + 1e-9, `${PERKS[i].id}: ×${r.toFixed(2)} after ${PERKS[i - 1].id}`);
@@ -301,7 +319,7 @@ test('charter perks: ≥12, legacy currency, ×2.5–4 apart from 3 to 76,488, o
     [
       ['charter-homestead', 3], ['charter-mint', 8], ['charter-grid', 20], ['charter-guild', 50], ['charter-merchant', 125],
       ['charter-settlers', 313], ['charter-masons', 783], ['charter-civic', 1958], ['charter-treasury', 4895],
-      ['charter-skyline', 12238], ['charter-energy', 30595], ['charter-imperial', 76488],
+      ['charter-skyline', 12238], ['charter-energy', 48952], ['charter-imperial', 195808],
     ]
   );
 });
@@ -346,11 +364,13 @@ test('charter perks are strong and varied: each moves a multiplier by ≥50% (co
   assert.ok(near(m7.growth, 2) && near(m7.inflow, 3));
 });
 
-test('frontier ladder: eight named rungs at the shipped prices, ascending, opening at a quarter of the price earned this run', () => {
+test('frontier ladder: nine named rungs at the shipped prices, ascending, opening at a quarter of the price earned this run', () => {
   assert.deepEqual(FRONTIER.map((d) => d.id), FRONTIER_IDS);
-  assert.deepEqual(FRONTIER.map((d) => d.cost), [2.23e9, 4.5e10, 5.55e13, 6.32e13, 2.43e14, 4.31e14, 1.12e15, 2.59e16]);
-  // Placed by city (config.js), so the spacing is uneven — ×1.14 between the Mass-Driver
-  // Port and the Ringworld District, ×1,900 below it — but always ascending.
+  assert.deepEqual(FRONTIER.map((d) => d.cost), [2.27e9, 2.0e10, 4.3e13, 4.88e13, 3.18e14, 5.22e14, 1.35e15, 2.25e15, 4.87e15]);
+  // Placed by city (config.js), so the spacing is uneven — ×1.13 between the Mass-Driver
+  // Port and the Ringworld District, ×2,150 below it — but always ascending, and never
+  // wider than ×6 above the Stellar Engine (the Helios Array splits the old ×23 step).
+  for (let i = FRONTIER.findIndex((d) => d.id === 'stellar-engine') + 1; i < FRONTIER.length; i++) assert.ok(FRONTIER[i].cost / FRONTIER[i - 1].cost <= 6, `${FRONTIER[i].id}: ×${(FRONTIER[i].cost / FRONTIER[i - 1].cost).toFixed(1)} step`);
   for (let i = 1; i < FRONTIER.length; i++) assert.ok(FRONTIER[i].cost > FRONTIER[i - 1].cost, `${FRONTIER[i].id}: not dearer than ${FRONTIER[i - 1].id}`);
   assert.ok(FRONTIER[FRONTIER.length - 1].cost < 1e18, 'the priciest rung stays under the money ceiling');
   assert.equal(FRONTIER_GATE, 0.25);
@@ -373,7 +393,7 @@ test('frontier ladder: eight named rungs at the shipped prices, ascending, openi
   // power, growth, jobs, cost and demand.
   const fold = createMods();
   for (const d of FRONTIER) d.effect(fold, FROZEN_STATE);
-  assert.ok(fold.income >= 4 && fold.housing >= 5 && fold.power >= 4 && fold.growth >= 3 && fold.jobs >= 2.5, 'frontier multipliers');
+  assert.ok(fold.income >= 5 && fold.housing >= 5 && fold.power >= 12 && fold.growth >= 3 && fold.jobs >= 2.5, 'frontier multipliers');
   assert.ok(fold.cost < 0.7 && fold.demand < 0.5, 'frontier discounts');
   assert.ok(fold.byBuilding.financial.income >= 2 && fold.byBuilding.techpark.income >= 2 && fold.byBuilding.mall.jobs >= 2, 'frontier per-building');
   // earnedUnlock follows the price it is given (config overrides move the gate).
@@ -393,7 +413,7 @@ test('frontier ladder: eight named rungs at the shipped prices, ascending, openi
 
 test('pace ladder: nine tier-4 rungs hidden until the city has earned 100× the price or holds it', () => {
   assert.deepEqual(PACE.map((d) => d.id), PACE_IDS);
-  assert.deepEqual(PACE.map((d) => d.cost), [9.04e7, 3.05e8, 1.12e9, 7.36e9, 3.4e11, 4.0e11, 1.05e12, 2.3e12, 3.44e14]);
+  assert.deepEqual(PACE.map((d) => d.cost), [8.84e7, 3.0e8, 1.1e9, 8.4e9, 2.78e11, 3.21e11, 7.65e11, 2.17e12, 4.35e14]);
   for (let i = 1; i < PACE.length; i++) assert.ok(PACE[i].cost > PACE[i - 1].cost, `${PACE[i].id}: listed out of price order`);
   assert.equal(PACE_GATE, 100);
   for (const d of PACE) {
@@ -411,18 +431,57 @@ test('pace ladder: nine tier-4 rungs hidden until the city has earned 100× the 
       false,
       `${d.id}: buildings, population and legacy do not open it`
     );
-    assert.deepEqual(d.unlockAt, { earned: gate });
-    assert.match(d.unlockHint, /^Earn \$.+ in this city or hold \$/);
+    assert.deepEqual(d.unlockAt, { money: d.cost }, `${d.id}: the mirror is the price`);
+    assert.match(d.unlockHint, /^Hold \$/);
   }
-  // A config price moves both doors.
+  // A config price moves both doors (and the surfaced hold with them).
   const cheap = applyOverride(byId('planetary-charter'), { cost: 1e9 });
   assert.equal(cheap.unlock({ res: { money: 0 }, stats: { totalEarned: 1e11 } }), true);
   assert.equal(cheap.unlock({ res: { money: 0 }, stats: { totalEarned: 9e10 } }), false);
   assert.equal(cheap.unlock({ res: { money: 1e9 }, stats: { totalEarned: 0 } }), true);
-  assert.equal(cheap.unlockHint, 'Earn $100B in this city or hold $1B');
-  assert.deepEqual(cheap.unlockAt, { earned: 1e11 });
+  assert.equal(cheap.unlockHint, 'Hold $1B');
+  assert.deepEqual(cheap.unlockAt, { money: 1e9 });
   // Founding memory never grants a pace rung: it is bought again every city.
   assert.deepEqual(keptUpgradeIds(['institutional-memory', 'standing-orders']).filter((id) => PACE_IDS.includes(id)), []);
+});
+
+test('funded door: every core rung but the four goal cards needs its gate and the cash; the door follows a config price', () => {
+  const core = UPGRADES.filter(isCore);
+  const goals = core.filter((d) => !d.hold);
+  assert.deepEqual(goals.map((d) => d.id), GOAL_IDS, 'the goal cards open on their economy gate alone');
+  for (const d of goals) assert.ok(!('money' in (d.unlockAt || {})), `${d.id}: a goal card mirrors its gate, not its price`);
+  for (const d of core) {
+    if (!d.hold) continue;
+    assert.equal(typeof d.gate, 'function', `${d.id}: keeps its economy gate`);
+    assert.deepEqual(d.unlockAt, { money: d.cost }, `${d.id}: mirrors the price`);
+    assert.match(d.unlockHint, /, then hold \$/, `${d.id}: names both doors`);
+    // A treasury holding the price with the gate unmet stays shut; the gate met with a
+    // dollar short stays shut; both together open it.
+    const rich = { ...FROZEN_STATE, res: { money: d.cost, pop: FROZEN_STATE.res.pop } };
+    const poor = { ...FROZEN_STATE, res: { money: d.cost - 1, pop: FROZEN_STATE.res.pop } };
+    if (d.gate(rich, FROZEN_DERIVED)) {
+      assert.equal(d.unlock(rich, FROZEN_DERIVED), true, `${d.id}: opens with gate + cash`);
+      assert.equal(d.unlock(poor, FROZEN_DERIVED), false, `${d.id}: a dollar short stays shut`);
+    }
+    assert.equal(d.unlock({ res: { money: d.cost * 10 }, buildings: {}, stats: {}, unlocks: {}, upgrades: {} }, { powerCap: 0, powerRatio: 1, powerDemand: 0, upkeep: 0 }), false, `${d.id}: cash alone does not open it`);
+  }
+  // The hold rebuilds on a config price, keeping the gate.
+  const moved = applyOverride(byId('farmers-market'), { cost: 9000 });
+  assert.equal(moved.unlock({ ...FROZEN_STATE, res: { money: 8999 } }), false);
+  assert.equal(moved.unlock({ ...FROZEN_STATE, res: { money: 9000 } }), true);
+  assert.equal(moved.unlock({ ...FROZEN_STATE, res: { money: 9000 }, buildings: { shop: 14 } }), false, 'the shops still count');
+  assert.equal(moved.unlockHint, 'Build 15 corner shops, then hold $9,000');
+  assert.deepEqual(moved.unlockAt, { money: 9000 });
+  assert.equal(byId('farmers-market').unlock({ ...FROZEN_STATE, res: { money: 3000 } }), true, 'source def keeps its own price');
+  const bare = holdUnlock({ cost: 500 });
+  assert.equal(bare.unlockHint, 'Hold $500');
+  assert.equal(bare.unlock({ res: { money: 500 } }), true);
+  assert.equal(holdUnlock(undefined).unlock({ res: { money: 0 } }), true, 'garbage def: a zero hold, never a throw');
+  // Nothing outside the core ladder carries the door: pace rungs surface their own hold,
+  // frontier rungs, Legacy rungs and perks open on earnings, points or spendable points.
+  for (const d of UPGRADES) if (!isCore(d)) assert.ok(!d.hold, `${d.id}: hold outside the core ladder`);
+  // Founding memory still re-grants funded rungs (the door is an unlock rule, not a cost).
+  assert.ok(keptUpgradeIds(['institutional-memory']).includes('farmers-market'));
 });
 
 test('applyOverride: bare number, object, junk; a frontier override moves its gate', () => {
@@ -447,7 +506,7 @@ test('applyOverride: bare number, object, junk; a frontier override moves its ga
   assert.equal(cheaper.unlockHint, 'Earn $500B in this city');
   assert.deepEqual(cheaper.unlockAt, { earned: 5e11 });
   assert.equal(swarm.unlock({ stats: { totalEarned: 5e8 } }), false, 'source def keeps its own gate');
-  assert.equal(swarm.unlock({ stats: { totalEarned: 5.575e8 } }), true);
+  assert.equal(swarm.unlock({ stats: { totalEarned: 5.675e8 } }), true);
   const same = applyOverride(swarm, { tier: 4 });
   assert.equal(same.unlock, swarm.unlock, 'unchanged price keeps the rule');
   const perk = byId('charter-mint');
@@ -467,7 +526,7 @@ test('config overrides resolve to the config costs, name only known rungs, and m
     assert.equal(def.cost, cost, `${id}: resolves to the config price`);
     if (def.earnedGate) {
       const share = def.pace ? PACE_GATE : FRONTIER_GATE;
-      assert.deepEqual(def.unlockAt, { earned: cost * share }, `${id}: earnings gate follows the config price`);
+      assert.deepEqual(def.unlockAt, def.pace ? { money: cost } : { earned: cost * share }, `${id}: gate mirror follows the config price`);
       assert.equal(def.unlock({ res: { money: 0 }, stats: { totalEarned: cost * share } }), true);
       // × 0.999, not − 1: a pace gate is above 2^53 dollars, where a double cannot hold "one dollar short".
       assert.equal(def.unlock({ res: { money: 0 }, stats: { totalEarned: cost * share * 0.999 } }), false);
@@ -480,6 +539,10 @@ test('config overrides resolve to the config costs, name only known rungs, and m
       assert.equal(def.unlock({ prestige: { legacy: Math.ceil(gate), spent: 1 } }), false, `${id}: spent points do not open a perk`);
       assert.equal(def.tier, cost <= 25 ? 1 : cost <= 600 ? 2 : cost <= 12000 ? 3 : 4, `${id}: tier bracket follows the config price`);
       assert.match(def.unlockHint, /legacy|Found a new city/);
+    } else if (def.hold) {
+      assert.deepEqual(def.unlockAt, { money: cost }, `${id}: hold door follows the config price`);
+      if (def.gate(FROZEN_STATE, FROZEN_DERIVED)) assert.equal(def.unlock({ ...FROZEN_STATE, res: { money: cost } }, FROZEN_DERIVED), true, `${id}: opens at the config price once the gate is met`);
+      assert.equal(def.unlock({ ...FROZEN_STATE, res: { money: cost * 0.999 } }, FROZEN_DERIVED), false, `${id}: shut a dollar short of the config price`);
     }
   }
   // Untouched rungs keep the data.js literal.
@@ -516,7 +579,7 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
     for (const m of Object.values(mods.byBuilding)) for (const k of B_UP) best = Math.max(best, m[k] - 1);
     return best;
   };
-  const strongestDown = (mods) => Math.max(...DOWN.map((k) => 1 - mods[k]));
+  const strongestDown = (mods) => Math.max(...DOWN.map((k) => 1 - mods[k]), ...Object.values(mods.byBuilding).map((m) => 1 - m.cost));
   for (const d of UPGRADES) {
     if (typeof d.keeps === 'function') continue; // structural rungs: their whole effect is the memory
     const mods = createMods();
@@ -533,6 +596,19 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   const m2 = createMods();
   byId('bulk-permits').effect(m2, {});
   assert.ok(near(m2.cost, 0.8));
+  // The two pairs that read alike are told apart by a lever: Grant Writing carries the
+  // civic-grant discount beside its +25%, the Tourism Board is a housing card.
+  const mg = createMods();
+  byId('grant-writing').effect(mg, {});
+  assert.ok(near(mg.income, 1.25) && near(mg.byBuilding.park.cost, 0.75) && near(mg.byBuilding.school.cost, 0.75));
+  const mt = createMods();
+  byId('tourism-board').effect(mt, {});
+  assert.ok(near(mt.housing, 1.25) && near(mt.income, 1.15));
+  assert.notEqual(byId('grant-writing').desc, byId('tax-software').desc);
+  assert.notEqual(byId('tourism-board').desc, byId('regional-airport').desc);
+  const mh = createMods();
+  byId('helios-array').effect(mh, {});
+  assert.ok(near(mh.power, 3) && near(mh.income, 1.25));
   const m3 = createMods();
   byId('founders-blueprints').effect(m3, {});
   assert.ok(near(m3.cost, 0.8));
@@ -609,7 +685,7 @@ test('keptUpgradeIds: charter perks always survive; memory re-owns tiers 1–2, 
   assert.ok(grid.includes('charter-grid'));
   for (const d of UPGRADES) assert.equal(grid.includes(d.id), d.id === 'charter-grid' || (core(d) && d.tier === 3), `grid keeps ${d.id}?`);
   assert.ok(grid.includes('digital-city-hall') && grid.includes('preventive-care') && !grid.includes('breeder-reactors') && !grid.includes('city-archives'));
-  assert.equal(grid.filter((id) => id !== 'charter-grid').length, 10, 'ten tier-3 core rungs');
+  assert.equal(grid.filter((id) => id !== 'charter-grid').length, 11, 'eleven tier-3 core rungs (the Regional Airport joined at $120k)');
   // Overlapping keepers grant a rung once.
   const three = keptUpgradeIds(['charter-grid', 'institutional-memory', 'standing-orders']);
   assert.equal(new Set(three).size, three.length);
@@ -629,9 +705,15 @@ test('init registers the ladder, sortedUpgrades reads the live registry, grants 
   assert.equal(registry.upgrades.size, UPGRADES.length);
   const sorted = sortedUpgrades();
   assert.equal(sorted.length, UPGRADES.length);
-  for (let i = 1; i < sorted.length; i++) assert.ok(sorted[i].cost >= sorted[i - 1].cost, 'ascending');
-  assert.equal(sorted[0].id, 'charter-homestead', 'three legacy points sort first');
-  assert.equal(sorted[sorted.length - 1].id, 'exchange-ring');
+  // Two contiguous runs: every dollar rung by cost, then every perk by points.
+  const firstPerk = sorted.findIndex((d) => d.currency === 'legacy');
+  assert.ok(firstPerk > 0 && sorted.slice(firstPerk).every((d) => d.currency === 'legacy'), 'perks form one run at the end');
+  for (let i = 1; i < firstPerk; i++) assert.ok(sorted[i].cost >= sorted[i - 1].cost, 'dollar rungs ascending');
+  for (let i = firstPerk + 1; i < sorted.length; i++) assert.ok(sorted[i].cost >= sorted[i - 1].cost, 'perks ascending');
+  assert.equal(sorted[0].id, 'welcome-sign', 'the $25 sign sorts first, not a ◆ 3 perk');
+  assert.equal(sorted[firstPerk - 1].id, 'exchange-ring');
+  assert.equal(sorted[firstPerk].id, 'charter-homestead');
+  assert.equal(sorted[sorted.length - 1].id, 'charter-imperial');
   const cfgCost = (id) => config.upgrades?.[id]?.cost ?? byId(id).cost;
   assert.equal(sorted.find((d) => d.id === 'ai-governance').cost, cfgCost('ai-governance'), 'the registry carries the config price');
   assert.equal(registry.upgrades.get('charter-imperial').unlockAt.legacyAvailable, cfgCost('charter-imperial') * CHARTER_GATE, 'a config-priced perk opens at half its config price');

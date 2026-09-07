@@ -13,7 +13,9 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { config, costGrowthFor } from './config.js';
 import { init } from './index.js';
-import { prestigeTuning, economyTuning, milestoneTuning, LEGACY_POWER_MAX } from '../simulation/tuning.js';
+import { prestigeTuning, economyTuning, milestoneTuning, foundingTuning, LEGACY_POWER_MAX, SEED_SECONDS_MAX } from '../simulation/tuning.js';
+import { normalizeGrowth, growthFactor } from '../buildings/index.js';
+import { loadPlan, checkTargets, fromSimLog, formatChecks } from './targets.mjs';
 import { UPGRADES, CHARTER_GATE, FRONTIER_GATE } from '../upgrades/data.js';
 import { BUILDINGS } from '../buildings/data.js';
 
@@ -65,6 +67,18 @@ test('the Legacy panel opens before the Found button arms', () => {
   assert.ok(config.prestige.prestigePanelShare > 0 && config.prestige.prestigePanelShare < 1);
 });
 
+test('founding: the replay seed window and the earnings ramp are config-owned and resolve verbatim', () => {
+  // src/simulation/tuning.js foundingTuning reads config.founding when present (its own
+  // DEFAULTS are the fallback for a config without the section); the shipped window is
+  // what the placed ladder is measured against, so it must be here and inside the bounds.
+  assert.ok(config.founding && typeof config.founding === 'object', 'config.founding present');
+  assert.ok(isNum(config.founding.seedSeconds) && config.founding.seedSeconds >= 0 && config.founding.seedSeconds <= SEED_SECONDS_MAX, 'seedSeconds inside [0, SEED_SECONDS_MAX]');
+  assert.ok(isNum(config.founding.marginRamp) && config.founding.marginRamp >= 0 && config.founding.marginRamp <= 1, 'marginRamp inside [0, 1]');
+  const f = foundingTuning(config);
+  assert.equal(f.seedSeconds, config.founding.seedSeconds);
+  assert.equal(f.marginRamp, config.founding.marginRamp);
+});
+
 test('building overrides name real buildings and keep the catalogue sane', () => {
   for (const [id, o] of Object.entries(config.buildings)) {
     assert.ok(buildingById.has(id), `config.buildings.${id} is not a building`);
@@ -72,7 +86,14 @@ test('building overrides name real buildings and keep the catalogue sane', () =>
       if (k === 'unlock') assert.equal(typeof v, 'function');
       else if (k === 'unlockAt') assert.equal(typeof v, 'object');
       else if (k === 'unlockHint') assert.equal(typeof v, 'string');
-      else assert.ok(isNum(v) && v >= 0, `${id}.${k} finite and non-negative`);
+      else if (k === 'demandGrowth') {
+        // Grid strain: powerUse = base × min(cap, 1 + (count − 1) / per), validated by the
+        // buildings module's own rule (a malformed rule would be reported and ignored there).
+        const rule = normalizeGrowth(v);
+        assert.ok(rule, `${id}.demandGrowth is a valid { per, cap, text } rule`);
+        assert.ok(rule.cap > 1 && rule.per > 0, `${id}.demandGrowth grows`);
+        assert.ok(typeof v.text === 'string' && v.text.length > 0 && v.text.length <= 70, `${id}.demandGrowth.text is the card line`);
+      } else assert.ok(isNum(v) && v >= 0, `${id}.${k} finite and non-negative`);
     }
     if (isNum(o.baseCost)) assert.ok(o.baseCost > 0, `${id}.baseCost`);
     if (isNum(o.costGrowth)) assert.ok(o.costGrowth >= 1, `${id}.costGrowth`);
@@ -82,11 +103,13 @@ test('building overrides name real buildings and keep the catalogue sane', () =>
   assert.ok(config.buildings.financial.powerUse >= 2000 && config.buildings.arcology.powerUse >= 1200);
   const fusionGen = config.buildings.fusion?.powerGen ?? buildingById.get('fusion').powerGen;
   assert.ok(fusionGen <= 3e5, 'fusion powerGen <= 3e5 MW');
-  // Every population-gated override carries the UI mirror.
+  // Every gated override carries the UI mirror: a population gate (`unlockAt.pop`) or, for
+  // the tier-5 megastructures, a legacy gate (`unlockAt.legacy`), and the rule is exactly it.
   for (const [id, o] of Object.entries(config.buildings)) {
     if (typeof o.unlock === 'function') {
-      assert.ok(o.unlockAt && isNum(o.unlockAt.pop), `${id}: unlockAt.pop mirrors the rule`);
-      assert.ok(o.unlock({ res: { pop: o.unlockAt.pop } }) === true && o.unlock({ res: { pop: o.unlockAt.pop - 1 } }) === false, `${id}: gate is exactly unlockAt.pop`);
+      assert.ok(o.unlockAt && (isNum(o.unlockAt.pop) || isNum(o.unlockAt.legacy)), `${id}: unlockAt mirrors the rule`);
+      if (isNum(o.unlockAt.pop)) assert.ok(o.unlock({ res: { pop: o.unlockAt.pop } }) === true && o.unlock({ res: { pop: o.unlockAt.pop - 1 } }) === false, `${id}: gate is exactly unlockAt.pop`);
+      else assert.ok(o.unlock({ prestige: { legacy: o.unlockAt.legacy } }) === true && o.unlock({ prestige: { legacy: o.unlockAt.legacy - 1 } }) === false, `${id}: gate is exactly unlockAt.legacy`);
       assert.doesNotThrow(() => o.unlock(undefined));
     }
   }
@@ -113,26 +136,29 @@ test('charter perks: all twelve priced here, whole points, x2.5-4 apart from 3, 
   assert.equal(costs[0], 3);
   assert.equal(CHARTER_GATE, 0.5);
   // The bot's legacy sequence (5 points, then +40% per founding) reaches the last perk's
-  // price minus the spend before it by the 30th founding, so the whole charter is buyable
-  // in a 12 h session. (Sequence: gain = max(5, ceil(minGainShare * legacy)).)
+  // price minus the spend before it by the 31st founding — the Imperial Charter is city
+  // 32's item, deliberately not city 30's (its ×3 is the tail brake: signed in city 30 the
+  // session runs 36 foundings and crosses the legacy ceiling) — so the whole charter is
+  // buyable in a 12 h session. (Sequence: gain = max(5, ceil(minGainShare * legacy)).)
   const share = config.prestige.minGainShare;
   let legacy = 5;
   const bank = [legacy];
-  for (let n = 1; n < 30; n++) {
+  for (let n = 1; n < 32; n++) {
     legacy += Math.max(5, Math.ceil(legacy * share));
     bank.push(legacy);
   }
   const spentBeforeLast = costs.slice(0, -1).reduce((a, b) => a + b, 0);
-  assert.ok(bank[29] - spentBeforeLast >= costs[costs.length - 1], `Imperial Charter affordable by founding 30 (bank ${bank[29]}, spent ${spentBeforeLast})`);
-  assert.ok(bank[29] <= 1e6, 'legacy at founding 30 stays under the 1e6 ceiling');
+  assert.ok(bank[30] - spentBeforeLast < costs[costs.length - 1], `Imperial Charter not yet affordable at founding 31 (bank ${bank[30]}, spent ${spentBeforeLast})`);
+  assert.ok(bank[31] - spentBeforeLast >= costs[costs.length - 1], `Imperial Charter affordable by founding 32 (bank ${bank[31]}, spent ${spentBeforeLast})`);
+  assert.ok(bank[31] <= 1e6, 'legacy at founding 32 stays under the 1e6 ceiling');
 });
 
-test('frontier ladder: eight rungs, config-owned, ascending in canonical order, earnings gate follows the price', () => {
-  const order = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter', 'orbital-shipyard', 'exchange-ring'];
+test('frontier ladder: nine rungs, config-owned, ascending in canonical order, earnings gate follows the price', () => {
+  const order = ['dyson-swarm', 'quantum-exchange', 'mass-driver-port', 'ringworld-district', 'stellar-engine', 'galactic-charter', 'orbital-shipyard', 'helios-array', 'exchange-ring'];
   assert.deepEqual(
     UPGRADES.filter((d) => d.frontier).map((d) => d.id),
     order,
-    'the frontier ladder in upgrades/data.js is the eight rungs this config places'
+    'the frontier ladder in upgrades/data.js is the nine rungs this config places'
   );
   const costs = order.map((id) => config.upgrades[id]?.cost);
   for (let i = 0; i < order.length; i++) {
@@ -173,7 +199,8 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
     'superconductor-grid', // 27
     'galactic-charter', // 28 (with the Energy Charter)
     'orbital-shipyard', // 29
-    'exchange-ring', // 31
+    'helios-array', // 30
+    'exchange-ring', // 31, the last rung (the Imperial Charter is city 32's novelty, the Space Elevator city 33's; city 34 is open at 12 h)
   ];
   for (let i = 1; i < cityOrder.length; i++) assert.ok(price(cityOrder[i]) > price(cityOrder[i - 1]), `${cityOrder[i]} is placed after ${cityOrder[i - 1]}`);
   // The four replay accelerators are priced for the first two minutes of a 5–10 point
@@ -191,8 +218,14 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
 });
 
 test('tier-4 draw keeps late demand ahead of supply (under-power share >= 3% needs more than the x3 catalogue draw)', () => {
-  assert.ok(config.buildings.arcology.powerUse >= 9000 && config.buildings.techpark.powerUse >= 16000);
-  assert.ok(config.buildings.financial.powerUse >= 14000 && config.buildings.stadium.powerUse >= 5000);
+  // The draw is sticker × grid strain (buildings module growthFactor). A first-city fleet of
+  // 15 units must draw at least the flat 3.2–3.8× catalogue figures the first pass shipped
+  // (arcology 9,000 / campus 16,000 / district 14,000 / stadium 5,000 MW per unit), and a
+  // late fleet of 250 must draw an order of magnitude more per unit than that.
+  const draw = (id, n) => config.buildings[id].powerUse * growthFactor(config.buildings[id].demandGrowth, n);
+  assert.ok(draw('arcology', 15) >= 9000 && draw('techpark', 15) >= 16000, 'first-city arcology / campus draw');
+  assert.ok(draw('financial', 15) >= 14000 && draw('stadium', 15) >= 5000, 'first-city district / stadium draw');
+  for (const id of ['arcology', 'techpark', 'financial', 'stadium']) assert.ok(draw(id, 250) >= 10 * draw(id, 15), `${id}: a 250-unit fleet draws 10× per unit what 15 do`);
   const fusionGen = config.buildings.fusion?.powerGen ?? buildingById.get('fusion').powerGen;
   assert.ok(fusionGen <= 3e5);
 });
@@ -214,8 +247,23 @@ test('placement tools: probe.mjs and place.mjs parse, and plan.json names priced
     const r = spawnSync(process.execPath, ['--check', path.join(ROOT, 'src/balance', f)], { encoding: 'utf-8' });
     assert.equal(r.status, 0, `${f} parses: ${r.stderr}`);
   }
-  const plan = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/balance/plan.json'), 'utf-8'));
+  const { targets, rungs: plan } = loadPlan(path.join(ROOT, 'src/balance/plan.json'));
   assert.ok(Array.isArray(plan) && plan.length >= 15, 'a plan step per late rung');
+  // The safety-margin targets sit strictly inside every hard gate of the contract, so a
+  // ladder that meets them has room for a retune elsewhere before any gate is at risk.
+  for (const [k, v] of Object.entries(targets)) assert.ok(isNum(v) && v > 0, `targets.${k} is a positive number`);
+  assert.ok(targets.firstFoundMax <= 44 && targets.firstFoundMin >= 30, 'first founding targets inside 30–45');
+  // ×1.345: the Space Elevator's city after the Imperial Charter's ×3 reads ×1.34 on the
+  // shipped content (a nil building after a felt perk), 0.7% under the gate.
+  assert.ok(targets.ratioMax <= 1.345, 'ratio target inside the 1.35 gate');
+  // The contract caps the *last* cycle at 40 min; cycleMax is this file's own line on any
+  // cycle after the first city (a nil-rung city after a nil-rung city reads ×1.3 of a 38 min
+  // predecessor on the shipped content), so it sits above the gate on the last cycle.
+  assert.ok(targets.lastCycleMax <= 39 && targets.cycleMax <= 50, 'cycle targets: the last cycle inside the 40 min gate, every cycle inside 50');
+  assert.ok(targets.underPowerMin >= 0.035 && targets.underPowerMax <= 0.19, 'under-power targets inside 3–20 %');
+  assert.ok(targets.reachMin >= 0.32 && targets.dipShareMin >= 0.52, 'reach and dip targets inside the gates');
+  assert.ok(targets.moneyMax <= 1e18 && targets.legacyMax <= 1e6, 'magnitude targets inside the ceilings');
+  assert.ok(targets.foundingsMin >= 18 && targets.foundingsMax <= 35, 'founding-count targets inside 18–35');
   let lastCity = 0;
   for (const step of plan) {
     assert.ok(upgradeById.has(step.id), `plan: ${step.id} is an upgrade`);
@@ -241,7 +289,15 @@ test('placement tools: probe.mjs and place.mjs parse, and plan.json names priced
 // `node tools/economy-sim.mjs --ticks 432000 [--saver] --out logs/<name>.json`; a log that
 // is missing is skipped (the sim is not run from the test), a log from a shorter session
 // is ignored, and both profiles are held to the magnitude ceilings.
-const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-final.json', 'logs/sim-polish-balance.json', 'logs/sim-polish-balance-saver.json'];
+// logs/sim-gauntlet.json and logs/sim-saver.json are the integrator's two committed
+// profiles; logs/sim-fix-balance-12h*.json are this pass's own 12 h runs of the same two
+// commands (`--ticks 432000 [--saver]`). A saver log is held to the magnitude ceilings
+// and zero errors like any other; on the final-gate tree the 30 s saver crosses both
+// ceilings (config.js header), so a committed saver log from that tree fails here on
+// purpose until the late content grows.
+const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-saver.json', 'logs/sim-fix-balance-12h.json', 'logs/sim-fix-balance-12h-saver.json'];
+const CONFIG_MTIME = fs.statSync(path.join(ROOT, 'src/balance/config.js')).mtimeMs;
+const PLAN_TARGETS = loadPlan(path.join(ROOT, 'src/balance/plan.json')).targets;
 const RATIO_MAX = 1.35;
 const RATIO_FROM = 4; // cycles[i] / cycles[i - 1] from the 5th founding (i = 4) on
 function readLog(rel) {
@@ -249,6 +305,13 @@ function readLog(rel) {
     return JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf-8'));
   } catch {
     return null;
+  }
+}
+function logIsCurrent(rel) {
+  try {
+    return fs.statSync(path.join(ROOT, rel)).mtimeMs >= CONFIG_MTIME;
+  } catch {
+    return false;
   }
 }
 for (const rel of SIM_LOGS) {
@@ -276,5 +339,14 @@ for (const rel of SIM_LOGS) {
     assert.ok(log.metrics.underPowerShare >= 0.03 && log.metrics.underPowerShare <= 0.2, `under-power ${log.metrics.underPowerShare} in 3–20%`);
     assert.ok(log.metrics.minPowerRatio >= 0.6, 'power floor >= 0.6');
     assert.ok(log.metrics.happinessDipCities >= cycles.length * 0.5, `happiness dips ${log.metrics.happinessDipCities}/${cycles.length}`);
+  });
+  // The safety margins (plan.json targets) are asserted only on a log produced after the
+  // last config edit: an older log measured a different ladder and is held to the contract
+  // above, not to this pass's margins.
+  const current = usable && log.profile === 'default' && logIsCurrent(rel);
+  test(`measured 12 h session (${rel}): inside the plan.json safety margins`, { skip: !usable ? `${rel} not present or shorter than 12 h` : log.profile !== 'default' ? 'only the default profile is held to the margins' : !current ? `${rel} predates src/balance/config.js` : false }, () => {
+    const checks = checkTargets(fromSimLog(log), PLAN_TARGETS);
+    assert.ok(checks.length >= 8, 'the plan names the margins');
+    assert.deepEqual(checks.filter((c) => !c.ok), [], formatChecks(checks));
   });
 }

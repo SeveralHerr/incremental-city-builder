@@ -1,9 +1,11 @@
 // Unit tests for the buildings module. Run: node --test src/buildings/
-// Pins the catalogue invariants (docs/DESIGN.md "Buildings"): 20 registered definitions,
+// Pins the catalogue invariants (docs/DESIGN.md "Buildings"): 22 registered definitions,
 // unique ids, one-line descs, `unlockAt` mirrors agreeing with `unlock` at the boundary,
-// override hygiene, cost-growth fallback order, the synergy / demandGrowth rule math, the
-// live-stat accessor, the power ladder's economics, and — by spawning cadence.mjs — the
-// first-city unlock cadence this folder owns.
+// override hygiene, cost-growth fallback order (and the fallback ladder equal to config's),
+// the synergy / demandGrowth rule math, the live-stat accessor, the power ladder's
+// economics, the two legacy-gated tier-5 cards, and — by spawning cadence.mjs and
+// columns.mjs — the first-city unlock cadence and the jobs-to-housing balance of a
+// session, both of which this folder owns.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -18,6 +20,7 @@ import {
   init,
   BUILDINGS,
   CATEGORIES,
+  DEFAULT_TIER_GROWTH,
   resolveBuilding,
   costGrowthForTier,
   normalizeSynergy,
@@ -46,13 +49,19 @@ await init({}); // idempotent
 const cityState = (pop, buildings = {}, legacy = 0) => ({ res: { pop, money: 0 }, buildings, prestige: { legacy } });
 const grid = (powerDemand) => ({ powerDemand, employed: 0 });
 const data = (id) => BUILDINGS.find((b) => b.id === id);
+const COUNT = 22;
+// The cards a first city can reach (everything but the legacy-only tier-5 gates).
+const firstCity = BUILDINGS.filter((b) => !(Number.isFinite(b.unlockAt?.legacy) && !Number.isFinite(b.unlockAt?.pop)));
+const tier5 = BUILDINGS.filter((b) => b.tier === 5);
 
-test('init registers all 20 definitions once, with unique ids and no errors', () => {
-  assert.equal(BUILDINGS.length, 20);
-  assert.equal(new Set(BUILDINGS.map((b) => b.id)).size, 20);
+test(`init registers all ${COUNT} definitions once, with unique ids and no errors`, () => {
+  assert.equal(BUILDINGS.length, COUNT);
+  assert.equal(new Set(BUILDINGS.map((b) => b.id)).size, COUNT);
   for (const b of BUILDINGS) assert.ok(registry.buildings.has(b.id), `${b.id} registered`);
-  assert.equal(registry.buildingOrder.filter((id) => BUILDINGS.some((b) => b.id === id)).length, 20);
+  assert.equal(registry.buildingOrder.filter((id) => BUILDINGS.some((b) => b.id === id)).length, COUNT);
   assert.equal(errors.length, before, 'init raised no errors');
+  assert.equal(firstCity.length, 20, 'twenty cards open inside a first city');
+  assert.deepEqual(tier5.map((b) => b.id), ['ring', 'elevator']);
 });
 
 test('every definition has the fields the build card needs', () => {
@@ -62,7 +71,7 @@ test('every definition has the fields the build card needs', () => {
     assert.ok(typeof b.icon === 'string' && b.icon, `${b.id} icon`);
     assert.ok(typeof b.desc === 'string' && b.desc.length > 0 && b.desc.length <= 70, `${b.id} desc ≤ 70 chars (${b.desc.length})`);
     assert.ok(cats.has(b.category), `${b.id} category`);
-    assert.ok([1, 2, 3, 4].includes(b.tier), `${b.id} tier`);
+    assert.ok([1, 2, 3, 4, 5].includes(b.tier), `${b.id} tier`);
     assert.ok(Number.isFinite(b.baseCost) && b.baseCost > 0, `${b.id} baseCost`);
     assert.ok(typeof b.unlockHint === 'string' && b.unlockHint.trim(), `${b.id} unlockHint`);
     if (b.unlock) assert.ok(b.unlockAt && typeof b.unlockAt === 'object', `${b.id} has an unlockAt mirror`);
@@ -165,14 +174,22 @@ test('resolveBuilding applies config overrides and drops poisonous values', () =
   assert.equal(data('arcology').demandGrowth.per, 40);
 });
 
-test('costGrowthForTier fallback order: costGrowthFor → config.cost.tierGrowth → defaults', () => {
+test('costGrowthForTier fallback order: costGrowthFor → config.cost.tierGrowth → defaults, and the defaults are the shipped ladder', () => {
+  // A config import failure must ship the curve the sim was run on, not a stale sketch:
+  // the fallback table equals config.cost.tierGrowth knob for knob.
+  assert.deepEqual({ ...DEFAULT_TIER_GROWTH }, config.cost.tierGrowth, 'DEFAULT_TIER_GROWTH matches config.cost.tierGrowth');
+  assert.ok(Object.isFrozen(DEFAULT_TIER_GROWTH));
+  for (const b of BUILDINGS) {
+    if (b.tier <= 4) continue;
+    assert.ok(Number.isFinite(b.costGrowth) && b.costGrowth >= 1, `${b.id}: a tier-${b.tier} card pins its own costGrowth (no tier-${b.tier} rate exists in config)`);
+  }
   assert.equal(costGrowthForTier(2, { costGrowthFor: () => 1.3, config: { cost: { tierGrowth: { 2: 1.2 } } } }), 1.3);
   assert.equal(costGrowthForTier(2, { costGrowthFor: () => NaN, config: { cost: { tierGrowth: { 2: 1.2 } } } }), 1.2);
   assert.equal(costGrowthForTier(2, { costGrowthFor: () => 0.5, config: { cost: { tierGrowth: { 2: 1.2 } } } }), 1.2);
-  assert.equal(costGrowthForTier(2, { config: { cost: { tierGrowth: { 2: 'x' } } } }), 1.14);
+  assert.equal(costGrowthForTier(2, { config: { cost: { tierGrowth: { 2: 'x' } } } }), 1.16);
   assert.equal(costGrowthForTier(3, null), 1.13);
-  assert.equal(costGrowthForTier(9, null), 1.12, 'unknown tier → tier-4 default');
-  assert.equal(costGrowthForTier('1', null), 1.15, 'non-integer tier → tier 1');
+  assert.equal(costGrowthForTier(9, null), 1.112, 'unknown tier → tier-4 default');
+  assert.equal(costGrowthForTier('1', null), 1.18, 'non-integer tier → tier 1');
   const n = errors.length;
   assert.equal(
     costGrowthForTier(1, {
@@ -274,10 +291,10 @@ test('power ladder: fusion pays only with a reactor fleet, then beats nuclear on
   for (let i = 1; i < gens.length; i++) assert.ok(gens[i] >= gens[i - 1] * 5, `power step ${i} ≥ 5×`);
 });
 
-test('the nine signature synergies and the four tier-4 strains are registered; the live handler is idempotent', () => {
-  assert.deepEqual(activeSynergies().map((s) => s.id).sort(), ['financial', 'fusion', 'house', 'mall', 'refinery', 'shop', 'solar', 'stadium', 'techpark']);
+test('the twelve signature synergies and the four tier-4 strains are registered; the live handler is idempotent', () => {
+  assert.deepEqual(activeSynergies().map((s) => s.id).sort(), ['arcology', 'elevator', 'financial', 'fusion', 'house', 'mall', 'refinery', 'ring', 'shop', 'solar', 'stadium', 'techpark']);
   assert.deepEqual(activeGrowth().map((s) => s.id).sort(), ['arcology', 'financial', 'stadium', 'techpark']);
-  assert.equal(activeRules().length, 13);
+  assert.equal(activeRules().length, 16);
   assert.ok(registry.tickHandlers.some((h) => h.name === LIVE_HANDLER), 'tick handler registered');
   assert.equal(registry.tickHandlers.filter((h) => h.name === LIVE_HANDLER).length, 1, 'registered once across two inits');
   const sim = registry.tickHandlers.find((h) => h.name === 'simulate');
@@ -303,7 +320,7 @@ test('the nine signature synergies and the four tier-4 strains are registered; t
   assert.equal(mall.income, mallBase, 'mirrored into the def');
   assert.equal(liveStat('arcology', 'powerUse'), arcBase);
 
-  const big = cityState(10000, { factory: 100, school: 30, arcology: 41, financial: 5, apartment: 25, office: 50 });
+  const big = cityState(10000, { factory: 100, school: 30, arcology: 41, financial: 5, apartment: 25, office: 50, ring: 5 });
   applyLiveStats(big, { employed: 10000 });
   applyLiveStats(big, { employed: 10000 }); // twice: must not compound
   assert.equal(liveStat('mall', 'income'), mallBase * 3);
@@ -315,10 +332,16 @@ test('the nine signature synergies and the four tier-4 strains are registered; t
   assert.equal(liveStat('house', 'housing'), baseStat('house', 'housing') * 2, '25 apartment blocks: cottages ×2');
   assert.equal(liveStat('shop', 'income'), baseStat('shop', 'income') * 3, '50 offices: the shop caps at ×3');
   assert.equal(liveStat('stadium', 'jobs'), baseStat('stadium', 'jobs') * 1.5, '10k citizens: stadium hires ×1.5');
-  assert.equal(liveStat('arcology', 'powerUse'), arcBase * 1.5, '41 arcologies: strain at the cap');
-  assert.equal(arc.powerUse, arcBase * 1.5);
-  assert.equal(liveStat('financial', 'powerUse'), baseStat('financial', 'powerUse') * 1.1, '5 districts: 1 + 4/40');
+  assert.equal(liveStat('arcology', 'housing'), baseStat('arcology', 'housing') * 1.125, '5 districts: arcology housing 1 + 5/40');
+  assert.equal(liveStat('ring', 'jobs'), baseStat('ring', 'jobs') * 1.1, '10k citizens: ring hires 1 + 10,000/100,000');
+  assert.equal(liveStat('elevator', 'powerGen'), baseStat('elevator', 'powerGen') * 1.5, '5 rings: elevator ×1.5');
+  // The strain rule is config-owned (config.buildings.*.demandGrowth re-pins it), so the
+  // expectation is computed from the resolved rule rather than a hard-coded cap.
+  assert.equal(liveStat('arcology', 'powerUse'), arcBase * growthFactor(arc.demandGrowth, 41), '41 arcologies: strain per the resolved rule');
+  assert.equal(arc.powerUse, arcBase * growthFactor(arc.demandGrowth, 41));
+  assert.equal(liveStat('financial', 'powerUse'), baseStat('financial', 'powerUse') * growthFactor(fin.demandGrowth, 5), '5 districts: strain per the resolved rule');
   assert.deepEqual(Object.keys(liveStats('financial')).sort(), ['income', 'powerUse']);
+  assert.deepEqual(Object.keys(liveStats('arcology')).sort(), ['housing', 'powerUse']);
   // Bases never move.
   assert.equal(baseStat('mall', 'income'), mallBase);
   assert.equal(baseStat('arcology', 'powerUse'), arcBase);
@@ -332,6 +355,10 @@ test('the nine signature synergies and the four tier-4 strains are registered; t
   assert.equal(mall.income, mallBase);
   assert.equal(fin.income, finBase);
   assert.equal(arc.powerUse, arcBase);
+  // This folder's own strain rule (the fallback when config pins none) is the documented
+  // +2.5 % per unit up to ×1.5.
+  assert.equal(growthFactor(data('arcology').demandGrowth, 41), 1.5, 'data.js strain: 41 arcologies at the ×1.5 cap');
+  assert.equal(growthFactor(data('financial').demandGrowth, 5), 1.1, 'data.js strain: 5 districts 1 + 4/40');
 });
 
 test('a scaled field on the registered def is a view of the live store, not a second copy', () => {
@@ -398,8 +425,13 @@ test('tier-4 draw is a power bill the card states (≤ 50× the tier-3 intensity
     const g = normalizeGrowth(data(id).demandGrowth);
     assert.ok(g && g.cap <= 2 && g.per >= 20, `${id} strain is a tax, not a cliff`);
     assert.ok(data(id).demandGrowth.text.includes(`${(100 / g.per).toString()}%`), `${id} strain text quotes its rate`);
-    assert.match(registry.buildings.get(id).powerHint, /Nuclear Plant$/, `${id} hint names the nuclear plant`);
+    // The resolved rule (config may re-pin it) still prints a card line that quotes its rate.
+    const r = normalizeGrowth(registry.buildings.get(id).demandGrowth);
+    assert.ok(r && r.text.length > 0 && r.text.length <= 70, `${id} resolved strain has card text`);
+    // The bill names a tier-3/4 plant (the stadium's config draw sits at four solar farms).
+    assert.match(registry.buildings.get(id).powerHint, /(Nuclear Plant|Solar Farm)$/, `${id} hint names a plant`);
   }
+  assert.match(registry.buildings.get('arcology').powerHint, /Nuclear Plant$/, 'the arcology hint names the nuclear plant');
   // Data and config agree on every number config re-pins (the fallback ladder is the shipped one).
   for (const [id, o] of Object.entries(config.buildings || {})) {
     for (const [k, v] of Object.entries(o)) {
@@ -432,63 +464,75 @@ test('catalogue defaults: population gates are distinct and climb ≥ 15% per st
     }
   }
   // The windmill's demand gate is deliberate (see data.js "Unlock spacing"); the coal
-  // plant's sits at 40 MW so it opens ≥ 60 s after the office block (pop 80 lands at 4.8
-  // min on 24 MW of draw; 20 and 24 MW both opened the plant in the same second).
+  // plant's sits at 34 MW — more than the eight capped windmills supply — and the office
+  // block (200 citizens) opens ≥ 90 s after it on the first city's curve (cadence.mjs).
   assert.equal(data('windmill').unlockAt.powerDemand, 0.001);
-  assert.ok(data('coal').unlockAt.powerDemand >= 40);
+  assert.ok(data('coal').unlockAt.powerDemand >= 34);
+  assert.ok(data('coal').unlockAt.powerDemand > data('windmill').maxCount * data('windmill').powerGen, 'the plant opens once the windmills cannot cover the draw');
+  assert.ok(data('office').unlockAt.pop > data('factory').unlockAt.pop * 3, 'the office follows the factory by a clear step');
   // The fusion reactor is reachable inside a first city (a visible trophy for its last
   // minutes) and opens at any founding.
   assert.ok(data('fusion').unlockAt.pop <= 40000 && data('fusion').unlockAt.legacy === 1);
 });
 
-test('windmill maxCount: data and config agree on 12, core refuses past it, a stray over-cap buy is rolled back', () => {
+test('windmill maxCount: the cap is 8 (the 8th costs about two coal plants), core refuses past it, a stray over-cap buy is rolled back', () => {
   const wm = registry.buildings.get('windmill');
-  assert.equal(data('windmill').maxCount, 12);
-  assert.equal(wm.maxCount, 12);
-  assert.equal(capOf(wm), 12);
+  const CAP = 8;
+  assert.equal(data('windmill').maxCount, CAP);
+  assert.equal(wm.maxCount, CAP);
+  assert.equal(capOf(wm), CAP);
   assert.equal(capOf(registry.buildings.get('house')), Infinity);
   assert.equal(capOf(null), Infinity);
+  // The last windmill is priced like the generator that replaces it, not ten times it:
+  // the 8th costs $5,120 against a $2,500 coal plant, and the whole set of eight ($10,200
+  // for 32 MW) is under five plants' worth. At 12 the last four cost $10k–$82k each for 4 MW.
+  const coal = registry.buildings.get('coal');
+  const last = api.buildingCost(wm, CAP - 1, 1);
+  const all = api.buildingCost(wm, 0, CAP);
+  assert.ok(last <= coal.baseCost * 2.5, `8th windmill ${last} ≤ 2.5 coal plants`);
+  assert.ok(all <= coal.baseCost * 5, `all eight ${all} ≤ 5 coal plants`);
+  assert.ok(config.buildings?.windmill?.maxCount === undefined, 'the cap is buildings-owned (config does not pin it)');
   // Override hygiene: a non-integer or non-positive cap is dropped and the data cap kept
   // (the registry would throw on the bad value), null lifts it.
-  for (const bad of [2.5, 0, -1, NaN, '12', Infinity]) assert.equal(resolveBuilding(data('windmill'), { config: { buildings: { windmill: { maxCount: bad } } } }).maxCount, 12, `maxCount ${bad} dropped`);
+  for (const bad of [2.5, 0, -1, NaN, '12', Infinity]) assert.equal(resolveBuilding(data('windmill'), { config: { buildings: { windmill: { maxCount: bad } } } }).maxCount, CAP, `maxCount ${bad} dropped`);
   assert.equal(resolveBuilding({ ...data('windmill'), maxCount: 2.5 }, { config: {} }).maxCount, undefined, 'a bad data cap is dropped, not handed to the registry');
   assert.equal(resolveBuilding(data('windmill'), { config: { buildings: { windmill: { maxCount: null } } } }).maxCount, undefined, 'null lifts the cap');
   assert.equal(resolveBuilding(data('windmill'), { config: { buildings: { windmill: { maxCount: 20 } } } }).maxCount, 20);
-  assert.equal(data('windmill').maxCount, 12, 'data never mutates');
+  assert.equal(data('windmill').maxCount, CAP, 'data never mutates');
 
   const saved = { money: state.res.money, count: state.buildings.windmill, built: state.stats.buildingsBuilt, unlocked: state.unlocks['b:windmill'], log: state.log.length };
   try {
     // Core: at the cap the row is `maxed`, never affordable, and buy() refuses.
     state.unlocks['b:windmill'] = true;
-    state.buildings.windmill = 12;
+    state.buildings.windmill = CAP;
     state.res.money = 1e12;
     const row = api.buildings().find((b) => b.id === 'windmill');
     assert.equal(row.maxed, true);
     assert.equal(row.affordable, false);
-    assert.equal(row.maxCount, 12, 'maxCount rides along for the card');
+    assert.equal(row.maxCount, CAP, 'maxCount rides along for the card');
     assert.equal(api.maxAffordable(wm), 0);
     assert.equal(api.buy('windmill', 1), false);
     assert.equal(api.buy('windmill', 'max'), false);
-    assert.equal(state.buildings.windmill, 12);
+    assert.equal(state.buildings.windmill, CAP);
     assert.equal(state.res.money, 1e12, 'nothing charged');
-    state.buildings.windmill = 10;
+    state.buildings.windmill = CAP - 2;
     assert.equal(api.maxAffordable(wm), 2, 'max stops at the cap');
     assert.equal(api.buy('windmill', 3), false, 'a block past the cap is refused whole');
     assert.equal(api.buy('windmill', 2), true);
-    assert.equal(state.buildings.windmill, 12);
+    assert.equal(state.buildings.windmill, CAP);
 
     // Fallback: a `buy` event that somehow landed above the cap (a core without the check)
     // is rolled back to the cap with the excess units' exact share of the price refunded.
-    // Three units at counts 11, 12, 13 of a ×2 curve: units 12 and 13 are the excess.
+    // Three units at counts 7, 8, 9 of a ×2 curve: units 8 and 9 are the excess.
     const g = wm.costGrowth;
-    const paid = wm.baseCost * (Math.pow(g, 11) + Math.pow(g, 12) + Math.pow(g, 13));
-    const excessCost = wm.baseCost * (Math.pow(g, 12) + Math.pow(g, 13));
-    state.buildings.windmill = 14;
+    const paid = wm.baseCost * (Math.pow(g, CAP - 1) + Math.pow(g, CAP) + Math.pow(g, CAP + 1));
+    const excessCost = wm.baseCost * (Math.pow(g, CAP) + Math.pow(g, CAP + 1));
+    state.buildings.windmill = CAP + 2;
     state.res.money = 0;
     state.stats.buildingsBuilt = 100;
     const before = state.log.length;
-    emit('buy', { id: 'windmill', n: 3, cost: paid, count: 14 });
-    assert.equal(state.buildings.windmill, 12);
+    emit('buy', { id: 'windmill', n: 3, cost: paid, count: CAP + 2 });
+    assert.equal(state.buildings.windmill, CAP);
     assert.ok(Math.abs(state.res.money - excessCost) < 1e-6, `refund ${state.res.money} = ${excessCost}`);
     assert.equal(state.stats.buildingsBuilt, 98);
     assert.equal(state.log.length, before + 1, 'one log line');
@@ -500,8 +544,8 @@ test('windmill maxCount: data and config agree on 12, core refuses past it, a st
     assert.equal(rollbackOverCap({ id: 'windmill', n: 0, cost: 5, count: 29 }), 0, 'a garbage n with no excess of its own does nothing');
     assert.equal(state.buildings.windmill, 29);
     // No-ops: under the cap, an uncapped building, an unknown id, garbage.
-    state.buildings.windmill = 12;
-    assert.equal(rollbackOverCap({ id: 'windmill', n: 1, cost: 5, count: 12 }), 0);
+    state.buildings.windmill = CAP;
+    assert.equal(rollbackOverCap({ id: 'windmill', n: 1, cost: 5, count: CAP }), 0);
     assert.equal(rollbackOverCap({ id: 'house', n: 5, cost: 5, count: 1e6 }), 0);
     assert.equal(rollbackOverCap({ id: 'nope', n: 1, cost: 5, count: 99 }), 0);
     assert.equal(rollbackOverCap(null), 0);
@@ -539,7 +583,9 @@ test('powerHint: a consumer names the plant its draw needs; a synergy on a missi
     if (use >= 4) assert.ok(typeof d.powerHint === 'string' && d.powerHint.length <= 70 && d.powerHint.startsWith('Draws '), `${id} has a hint`);
     else assert.equal(d.powerHint, undefined, `${id} has no hint`);
   }
-  assert.equal(registry.buildings.get('arcology').powerHint, 'Draws 10,500 MW ≈ 0.9 × Nuclear Plant');
+  const ladder = ['windmill', 'coal', 'solar', 'nuclear', 'fusion', 'elevator'].map((id) => ({ name: registry.buildings.get(id).name, powerGen: baseStat(id, 'powerGen') }));
+  assert.equal(registry.buildings.get('arcology').powerHint, powerHintFor({ powerUse: baseStat('arcology', 'powerUse') }, ladder), 'the arcology hint is sized against the shipped ladder');
+  assert.equal(powerHintFor({ powerUse: 10500 }, [...gens, { name: 'Space Elevator', powerGen: 3e6 }]), 'Draws 10,500 MW ≈ 0.9 × Nuclear Plant', 'a giant generator never re-sizes a tier-4 bill');
   assert.ok(typeof api.buildings().find((b) => b.id === 'techpark').powerHint === 'string', 'rides along on the api row');
 
   // A rule on a stat the building lacks (the registry defaults it to 0) is reported like a
@@ -583,13 +629,29 @@ test('cadence probe: the first city founds, raises no errors, and every building
   assert.equal(report.founded, true, `first city founded within the probe window (${report.endMin} min)`);
   assert.equal(report.errors.length, 0, 'no runtime errors');
   assert.ok(report.endMin >= 30 && report.endMin <= 45, `first founding ${report.endMin} min inside the 30–45 contract`);
-  // Always-available cards (the cottage) never emit `unlock`; every gated card must open.
+  // Always-available cards (the cottage) never emit `unlock`; every gated card a first city
+  // can reach must open, and the legacy-only tier-5 cards must not.
   const opened = report.buildings.filter((b) => b.unlockS !== null || b.gate === 'start');
-  assert.equal(opened.length, 20, 'every card opens in the first city');
+  assert.equal(opened.length, firstCity.length, 'every first-city card opens in the first city');
   const bought = report.buildings.filter((b) => b.buyS !== null);
-  assert.equal(bought.length, 20, 'every building is bought in the first city');
+  assert.equal(bought.length, firstCity.length, 'every first-city building is bought in the first city');
+  for (const b of tier5) {
+    const row = report.buildings.find((r) => r.id === b.id);
+    assert.ok(row && row.unlockS === null && row.buyS === null, `${b.id} stays locked in a first city`);
+    assert.match(row.gate, /^legacy [\d,]+$/, `${b.id} gate prints as a legacy gate`);
+  }
   const mine = report.problems.filter((p) => p.owner === 'buildings').map((p) => p.msg);
   assert.deepEqual(mine, [], 'no cadence fault a data.js field can fix');
+  // The factory no longer glows for most of the tutorial: at 45 citizens it opens after the
+  // 3-minute mark (at 30 it opened at 1.9 min and waited 7) and is bought within the lag
+  // rule; it opens inside the exempt opening window (cadence.mjs RULES_FROM_S), so its own
+  // lag is pinned here, and the office block (200 citizens) follows the coal plant.
+  const factory = report.buildings.find((r) => r.id === 'factory');
+  assert.ok(factory.unlockS >= 180, `factory opens after 3 min (${factory.unlockS} s)`);
+  assert.ok(factory.buyS - factory.unlockS <= 300, `factory bought within 5 min of opening (${factory.buyS - factory.unlockS} s)`);
+  const office = report.buildings.find((r) => r.id === 'office');
+  const coal = report.buildings.find((r) => r.id === 'coal');
+  assert.ok(office.unlockS - coal.unlockS >= 60, `office opens ≥ 60 s after the coal plant (${office.unlockS - coal.unlockS} s)`);
 });
 
 test('cadence probe: no fault at all (config-owned gates and costs included)', { todo: probe.report && probe.report.problems.length > 0 ? 'config.buildings pins the fields these faults need: ' + probe.report.problems.map((p) => p.msg).join(' | ') : undefined }, () => {
@@ -598,12 +660,99 @@ test('cadence probe: no fault at all (config-owned gates and costs included)', {
   assert.deepEqual(probe.report.problems.map((p) => `[${p.owner}] ${p.msg}`), [], 'cadence.mjs exits 0');
 });
 
+test('tier 5: two legacy-gated megastructures open after the first founding, pin their own curve, and read as a ladder', () => {
+  const ring = registry.buildings.get('ring');
+  const elevator = registry.buildings.get('elevator');
+  assert.equal(ring.category, 'residential');
+  assert.equal(elevator.category, 'power');
+  for (const [id, def] of [['ring', ring], ['elevator', elevator]]) {
+    const d = data(id);
+    assert.equal(d.tier, 5);
+    // Legacy only: a first city of any size never opens them, a bank does, and the gate
+    // sits on a legacy tier the simulation already announces (1,500 / 15,000).
+    assert.equal(def.unlock(cityState(1e9, {}, 0), grid(0)), false, `${id}: population alone never opens it`);
+    assert.equal(def.unlock(cityState(0, {}, d.unlockAt.legacy), grid(0)), true, `${id}: the bank opens it`);
+    assert.equal(def.unlock(cityState(0, {}, d.unlockAt.legacy - 1), grid(0)), false);
+    assert.ok([500, 15000, 300000].includes(d.unlockAt.legacy), `${id} gate is a legacy tier (or the config-pinned 300,000)`);
+    assert.ok(d.unlockHint.includes(d.unlockAt.legacy.toLocaleString('en-US')), `${id} hint quotes the gate`);
+    // Config has no tier-5 growth rate: the card pins one, steeper than tier 4 (a rolling
+    // target, not a fleet bought in one spree) and it survives resolution.
+    assert.ok(d.costGrowth >= 2 && d.costGrowth <= 4, `${id} costGrowth ${d.costGrowth} is a megastructure curve`);
+    assert.equal(def.costGrowth, d.costGrowth, `${id} keeps its pinned curve`);
+    // Buildings-owned numbers: config may re-pin the gate only (the elevator sits at 300,000).
+    assert.ok(Object.keys(config.buildings?.[id] ?? {}).every((k) => k.startsWith('unlock')), `${id} is buildings-owned (config may only re-pin the gate)`);
+    assert.ok(def.baseCost >= 1e11, `${id} is priced for a mature session`);
+  }
+  // The ladder: the ring is the cheaper, earlier card; the elevator opens 10× later in
+  // legacy and costs 100× more, and its power rule is sourced from the ring.
+  assert.ok(data('elevator').unlockAt.legacy >= 10 * data('ring').unlockAt.legacy);
+  assert.ok(data('elevator').baseCost >= 50 * data('ring').baseCost);
+  assert.equal(data('elevator').synergy.source, 'building:ring');
+  assert.equal(data('ring').synergy.stat, 'jobs');
+  assert.equal(data('ring').synergy.source, 'pop');
+  // Stickers: the ring is eighty arcologies of housing and a jobs engine that at its cap
+  // out-hires its own citizens (that is the late column balance, README "Jobs and
+  // housing"); the elevator is a fusion fleet of output with nuclear's upkeep per MW.
+  assert.equal(data('ring').housing, 80 * data('arcology').housing);
+  assert.ok(data('ring').jobs * data('ring').synergy.cap >= data('ring').housing * 4, 'ring at its cap hires ≥ 4× its housing');
+  assert.ok(data('elevator').powerGen >= 50 * data('fusion').powerGen);
+  assert.ok(data('elevator').upkeep / data('elevator').powerGen <= data('nuclear').upkeep / data('nuclear').powerGen + 1e-9, 'elevator upkeep/MW ≤ nuclear');
+  // The ring's bill is stated against the fusion reactor, not against the elevator (a card
+  // the player has not seen yet when the ring opens).
+  assert.equal(ring.powerHint, 'Draws 1,200,000 MW ≈ 20 × Fusion Reactor');
+  assert.equal(elevator.powerHint, undefined);
+  // The tier-4 hints are still sized against the nuclear plant: the elevator's 3 GW never
+  // becomes the unit a 10 GW bill is quoted in.
+  assert.match(registry.buildings.get('financial').powerHint, /Nuclear Plant$/);
+});
+
+test('the jobs column stays level with the housing column: financial 2,000 / campus 1,800 / stadium ×2 against the commuter rule', () => {
+  // Static sticker check (the session reading is the columns probe below): with every
+  // tier-4 card owned in equal numbers, the arcology at its commuter cap and the stadium at
+  // its hiring cap, jobs per housing sit near 1 rather than the 3–7× of the 4,000-job
+  // district (README "Jobs and housing").
+  const j = (id, f = 1) => data(id).jobs * f;
+  const jobs = j('financial') + j('techpark') + j('stadium', data('stadium').synergy.cap) + j('arcology') + j('nuclear') + j('fusion') + j('mall') + j('hospital');
+  const housing = data('arcology').housing * data('arcology').synergy.cap + data('tower').housing;
+  const ratio = jobs / housing;
+  assert.ok(ratio >= 1.2 && ratio <= 2.2, `tier-3/4 set: ${jobs} jobs / ${housing} housing = ${ratio.toFixed(2)} (1.2–2.2 before the upgrade rungs move it)`);
+  assert.equal(data('financial').jobs, 2000);
+  assert.equal(data('techpark').jobs, 1800);
+  assert.equal(data('stadium').synergy.cap, 2);
+  assert.ok(data('stadium').synergy.text.includes('×2'));
+  assert.equal(data('arcology').synergy.source, 'building:financial');
+  assert.ok(data('arcology').synergy.text.includes('2.5%'), 'the commuter line quotes its rate');
+  // The district keeps its step above the campus in raw jobs per dollar only through its
+  // income (the dominance test above); as employers both now read as jobs the city fills.
+});
+
+test('columns probe (6 h): jobs/pop holds its band in mature cities and the ring opens and sells as a rolling target', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const r = spawnSync(process.execPath, [path.join(here, 'columns.mjs'), '--ticks', '216000', '--every', '10', '--json'], { encoding: 'utf-8', timeout: 240000 });
+  let report = null;
+  try {
+    report = JSON.parse(r.stdout);
+  } catch {
+    report = null;
+  }
+  assert.ok(report, `probe produced JSON (status ${r.status}; stderr: ${r.stderr.slice(0, 400)})`);
+  assert.equal(report.errors.length, 0, 'no runtime errors');
+  assert.deepEqual(report.problems, [], 'no column or tier-5 fault');
+  assert.ok(report.ratio.median >= report.rules.ratioMin && report.ratio.median <= report.rules.ratioMax, `median ${report.ratio.median}`);
+  const ring = report.tier5.find((t) => t.id === 'ring');
+  assert.ok(ring && ring.openCity !== null && ring.buyCity !== null, 'the ring opens and is bought inside 6 h');
+  assert.ok(ring.citiesBought.length >= 2, 'the ring is bought again in a later city');
+  const elevator = report.tier5.find((t) => t.id === 'elevator');
+  assert.ok(elevator, 'the elevator is a legacy-gated card the probe tracks');
+});
+
 test('catalogue.mjs prints the shipped catalogue with every config override flagged', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const r = spawnSync(process.execPath, [path.join(here, 'catalogue.mjs'), '--json'], { encoding: 'utf-8', timeout: 60000 });
   assert.equal(r.status, 0, `exit 0 (stderr: ${r.stderr.slice(0, 300)})`);
   const rows = JSON.parse(r.stdout);
-  assert.equal(rows.length, 20);
+  assert.equal(rows.length, COUNT);
+  assert.equal(rows.find((row) => row.id === 'ring').gate, 'legacy 500', 'a legacy-only gate prints as such');
   const overrides = config.buildings || {};
   for (const row of rows) {
     const o = overrides[row.id] || {};

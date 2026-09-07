@@ -10,7 +10,7 @@ import { state, derived, loadState, createInitialState, resetState } from '../co
 import { on, off } from '../core/events.js';
 import { registerBuilding, registry } from '../core/registry.js';
 import { config } from '../balance/config.js';
-import { DEFAULTS, LEGACY_POWER_MAX, prestigeTuning, economyTuning, milestoneTuning } from './tuning.js';
+import { DEFAULTS, LEGACY_POWER_MAX, SEED_SECONDS_MAX, prestigeTuning, economyTuning, milestoneTuning, foundingTuning } from './tuning.js';
 import {
   legacyIncomeMult,
   foundingLine,
@@ -32,6 +32,10 @@ import {
   availableOf,
   lifetimeEarnedOf,
   prestigeConfig,
+  peakIncomeOf,
+  seedWindowFor,
+  foundingTapMult,
+  foundingsOf,
 } from './prestige.js';
 import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
 import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, tapMeter, prestigeSnapshot, init, bookkeeping, createBookkeeping } from './index.js';
@@ -57,6 +61,7 @@ const PLAIN = {
     prestigePanelShare: 0.1,
   },
   economy: { startMoney: 260, tapSeconds: 1 },
+  founding: { seedSeconds: 0, seedLegacy: 0, marginRamp: 0, tapPerFounding: 0, tapFoundingCap: 0 },
 };
 const withPrestige = (over) => ({ ...PLAIN, prestige: { ...PLAIN.prestige, ...over } });
 
@@ -107,6 +112,27 @@ test('DEFAULTS mirrors src/balance/config.js knob for knob (a missing section ru
   // …and the resolver returns those very numbers when the config is absent.
   const p = prestigeTuning(null);
   for (const k of Object.keys(config.prestige)) assert.equal(p[k], config.prestige[k], `fallback ${k}`);
+});
+
+test('foundingTuning: seed window, tap ladder and margin ramp, bounded, fallback to DEFAULTS, memoized', () => {
+  const d = foundingTuning(null);
+  for (const k of Object.keys(DEFAULTS.founding)) assert.equal(d[k], DEFAULTS.founding[k], `fallback ${k}`);
+  assert.ok(d.seedSeconds >= 0 && d.seedSeconds <= SEED_SECONDS_MAX);
+  assert.ok(d.marginRamp > 0 && d.marginRamp <= 1);
+  assert.ok(d.tapPerFounding > 0 && d.tapFoundingCap >= 10, 'every founding pays a felt tap bonus');
+  assert.equal(foundingTuning(config), foundingTuning(config), 'one shared object');
+  assert.ok(Object.isFrozen(foundingTuning(config)));
+  const f = foundingTuning({ founding: { seedSeconds: 1e9, marginRamp: 7, tapFoundingCap: 4.7, tapPerFounding: -1 } });
+  assert.equal(f.seedSeconds, SEED_SECONDS_MAX);
+  assert.equal(f.marginRamp, 1);
+  assert.equal(f.tapFoundingCap, 4);
+  assert.equal(f.tapPerFounding, 0);
+  const g = foundingTuning({ founding: { seedSeconds: -3, marginRamp: 'x', seedLegacy: NaN } });
+  assert.equal(g.seedSeconds, 0);
+  assert.equal(g.marginRamp, DEFAULTS.founding.marginRamp);
+  assert.equal(g.seedLegacy, DEFAULTS.founding.seedLegacy);
+  // At the ceiling, the contract's 12 h income (≤ ~1e15/s) seeds under the 1e18 money ceiling.
+  assert.ok(SEED_SECONDS_MAX * 1e15 <= 1e18);
 });
 
 test('tuning falls back to DEFAULTS for a missing or malformed config and clamps every knob', () => {
@@ -379,6 +405,64 @@ test('startMoneyFor grows linearly with the bank', () => {
   assert.equal(startMoneyFor(NaN, PLAIN), 260);
 });
 
+test('the seed window: a founding opens with seedSeconds of the old city\'s peak income when that beats the legacy seed', () => {
+  const cfg = { ...PLAIN, founding: { seedSeconds: 120, seedLegacy: 0, marginRamp: 0 } };
+  assert.equal(startMoneyFor(10, cfg), 520, 'no income known: the legacy seed');
+  assert.equal(startMoneyFor(10, cfg, 1), 520, '$1/s × 120 s is less than the legacy seed');
+  near(startMoneyFor(10, cfg, 1e6), 1.2e8, 'a $1M/s city seeds two minutes of itself');
+  assert.equal(startMoneyFor(10, cfg, NaN), 520);
+  assert.equal(startMoneyFor(10, cfg, -5), 520);
+  assert.equal(startMoneyFor(10, { ...cfg, founding: { seedSeconds: 0 } }, 1e6), 520, 'a zero window is the legacy seed');
+  // The window ramps in with the bank when seedLegacy is set: 10 of 40 points → a quarter.
+  const ramped = { ...PLAIN, founding: { seedSeconds: 120, seedLegacy: 40, marginRamp: 0 } };
+  assert.equal(seedWindowFor(10, ramped), 30);
+  assert.equal(seedWindowFor(40, ramped), 120);
+  assert.equal(seedWindowFor(400, ramped), 120);
+  assert.equal(seedWindowFor(0, ramped), 0);
+  assert.equal(seedWindowFor(10, cfg), 120, 'seedLegacy 0: the full window from the first founding');
+  near(startMoneyFor(10, ramped, 1e6), 3e7, 'a quarter of the window');
+  // Shipped: the window is off (see tuning.js for the measurements), the ladder is the tap.
+  assert.equal(seedWindowFor(1e6, config), 0);
+  // peakIncomeOf reads the per-run stat defensively.
+  assert.equal(peakIncomeOf(fakeState()), 0);
+  const s = fakeState({ legacy: 10, totalEarned: 3e7, lifetimeEarned: 3e7 });
+  s.stats.peakIncome = 1e6;
+  assert.equal(peakIncomeOf(s), 1e6);
+  s.stats.peakIncome = -1;
+  assert.equal(peakIncomeOf(s), 0);
+  // The snapshot's startMoneyAfter carries the window, so the panel promises what founding pays.
+  s.stats.peakIncome = 1e6;
+  const out = prestigeStatus(s, {}, cfg);
+  near(out.startMoneyAfter, 1.2e8, 'startMoneyAfter includes the seed window');
+});
+
+test('peakIncome is tracked per run (net income, never a deficit) and resets on founding', () => {
+  ensureTestBuildings();
+  if (!registry.buildings.has('t-drain')) {
+    registerBuilding({ id: 't-drain', name: 'Drain', icon: 'd', desc: 'test', category: 'civic', tier: 1, baseCost: 10, costGrowth: 1.1, upkeep: 1 });
+  }
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-drain': 1 } });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  near(state.stats.peakIncome, derived.income, 'the net income is the peak');
+  near(state.stats.peakIncome, 2, 'gross $3 − upkeep $1');
+  state.buildings['t-drain'] = 10; // a deficit does not move the peak
+  for (let i = 0; i < 5; i++) simulate(state, derived, 0.1);
+  near(state.stats.peakIncome, 2, 'a deficit leaves the peak where it was');
+  state.buildings['t-drain'] = 0;
+  for (let i = 0; i < 5; i++) simulate(state, derived, 0.1);
+  near(state.stats.peakIncome, 3, 'and a better tick raises it');
+  // A founding seeds from it, then starts the new city's count from zero.
+  const cfg = { ...withPrestige({ minGain: 1 }), founding: { seedSeconds: 200, seedLegacy: 0, marginRamp: 0 } };
+  state.stats.totalEarned = 4e6;
+  state.prestige.lifetimeEarned = 4e6;
+  assert.equal(performPrestige(state, cfg), true);
+  near(state.res.money, 600, '200 s of the old $3/s beats the legacy seed ($312)');
+  assert.equal(state.stats.peakIncome, 0, 'the new city starts its own peak');
+  assert.match(state.log[state.log.length - 1].msg, /opens with \$600 — 3 min of the old city's income/);
+  loadState({});
+});
+
 // --- founding -------------------------------------------------------------------
 
 test('performPrestige banks the gain, resets the run, keeps the bank, spent, lifetime, settings and the log tail', () => {
@@ -428,7 +512,7 @@ test('performPrestige banks the gain, resets the run, keeps the bank, spent, lif
   assert.equal(state.log[19].msg, 'line 29');
   assert.match(state.log[20].msg, /^City #2 founded\. The last one peaked at 12,000 citizens and earned \$9,000,000\./);
   assert.equal(state.log[20].kind, 'prestige');
-  assert.match(state.log[21].msg, /^\+3 legacy \(3 total\): income ×1\.59 on top of the old bonus, \+58\.7% over a fresh start, forever\./);
+  assert.match(state.log[21].msg, /^\+3 legacy \(3 total\): income ×1\.59 on top of the old bonus, \+58\.7% over a fresh start, forever\. The new city opens with \$338\. Next tier: Old Hands at 5 legacy\.$/);
   assert.deepEqual(events, [{ gain: 3, legacy: 3, spent: 0, available: 3, mult: legacyIncomeMult(3, cfg) }]);
   // A second founding straight away has nothing to bank.
   assert.equal(performPrestige(state, cfg), false);
@@ -460,12 +544,60 @@ test('a founding keeps prestige.spent (through resetState) and the event reports
   loadState({});
 });
 
-test('foundingLine leads with the ratio while it is notable, otherwise with what changed', () => {
-  assert.match(foundingLine(3, 3, 1, 1.68, 338), /^\+3 legacy \(3 total\): income ×1\.68 on top of the old bonus, \+68% over a fresh start, forever\.$/);
-  const flat = foundingLine(4000, 21448, 170, 171.5, 557908);
-  assert.doesNotMatch(flat, /×1\.0/);
-  assert.match(flat, /^\+4,000 legacy \(21,448 total\): the bank keeps every point, the new city opens with \$557,908, and the income bonus holds at \+17,050%\. Next tier: Living Archive at 50,000 legacy\.$/);
+test('every founding raises the tap value: linear to the cap, folded through applyPrestigeMods, NaN-safe on a bare bag', () => {
+  const cfg = { ...PLAIN, founding: { tapPerFounding: 0.1, tapFoundingCap: 5 } };
+  assert.equal(foundingTapMult(0, cfg), 1);
+  near(foundingTapMult(1, cfg), 1.1, 'one founding');
+  near(foundingTapMult(3, cfg), 1.3, 'three');
+  near(foundingTapMult(5, cfg), 1.5, 'the cap');
+  near(foundingTapMult(50, cfg), 1.5, 'past the cap');
+  assert.equal(foundingTapMult(NaN, cfg), 1);
+  assert.equal(foundingTapMult(-2, cfg), 1);
+  near(foundingTapMult(2.9, cfg), 1.2, 'whole foundings');
+  assert.equal(foundingTapMult(9, PLAIN), 1, 'a zero knob is no ladder');
+  // Shipped: felt from the first founding, bounded by the cap.
+  assert.ok(foundingTapMult(1, config) >= 1.05, 'a first founding is felt');
+  assert.ok(foundingTapMult(1e9, config) < 20, 'and the ladder is bounded');
+  const s = fakeState({ legacy: 10, totalEarned: 1e6, lifetimeEarned: 1e6 });
+  s.stats.prestiges = 3;
+  assert.equal(foundingsOf(s), 3);
+  const mods = createMods();
+  mods.tap = 2;
+  applyPrestigeMods(mods, s, cfg);
+  near(mods.tap, 2.6, 'multiplies the tap ladder');
+  const bare = createMods(); // no tap field: reads as 1, never NaN
+  applyPrestigeMods(bare, s, cfg);
+  near(bare.tap, 1.3, 'a bare bag gets the founding tap value');
+  const zero = createMods();
+  applyPrestigeMods(zero, s, PLAIN);
+  assert.equal('tap' in zero, false, 'a zero knob leaves a bare bag alone');
+  // Through the tick: tapSecondsFor reads the folded value, so the tap and its hint agree.
+  ensureTestBuildings();
+  loadState({ res: { money: 0, pop: 0 }, buildings: { 't-shop': 3 }, stats: { prestiges: 4, clicks: 0 } });
+  recompute(state, derived);
+  near(tapSecondsFor(derived), economyTuning(config).tapSeconds * foundingTapMult(4, config), 'four foundings');
+  const gain = tap(state, derived);
+  near(gain, derived.grossIncome * tapSecondsFor(derived), 'a full meter pays the whole ladder');
+  loadState({});
+});
+
+test('foundingLine leads with the ratio while it is notable, otherwise with the seed, and never advertises a ×1.00', () => {
+  assert.match(foundingLine(3, 3, 1, 1.68, 338), /^\+3 legacy \(3 total\): income ×1\.68 on top of the old bonus, \+68% over a fresh start, forever\. The new city opens with \$338\. Next tier: Old Hands at 5 legacy\.$/);
+  // With the seed window the treasury is sized in the old city's income.
+  assert.match(foundingLine(3, 3, 1, 1.68, 6000, 50), /The new city opens with \$6,000 — 2 min of the old city's income\./);
+  assert.match(foundingLine(3, 3, 1, 1.68, 6000, 10), /opens with \$6,000 — 10 min of the old city's income/);
+  assert.match(foundingLine(3, 3, 1, 1.68, 600, 10), /opens with \$600 — 60 s of the old city's income/);
+  assert.match(foundingLine(3, 3, 1, 1.68, 7200e3, 1000), /opens with \$7,200,000 — 2 h of the old city's income/);
+  // A few-percent founding leads with the seed and still reports the bonus honestly.
+  const small = foundingLine(2, 7, 1.0271, 1.0379, 557908, 1000);
+  assert.doesNotMatch(small, /×1\.0/);
+  assert.match(small, /^\+2 legacy \(7 total\): the new city opens with \$557,908 — 9 min of the old city's income, and the income bonus grows to \+3\.8%\. Next tier: Clean Air Act at 15 legacy\.$/);
+  assert.match(foundingLine(1, 2e6, 100, 100, 1), /the income bonus stands at \+9,900%\.$/);
+  assert.match(foundingLine(3, 3, 1, 1.68, 338, 0, 1.1), /forever\. The new city opens with \$338\. Taps pay ×1\.1 a first city's\. Next tier/);
+  assert.match(foundingLine(2, 7, 1.0271, 1.0379, 338, 0, 2), /grows to \+3\.8%\. Taps pay ×2 a first city's\. Next tier/);
+  assert.doesNotMatch(foundingLine(3, 3, 1, 1.68, 338, 0, 1), /Taps/);
   assert.doesNotMatch(foundingLine(1, 2e6, 100, 100, 1), /Next tier/, 'past the last tier the line simply ends');
+  assert.doesNotMatch(foundingLine(1, 2e6, 0, 100, 1), /NaN|Infinity/, 'a zero old multiplier is read as no change');
 });
 
 test('performPrestige refuses below minGain and leaves the state untouched', () => {
@@ -584,11 +716,46 @@ test('milestone list: unique ids, precomputed keys, the ids other modules depend
   }
 });
 
-test('isBrownout needs an existing grid: the first cottage on zero capacity is not a brownout', () => {
+test('isBrownout needs an existing grid: the one definition the milestone, the log and the event share', () => {
   assert.equal(isBrownout({ powerDemand: 1, powerCap: 0, powerRatio: 0.4 }), false);
   assert.equal(isBrownout({ powerDemand: 0, powerCap: 6, powerRatio: 1 }), false);
   assert.equal(isBrownout({ powerDemand: 10, powerCap: 6, powerRatio: 0.6 }), true);
+  assert.equal(isBrownout({ powerDemand: 100, powerCap: 99.5, powerRatio: 0.995 }), true, 'any shortfall on a real grid');
   assert.equal(isBrownout(undefined), false);
+  const ms = getMilestone('brownout');
+  assert.equal(ms.progress({}, { powerDemand: 100, powerCap: 100, powerRatio: 1 }), 1);
+  assert.ok(ms.progress({}, { powerDemand: 50, powerCap: 100, powerRatio: 1 }) < 1);
+});
+
+test('the Lights Out milestone, the brownout log line and the brownout event all fire on the same tick', () => {
+  ensureTestBuildings();
+  const events = [];
+  const onBrownout = (e) => events.push(e);
+  on('brownout', onBrownout);
+  // 24 MW of capacity: 24 huts (ratio 1) is no brownout by any definition; the 25th hut
+  // (0.96) is one by every definition — milestone, log line and event on the same tick.
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-hut': 24, 't-mill': 4 } });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  assert.equal(state.unlocks['m:brownout'], undefined);
+  assert.equal(events.length, 0);
+  state.buildings['t-hut'] = 25;
+  simulate(state, derived, 0.1);
+  near(derived.powerRatio, 0.96, 'a 4% shortfall');
+  assert.equal(state.unlocks['m:brownout'], true, 'milestone');
+  assert.deepEqual(events.map((e) => e.active), [true], 'event on the same tick');
+  assert.equal(state.log.filter((l) => l.kind === 'brownout').length, 1, 'log line on the same tick');
+  state.buildings['t-mill'] = 5;
+  simulate(state, derived, 0.1);
+  assert.deepEqual(events.map((e) => e.active), [true, false], 'and the recovery event when the grid is whole');
+  off('brownout', onBrownout);
+  // The book is not reset by loadState (only by the 'load' event): clear the hysteresis and
+  // the log cooldown so the tests that follow see a quiet grid.
+  const b = bookkeeping();
+  b.inBrownout = false;
+  b.brownoutLogged = false;
+  b.lastBrownoutLogAt = -Infinity;
+  loadState({});
 });
 
 // --- the tick ---------------------------------------------------------------------
@@ -616,7 +783,7 @@ test('simulate integrates money and population, keeps the snapshot current, and 
   for (let i = 0; i < 100; i++) simulate(state, derived, 0.1);
   assert.ok(state.res.money > money0, 'money grows');
   assert.ok(state.stats.totalEarned > 0 && state.prestige.lifetimeEarned >= state.stats.totalEarned);
-  assert.equal('peakIncome' in state.stats, false, 'no maturity bookkeeping');
+  near(state.stats.peakIncome, derived.income, 'peakIncome is the seed window\'s only bookkeeping (it never feeds legacy)');
   const snap = prestigeSnapshot(derived);
   assert.equal(snap, derived.extra.prestige);
   assert.equal(snap.legacy, 0);
@@ -839,7 +1006,7 @@ test('the tap ladder: lifetime taps scale mods.tap from 1 s of income to 5 s, an
   assert.equal(state.unlocks['m:taps-25'], true);
   assert.equal(state.unlocks['m:taps-250'], true);
   assert.equal(seen.includes('taps-25') || seen.includes('taps-250'), false, 'old tap rungs are not news');
-  near(derived.mods.tap, 3, 'two rungs: three seconds per tap');
+  near(derived.mods.tap, 3 * foundingTapMult(3, config), 'two rungs: three seconds per tap, times the three-founding tap value');
   // A malformed multiplier never poisons the tap.
   derived.mods.tap = NaN;
   near(tapSecondsFor(derived), economyTuning(config).tapSeconds, 'NaN falls back to ×1');
@@ -942,6 +1109,40 @@ test('earnings are the gross output of a solvent city; an upkeep deficit earns n
   const gain = tap(state, derived);
   assert.ok(gain > 1);
   assert.equal(state.stats.totalEarned, gain);
+  loadState({});
+});
+
+test('earnings ramp in over the first marginRamp of the gross margin instead of stepping at break-even', () => {
+  ensureTestBuildings();
+  if (!registry.buildings.has('t-sip')) {
+    registerBuilding({ id: 't-sip', name: 'Sip', icon: 'd', desc: 'test', category: 'civic', tier: 1, baseCost: 10, costGrowth: 1.1, upkeep: 0.05 });
+  }
+  const ramp = foundingTuning(config).marginRamp;
+  assert.ok(ramp > 0 && ramp < 1);
+  // $3/s gross, 57 sips = $2.85/s upkeep: a 5% margin, half the ramp band → half credit.
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-sip': 57 } });
+  recompute(state, derived);
+  near(derived.grossIncome, 3, 'gross');
+  near(derived.income, 0.15, 'net', 1e-6);
+  for (let i = 0; i < 10; i++) simulate(state, derived, 0.1);
+  near(state.res.money, 100.15, 'the treasury sees the net', 1e-6);
+  near(state.stats.totalEarned, 3 * (0.15 / (ramp * 3)), 'half the gross counts at half the band', 1e-6);
+  near(state.prestige.lifetimeEarned, state.stats.totalEarned, 'legacy accrues from the same figure', 1e-9);
+  // Right at the band the full gross counts; the ramp is continuous at both ends.
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-sip': 54 } }); // margin 0.30 = 10%
+  recompute(state, derived);
+  for (let i = 0; i < 10; i++) simulate(state, derived, 0.1);
+  near(state.stats.totalEarned, 3, 'a 10% margin counts the whole gross', 1e-6);
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-sip': 60 } }); // break-even
+  recompute(state, derived);
+  for (let i = 0; i < 10; i++) simulate(state, derived, 0.1);
+  near(state.stats.totalEarned, 0, 'break-even earns nothing', 1e-9);
+  // The countdown a plateau city shows stays finite across the band instead of flipping to Infinity.
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-sip': 59 } });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  const snap = prestigeSnapshot(derived);
+  assert.ok(Number.isFinite(snap.nextIn) && snap.nextIn > 0, 'a hair above break-even still counts down');
   loadState({});
 });
 

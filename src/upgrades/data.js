@@ -30,7 +30,11 @@
 //
 // The ladder has five parts:
 //   • the core ladder, $25 → $2e7: the first city's rungs, unlocked by what the city has
-//     built (shops, parks, plants …). Institutional Memory (tiers 1–2, city 3), the Grid
+//     built (shops, parks, plants …) *and* the treasury holding the price (`funded`, the
+//     hold door — see "the funded door" below) — all but four GOAL cards (Welcome Sign,
+//     Grid Substations, Regional Airport, Breeder Reactors), which open on their economy
+//     gate alone and are the far target the Upgrades panel shows while the funded rungs
+//     arrive as they can be paid for. Institutional Memory (tiers 1–2, city 3), the Grid
 //     Charter (tier 3, city 6) and Standing Orders (the Legacy rungs, city 21) grant the
 //     ladder back at every founding, so a replay starts at the decisions below;
 //   • the pace ladder (`pace: true`), nine tier-4 rungs from $90M to $344T placed one per
@@ -40,8 +44,8 @@
 //     pace rung arrives as a reward that can be funded on the spot, not a card that sits
 //     "almost affordable" for twenty minutes (measured: the greedy bot buys each pace rung
 //     for the first time when the city has earned 100–130× its price);
-//   • the frontier ladder (`frontier: true`), eight fixed-dollar rungs from $2.2B to $26Qa
-//     (Dyson Swarm … Exchange Ring), each opening once this run has earned a quarter of its
+//   • the frontier ladder (`frontier: true`), nine fixed-dollar rungs from $2.2B to $26Qa
+//     (Dyson Swarm … Helios Array … Exchange Ring), each opening once this run has earned a quarter of its
 //     price (`earnedGate: FRONTIER_GATE`). Deliberately uneven (×1.1–1,900 apart — the
 //     balance builder places them by city, see config.js): with the pace rungs hidden until
 //     they are affordable, the cheapest frontier rung is the money target the Upgrades panel
@@ -62,9 +66,9 @@
 //     (`charterUnlockFor`). A founding wipes state.upgrades, so index.js grants every owned
 //     perk back the moment a city is founded (`keptUpgradeIds` is the pure rule).
 //
-// All three self-priced gates (frontier cost/4, pace cost×100, charter cost/2) are rebuilt
-// by index.js after a config override, so a retuned price moves its gate, hint and progress
-// mirror with it.
+// All four self-priced gates (frontier cost/4, pace cost×100 or hold the price, funded core
+// rungs' hold door, charter cost/2) are rebuilt by index.js after a config override, so a
+// retuned price moves its gate, hint and progress mirror with it.
 //
 // Nothing here reads the run clock: content gates on the economy, never on elapsed time.
 //
@@ -186,7 +190,7 @@ const owns = (id) => {
 };
 const hasBuilt = (id, n) => rule((state) => count(state, id) >= n, `Build ${buildingName(id, n)}`, { building: id, count: n });
 const cash = (state) => (state && state.res && state.res.money) || 0;
-const holds = (n) => rule((state) => cash(state) >= n, `hold ${fmtMoney(n)}`);
+const holds = (n) => rule((state) => cash(state) >= n, `hold ${fmtMoney(n)}`, { money: n });
 const hasPop = (n, ms) => rule((state) => pop(state) >= n || (ms ? milestone(state, ms) : false), `Reach ${fmtInt(n)} citizens`, { pop: n });
 const hasEarned = (n, ms) =>
   rule((state) => earned(state) >= n || (ms ? milestone(state, ms) : false), `Earn ${fmtMoney(n)} in this city`, { earned: n });
@@ -230,6 +234,35 @@ const all = (...fns) => {
   return fn;
 };
 
+// ---------- the funded door: the core ladder's rungs open when they can be paid for ----------
+//
+// A core rung carries two doors and needs both: its economy gate (`gate`: "Build 15 corner
+// shops", "Reach 120 citizens" …) and the treasury holding its price. The gate is the
+// story and is met minutes before the cash is (measured: every count gate in the first
+// city opens its card at 1–17 s of income, then the card sits "almost affordable" for
+// 5–12 minutes while the bot's cash hovers at 4–6 s of income); the money door is the
+// one that opens last, so the card arrives the moment it can be funded, and the mirror
+// counts the treasury toward the price. What that buys is the first city's four GOAL
+// cards — the Welcome Sign, Grid Substations (open at 10 MW, minute 2), the Regional
+// Airport (1,000 citizens, minute 12) and Breeder Reactors (10,000 citizens, minute 28) —
+// which open on their economy gate alone: with the rungs between them hidden until
+// fundable, the cheapest open card is always a far target instead of the next reflex buy
+// (measured with the greedy bot: the cheapest open card was 30 s – 15 min of income away
+// in 0 of 41 first-city minutes before this door, 20 of 42 after it; the founding clock
+// is unchanged — 42.5 min — because every funded rung is bought the moment its cash is
+// there, exactly as before).
+// `holdUnlock` is the one place the rule lives: index.js rebuilds it after a config
+// override so the money door follows the registered price (a founded rung keeps `gate`).
+export function holdUnlock(def) {
+  const cost = def && Number.isFinite(def.cost) && def.cost > 0 ? def.cost : 0;
+  const gate = def && typeof def.gate === 'function' ? def.gate : null;
+  const hold = holds(cost);
+  const fn = gate ? all(gate, hold) : hold;
+  const hint = gate && gate.hint ? `${gate.hint}, then ${hold.hint}` : hold.hint;
+  return { unlock: fn, unlockHint: hint.charAt(0).toUpperCase() + hint.slice(1), unlockAt: { money: cost } };
+}
+const funded = (def) => ({ ...def, hold: true, ...holdUnlock(def) });
+
 // ---------- effect helpers ----------
 
 const incomeOf = (id, mult) => (mods) => {
@@ -243,6 +276,9 @@ const jobsOf = (id, mult) => (mods) => {
 };
 const powerOf = (id, mult) => (mods) => {
   buildingMod(mods, id).power *= mult;
+};
+const costOf = (id, mult) => (mods) => {
+  buildingMod(mods, id).cost *= mult;
 };
 // Flat city-wide happiness (see the header): happiness is a multiplier around 1.0 that the
 // UI shows as a percentage, so +0.1 is written "Happiness +10%" and lands exactly so.
@@ -295,7 +331,17 @@ export function earnedUnlock(def) {
   const share = def && Number.isFinite(def.earnedGate) && def.earnedGate > 0 ? def.earnedGate : FRONTIER_GATE;
   const cost = def && Number.isFinite(def.cost) && def.cost > 0 ? def.cost : 0;
   const at = cost * share;
-  const fn = def && def.pace ? any(hasEarned(at), holds(cost)) : hasEarned(at);
+  if (def && def.pace) {
+    // Both doors stay in the rule, but the card surfaces only the one that opens it in
+    // practice: the treasury holding the price (measured: every pace rung's first purchase
+    // came through the cash door). A hint that read "Earn $34.4Qa in this city or hold
+    // $344T" and a bar drawn against the earnings door read ~1 % at the moment the card
+    // became buyable, so the mirror is the price and the hint the hold.
+    const hold = holds(cost);
+    const fn = any(hasEarned(at), hold);
+    return { unlock: fn, unlockHint: hold.hint.charAt(0).toUpperCase() + hold.hint.slice(1), unlockAt: { money: cost } };
+  }
+  const fn = hasEarned(at);
   return { unlock: fn, unlockHint: fn.hint.charAt(0).toUpperCase() + fn.hint.slice(1), unlockAt: { earned: at } };
 }
 // The seam docs/DESIGN.md names (`applyOverride` → `frontierUnlock`); same function.
@@ -306,14 +352,16 @@ const pace = (def) => ({ ...def, category: def.category || 'global', tier: 4, pa
 
 // ---------- frontier ladder (fixed dollars, each opens at a quarter of its price) ----------
 //
-// Eight rungs, each a different lever. Prices are config's placement-by-city (see the
+// Nine rungs, each a different lever. Prices are config's placement-by-city (see the
 // header; cities counted from the first founding): the Dyson Swarm lands mid-city 10, the
 // Quantum Exchange in city 13, then the Mass-Driver Port (23), Ringworld District (24),
 // Stellar Engine (26), Galactic Charter (28, beside the Energy Charter), Orbital Shipyard
-// (29) and the Exchange Ring (31) carry the last four hours of a 12 h session. A rung is
-// visible from the city that earns a quarter of its price, four to eight cities before the
-// one that buys it. The Exchange Ring at $26Qa is the priciest thing in the game — a 12 h
-// bot's cash peaks at $2.8e16 — and stays two orders under the $1e18 money ceiling.
+// (29), the Helios Array (the module's own $5Qa default until config places it; between
+// the Shipyard and the Ring, where the ladder used to step ×23) and the Exchange Ring
+// (31) carry the last four hours of a 12 h session. A rung is visible from the city that
+// earns a quarter of its price, four to eight cities before the one that buys it. The
+// Exchange Ring at $26Qa is the priciest thing in the game — a 12 h bot's cash peaks at
+// $2.8e16 — and stays two orders under the $1e18 money ceiling.
 
 const FRONTIER = [
   frontier({
@@ -321,7 +369,7 @@ const FRONTIER = [
     name: 'Dyson Swarm',
     icon: '🌞',
     desc: 'All power generation ×4',
-    cost: 2.23e9,
+    cost: 2.27e9,
     category: 'power',
     effect: global('power', 4),
   }),
@@ -330,7 +378,7 @@ const FRONTIER = [
     name: 'Quantum Exchange',
     icon: '💹',
     desc: 'All income +100% · financial districts earn +100%',
-    cost: 4.5e10,
+    cost: 2.0e10,
     category: 'commercial',
     effect: compose(global('income', 2), incomeOf('financial', 2)),
   }),
@@ -339,7 +387,7 @@ const FRONTIER = [
     name: 'Mass-Driver Port',
     icon: '🚀',
     desc: 'All buildings cost −25% · industry earns +100% income',
-    cost: 5.55e13,
+    cost: 4.3e13,
     category: 'industrial',
     effect: compose(global('cost', 0.75), incomeOfEach(INDUSTRY, 2)),
   }),
@@ -348,7 +396,7 @@ const FRONTIER = [
     name: 'Ringworld District',
     icon: '🪐',
     desc: 'All housing +150% and all jobs +50%',
-    cost: 6.32e13,
+    cost: 4.88e13,
     category: 'residential',
     effect: compose(global('housing', 2.5), global('jobs', 1.5)),
   }),
@@ -357,7 +405,7 @@ const FRONTIER = [
     name: 'Stellar Engine',
     icon: '🌟',
     desc: 'Population grows +200% faster · buildings use −40% power',
-    cost: 2.43e14,
+    cost: 3.18e14,
     category: 'global',
     effect: compose(global('growth', 3), global('demand', 0.6)),
   }),
@@ -366,7 +414,7 @@ const FRONTIER = [
     name: 'Galactic Charter',
     icon: '🌌',
     desc: 'All income +100% · all buildings cost −20%',
-    cost: 4.31e14,
+    cost: 5.22e14,
     category: 'global',
     // ×2, not ×3: it is bought from the 29th city on, so it is the one income lever that
     // shapes only the session's last hour. At ×3 the 31st city completes with nothing new
@@ -378,16 +426,30 @@ const FRONTIER = [
     name: 'Orbital Shipyard',
     icon: '🛸',
     desc: 'All jobs +75% · buildings use −30% power',
-    cost: 1.12e15,
+    cost: 1.35e15,
     category: 'industrial',
     effect: compose(global('jobs', 1.75), global('demand', 0.7)),
+  }),
+  frontier({
+    id: 'helios-array',
+    name: 'Helios Array',
+    icon: '🔆',
+    desc: 'All power generation ×3 · all income +25%',
+    // The 20th late rung, between the Shipyard ($1.1Qa) and the Exchange Ring ($26Qa):
+    // that ×23 step was the ladder's widest and left the 30th–32nd cities with one new
+    // card each over 45–50 minutes (DESIGN.md names the gap). A sun-tap whose surplus is
+    // sold: the income clause is the "felt" term the balance notes ask of the late power
+    // content, so the rung can carry a city of its own once config places it.
+    cost: 2.25e15,
+    category: 'power',
+    effect: compose(global('power', 3), global('income', 1.25)),
   }),
   frontier({
     id: 'exchange-ring',
     name: 'Exchange Ring',
     icon: '💱',
     desc: 'All housing +100% · commerce provides +100% jobs',
-    cost: 2.59e16,
+    cost: 4.87e15,
     category: 'commercial',
     effect: compose(global('housing', 2), ...COMMERCE.map((id) => jobsOf(id, 2))),
   }),
@@ -396,7 +458,7 @@ const FRONTIER = [
 // ---------- charter perks (legacy-priced, permanent) ----------
 
 export const CHARTER_MIN_COST = 3;
-export const CHARTER_MAX_COST = 76488;
+export const CHARTER_MAX_COST = 195808;
 // A perk opens once the *spendable* bank (legacy − spent) holds half its price. Gating on
 // the whole bank left late perks reading "open" for two or three cities while the Sign
 // button stayed dead (measured: the Imperial Charter opened at bank 38,244 in city 27 and
@@ -478,7 +540,7 @@ const CHARTER = [
     name: 'Energy Charter',
     icon: '🔋',
     desc: 'All power generation +200% · buildings use −25% power',
-    cost: 30595,
+    cost: 48952,
     effect: compose(global('power', 3), global('demand', 0.75)),
   }),
   charter({
@@ -486,7 +548,7 @@ const CHARTER = [
     name: 'Imperial Charter',
     icon: '👑',
     desc: 'All income +200% and all buildings cost −15%',
-    cost: 76488,
+    cost: 195808,
     effect: compose(global('income', 3), global('cost', 0.85)),
   }),
 ];
@@ -534,7 +596,7 @@ export const UPGRADES = [
     unlock: hasBuilt('house', 2),
     effect: global('growth', 1.5),
   },
-  {
+  funded({
     id: 'zoning-reform',
     name: 'Zoning Reform',
     icon: '📐',
@@ -543,10 +605,10 @@ export const UPGRADES = [
     cost: 75,
     category: 'residential',
     tier: 1,
-    unlock: hasBuilt('house', 4),
+    gate: hasBuilt('house', 4),
     effect: housingOf('house', 1.25),
-  },
-  {
+  }),
+  funded({
     id: 'neon-signage',
     name: 'Neon Signage',
     icon: '💡',
@@ -554,21 +616,23 @@ export const UPGRADES = [
     cost: 80,
     category: 'commercial',
     tier: 1,
-    unlock: hasBuilt('shop', 3),
+    gate: hasBuilt('shop', 3),
     effect: incomeOf('shop', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'grant-writing',
     name: 'Grant Writing',
     icon: '✍️',
-    desc: 'All income +25%',
+    desc: 'All income +25% · parks and schools cost −25%',
     cost: 150,
     category: 'global',
     tier: 1,
-    unlock: hasAnyUpgrade(),
-    effect: global('income', 1.25),
-  },
-  {
+    gate: hasAnyUpgrade(),
+    // The civic-grant clause is what tells it apart from Tax Software, its $250 twin: the
+    // first park is the opening's happiness fix and the grant makes the next ones cheaper.
+    effect: compose(global('income', 1.25), costOf('park', 0.75), costOf('school', 0.75)),
+  }),
+  funded({
     id: 'tax-software',
     name: 'Tax Software',
     icon: '🧾',
@@ -576,10 +640,15 @@ export const UPGRADES = [
     cost: 250,
     category: 'global',
     tier: 1,
-    unlock: any(hasEarned(1000, 'money-1k'), hasPop(50)),
+    gate: any(hasEarned(1000, 'money-1k'), hasPop(50)),
+    // Kept as the plain +25%: the first city's clock is set by this minute. A business
+    // lever here (shops, offices and factories ×2 — the same +25–32 % of the gross on
+    // paper) put the first founding at 47 min, a jobs lever (+30 % jobs, +10 % income) at
+    // 45, both over the 30–45 the contract allows; Grant Writing carries the pair's
+    // distinguishing clause instead.
     effect: global('income', 1.25),
-  },
-  {
+  }),
+  funded({
     id: 'turbine-blades',
     name: 'Carbon Turbine Blades',
     icon: '🌬️',
@@ -587,13 +656,13 @@ export const UPGRADES = [
     cost: 300,
     category: 'power',
     tier: 1,
-    unlock: hasBuilt('windmill', 2),
+    gate: hasBuilt('windmill', 2),
     // Plant-specific on purpose (same for Coal Scrubbers): a city-wide floor here (+5% /
     // +10% power) eased the first city's tier-4 brownouts enough to drop the session's
     // under-power share from 3.3% to 2.5%, under the 3% the power contract asks for.
     effect: powerOf('windmill', 2),
-  },
-  {
+  }),
+  funded({
     id: 'smart-grid',
     name: 'Smart Grid',
     icon: '🔌',
@@ -605,15 +674,14 @@ export const UPGRADES = [
     // powerCap > 0 so the first cottage on an empty plot does not unlock it at t=0), a
     // sizeable windmill fleet, or 40 MW of demand — a mayor who keeps the lights on still
     // gets to buy it.
-    unlock: any(
+    gate: any(
       rule((state, derived) => milestone(state, 'brownout') || (!!derived && derived.powerCap > 0 && derived.powerRatio < 1), 'Suffer a brownout'),
       hasBuilt('windmill', 6),
       hasDemand(40)
     ),
-    unlockAt: { powerDemand: 40 },
     effect: global('demand', 0.8),
-  },
-  {
+  }),
+  funded({
     id: 'community-events',
     name: 'Community Events',
     icon: '🎪',
@@ -621,12 +689,12 @@ export const UPGRADES = [
     cost: 500,
     category: 'civic',
     tier: 1,
-    unlock: hasBuilt('park', 1),
+    gate: hasBuilt('park', 1),
     // Paired like the other civic rungs: at the h≈0.85 it unlocks at, +0.1 happiness alone
     // is ~+6% income — the growth term is what makes the first park a decision.
     effect: compose(happier(0.1), global('growth', 1.25)),
-  },
-  {
+  }),
+  funded({
     id: 'assembly-lines',
     name: 'Assembly Lines',
     icon: '⚙️',
@@ -634,10 +702,10 @@ export const UPGRADES = [
     cost: 600,
     category: 'industrial',
     tier: 1,
-    unlock: hasBuilt('factory', 3),
+    gate: hasBuilt('factory', 3),
     effect: incomeOf('factory', 1.75),
-  },
-  {
+  }),
+  funded({
     id: 'franchising',
     name: 'Franchising',
     icon: '🏪',
@@ -645,10 +713,10 @@ export const UPGRADES = [
     cost: 1200,
     category: 'commercial',
     tier: 2,
-    unlock: any(hasPop(100, 'pop-100'), hasBuilt('office', 1)),
+    gate: any(hasPop(100, 'pop-100'), hasBuilt('office', 1)),
     effect: compose(jobsOf('shop', 1.3), jobsOf('office', 1.3)),
-  },
-  {
+  }),
+  funded({
     id: 'green-belts',
     name: 'Green Belts',
     icon: '🌳',
@@ -656,10 +724,10 @@ export const UPGRADES = [
     cost: 1500,
     category: 'civic',
     tier: 2,
-    unlock: hasBuilt('park', 4),
+    gate: hasBuilt('park', 4),
     effect: compose(happier(0.05), global('growth', 1.25)),
-  },
-  {
+  }),
+  funded({
     id: 'farmers-market',
     name: 'Farmers Market',
     icon: '🥕',
@@ -667,9 +735,9 @@ export const UPGRADES = [
     cost: 3000,
     category: 'commercial',
     tier: 2,
-    unlock: hasBuilt('shop', 15),
+    gate: hasBuilt('shop', 15),
     effect: incomeOf('shop', 2),
-  },
+  }),
   {
     id: 'grid-substations',
     name: 'Grid Substations',
@@ -678,14 +746,15 @@ export const UPGRADES = [
     cost: 3500,
     category: 'power',
     tier: 2,
-    // Fills the minute-9 gap between the $1.5k and $6k rungs: opens as the coal plants
-    // take over the grid, right when the second brownout is brewing.
-    unlock: hasDemand(20),
+    // The first city's first goal card (see "the funded door"): open from the second minute, a dozen
+    // minutes of income away, and the one card on the panel until the treasury reaches
+    // it around minute 11 — the rungs in between arrive as they are funded.
+    unlock: hasDemand(10),
     effect: global('power', 1.25),
   },
 
   // ===== Mid game ($6k – $800k): minutes 10 – 35 =====
-  {
+  funded({
     id: 'high-density',
     name: 'High-Density Zoning',
     icon: '🏢',
@@ -693,10 +762,10 @@ export const UPGRADES = [
     cost: 6000,
     category: 'residential',
     tier: 2,
-    unlock: hasBuilt('apartment', 5),
+    gate: hasBuilt('apartment', 5),
     effect: housingOf('apartment', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'express-transit',
     name: 'Express Transit',
     icon: '🚇',
@@ -704,10 +773,10 @@ export const UPGRADES = [
     cost: 8000,
     category: 'global',
     tier: 2,
-    unlock: hasPop(120),
+    gate: hasPop(120),
     effect: global('growth', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'coal-scrubbers',
     name: 'Coal Scrubbers',
     icon: '🏭',
@@ -715,10 +784,10 @@ export const UPGRADES = [
     cost: 12000,
     category: 'power',
     tier: 2,
-    unlock: hasBuilt('coal', 3),
+    gate: hasBuilt('coal', 3),
     effect: powerOf('coal', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'night-shift',
     name: 'Night Shift',
     icon: '🌙',
@@ -726,10 +795,10 @@ export const UPGRADES = [
     cost: 15000,
     category: 'industrial',
     tier: 2,
-    unlock: hasBuilt('factory', 6),
+    gate: hasBuilt('factory', 6),
     effect: jobsOf('factory', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'bulk-permits',
     name: 'Bulk Permits',
     icon: '📋',
@@ -737,10 +806,10 @@ export const UPGRADES = [
     cost: 25000,
     category: 'global',
     tier: 2,
-    unlock: hasBuiltTotal(60),
+    gate: hasBuiltTotal(60),
     effect: global('cost', 0.8),
-  },
-  {
+  }),
+  funded({
     id: 'container-port',
     name: 'Container Port',
     icon: '🚢',
@@ -748,21 +817,24 @@ export const UPGRADES = [
     cost: 45000,
     category: 'industrial',
     tier: 2,
-    unlock: hasBuilt('factory', 20),
+    gate: hasBuilt('factory', 20),
     effect: compose(incomeOf('factory', 1.5), incomeOf('refinery', 1.5)),
-  },
-  {
+  }),
+  funded({
     id: 'tourism-board',
     name: 'Tourism Board',
     icon: '🗺️',
-    desc: 'All income +25%',
+    desc: 'Visitors settle: all housing +25% and all income +15%',
     cost: 50000,
     category: 'global',
     tier: 2,
-    unlock: hasPop(2000, 'pop-1k'),
-    effect: global('income', 1.25),
-  },
-  {
+    gate: hasPop(2000, 'pop-1k'),
+    // A housing card with an income clause, so it does not read as the Regional Airport's
+    // twin: at minute 24 the city is housing-bound (jobs exceed citizens), so +25 % housing
+    // is +25 % taxpayers and payroll within a minute or two — the +25 % income it replaces.
+    effect: compose(global('housing', 1.25), global('income', 1.15)),
+  }),
+  funded({
     id: 'open-plan-offices',
     name: 'Open-Plan Offices',
     icon: '💼',
@@ -770,21 +842,27 @@ export const UPGRADES = [
     cost: 60000,
     category: 'commercial',
     tier: 2,
-    unlock: hasBuilt('office', 5),
+    gate: hasBuilt('office', 5),
     effect: incomeOf('office', 1.75),
-  },
+  }),
   {
     id: 'regional-airport',
     name: 'Regional Airport',
     icon: '✈️',
     desc: 'All income +30%',
-    cost: 85000,
+    // The second goal card (see "the funded door"): $150k, not $85k, and open at the 1,000-citizen
+    // milestone (minute 12) rather than at 3,000, so it is ~2 minutes of income away when
+    // it appears and stays the far target until the treasury reaches it at ~27 min. Not
+    // dearer: the bot funds the cheapest open card first, and behind the $120k–$250k
+    // tier-3 cluster a $250k airport waited until minute 33 and cost the first city six
+    // minutes (measured: founding 48.5 min, over the 45 the contract allows).
+    cost: 120000,
     category: 'global',
-    tier: 2,
-    unlock: hasPop(3000),
+    tier: 3,
+    unlock: hasPop(1000, 'pop-1k'),
     effect: global('income', 1.3),
   },
-  {
+  funded({
     id: 'modern-curriculum',
     name: 'Modern Curriculum',
     icon: '🎓',
@@ -792,7 +870,7 @@ export const UPGRADES = [
     cost: 150000,
     category: 'civic',
     tier: 3,
-    unlock: hasBuilt('school', 3),
+    gate: hasBuilt('school', 3),
     // An educated workforce fills more desks: jobs pay wages directly, and at the 3-school
     // mark (~minute 20) unemployment is the penalty a growing city feels most. The income
     // term replaces the +10% happiness this and Preventive Care used to add (≈ +6% income
@@ -800,8 +878,8 @@ export const UPGRADES = [
     // 12 h session on the balance builder's placement — +10% ends it a city early, +6% a
     // city late, and a replay's cash spikes then miss the rungs placed at their edge.
     effect: compose(global('jobs', 1.25), global('income', 1.08)),
-  },
-  {
+  }),
+  funded({
     id: 'maintenance-contracts',
     name: 'Maintenance Contracts',
     icon: '🔧',
@@ -809,14 +887,14 @@ export const UPGRADES = [
     cost: 200000,
     category: 'global',
     tier: 3,
-    unlock: any(
-      rule((state, derived) => !!derived && derived.upkeep > 0, 'Run a building that charges upkeep'),
+    gate: any(
+      rule((state, derived) => !!derived && derived.upkeep > 0, 'Pay upkeep on a building'),
       hasBuilt('coal', 5),
       hasBuilt('solar', 1)
     ),
     effect: global('upkeep', 0.75),
-  },
-  {
+  }),
+  funded({
     id: 'welcome-center',
     name: 'Welcome Center',
     icon: '🛂',
@@ -824,10 +902,10 @@ export const UPGRADES = [
     cost: 250000,
     category: 'global',
     tier: 3,
-    unlock: hasPop(1000, 'pop-1k'),
+    gate: hasPop(1000, 'pop-1k'),
     effect: global('growth', 2),
-  },
-  {
+  }),
+  funded({
     id: 'solar-tracking',
     name: 'Sun-Tracking Arrays',
     icon: '☀️',
@@ -835,10 +913,10 @@ export const UPGRADES = [
     cost: 300000,
     category: 'power',
     tier: 3,
-    unlock: hasBuilt('solar', 3),
+    gate: hasBuilt('solar', 3),
     effect: powerOf('solar', 2),
-  },
-  {
+  }),
+  funded({
     id: 'catalytic-crackers',
     name: 'Catalytic Crackers',
     icon: '🧪',
@@ -846,10 +924,10 @@ export const UPGRADES = [
     cost: 500000,
     category: 'industrial',
     tier: 3,
-    unlock: hasBuilt('refinery', 3),
+    gate: hasBuilt('refinery', 3),
     effect: incomeOf('refinery', 2),
-  },
-  {
+  }),
+  funded({
     id: 'anchor-tenants',
     name: 'Anchor Tenants',
     icon: '🛍️',
@@ -857,12 +935,12 @@ export const UPGRADES = [
     cost: 800000,
     category: 'commercial',
     tier: 3,
-    unlock: hasBuilt('mall', 3),
+    gate: hasBuilt('mall', 3),
     effect: compose(incomeOf('mall', 2), jobsOf('mall', 1.25)),
-  },
+  }),
 
   // ===== Late game ($120k – $2e7): the first city's tier 4 and the second city =====
-  {
+  funded({
     id: 'prefab-construction',
     name: 'Prefab Construction',
     icon: '🏗️',
@@ -870,10 +948,10 @@ export const UPGRADES = [
     cost: 120000,
     category: 'global',
     tier: 3,
-    unlock: hasEarned(1e6, 'money-1m'),
+    gate: hasEarned(1e6, 'money-1m'),
     effect: global('cost', 0.8),
-  },
-  {
+  }),
+  funded({
     id: 'skyway-frames',
     name: 'Skyway Steel Frames',
     icon: '🌉',
@@ -881,10 +959,10 @@ export const UPGRADES = [
     cost: 400000,
     category: 'residential',
     tier: 3,
-    unlock: hasBuilt('tower', 10),
+    gate: hasBuilt('tower', 10),
     effect: housingOf('tower', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'digital-city-hall',
     name: 'Digital City Hall',
     icon: '🖥️',
@@ -892,10 +970,10 @@ export const UPGRADES = [
     cost: 1.3e6,
     category: 'global',
     tier: 3,
-    unlock: hasPop(10000, 'pop-10k'),
+    gate: hasPop(10000, 'pop-10k'),
     effect: global('income', 1.5),
-  },
-  {
+  }),
+  funded({
     id: 'preventive-care',
     name: 'Preventive Care',
     icon: '🩺',
@@ -903,11 +981,11 @@ export const UPGRADES = [
     cost: 4e6,
     category: 'civic',
     tier: 3,
-    unlock: hasBuilt('hospital', 2),
+    gate: hasBuilt('hospital', 2),
     // Healthy citizens draw newcomers: one honest growth term instead of a late +10%
     // happiness that was worth +3% income at the h≈1.9 this opens at.
     effect: global('growth', 1.75),
-  },
+  }),
   {
     id: 'breeder-reactors',
     name: 'Breeder Reactors',
@@ -916,7 +994,10 @@ export const UPGRADES = [
     cost: 2e7,
     category: 'power',
     tier: 4,
-    unlock: hasBuilt('nuclear', 2),
+    // The third goal card (see "the funded door"): visible from the 10,000-citizen mark (minute 28, just
+    // before the plant itself unlocks at 11,000) as the far target of the first city's
+    // last quarter hour; it is bought in the second city.
+    unlock: any(hasPop(10000, 'pop-10k'), hasBuilt('nuclear', 1)),
     effect: powerOf('nuclear', 2),
   },
 
@@ -931,7 +1012,7 @@ export const UPGRADES = [
     name: 'Championship Season',
     icon: '🏆',
     desc: 'Stadiums earn +100% income and provide +100% jobs',
-    cost: 9.04e7,
+    cost: 8.84e7,
     category: 'civic',
     effect: compose(incomeOf('stadium', 2), jobsOf('stadium', 2)),
   }),
@@ -940,7 +1021,7 @@ export const UPGRADES = [
     name: 'Robotic Assembly',
     icon: '🤖',
     desc: 'All industry earns +100% income: factories, refineries, campuses',
-    cost: 3.05e8,
+    cost: 3.0e8,
     category: 'industrial',
     effect: incomeOfEach(INDUSTRY, 2),
   }),
@@ -949,7 +1030,7 @@ export const UPGRADES = [
     name: 'AI Governance',
     icon: '🧠',
     desc: 'All income +100%',
-    cost: 1.12e9,
+    cost: 1.1e9,
     category: 'global',
     effect: global('income', 2),
   }),
@@ -958,7 +1039,7 @@ export const UPGRADES = [
     name: 'Planetary Charter',
     icon: '🌍',
     desc: 'All income +150% and population grows +100% faster',
-    cost: 7.36e9,
+    cost: 8.4e9,
     category: 'global',
     effect: compose(global('income', 2.5), global('growth', 2)),
   }),
@@ -967,7 +1048,7 @@ export const UPGRADES = [
     name: 'Megastructures',
     icon: '🏙️',
     desc: 'All housing +100%',
-    cost: 3.4e11,
+    cost: 2.78e11,
     category: 'residential',
     effect: global('housing', 2),
   }),
@@ -976,7 +1057,7 @@ export const UPGRADES = [
     name: 'Orbital Solar',
     icon: '🛰️',
     desc: 'All power generation +200%',
-    cost: 4.0e11,
+    cost: 3.21e11,
     category: 'power',
     effect: global('power', 3),
   }),
@@ -985,7 +1066,7 @@ export const UPGRADES = [
     name: 'Arcology Gardens',
     icon: '🌺',
     desc: 'Arcologies hold +100% residents and provide +50% jobs',
-    cost: 1.05e12,
+    cost: 7.65e11,
     category: 'residential',
     effect: compose(housingOf('arcology', 2), jobsOf('arcology', 1.5)),
   }),
@@ -994,7 +1075,7 @@ export const UPGRADES = [
     name: 'Algorithmic Trading',
     icon: '📈',
     desc: 'Financial districts earn +100% income',
-    cost: 2.3e12,
+    cost: 2.17e12,
     category: 'commercial',
     effect: incomeOf('financial', 2),
   }),
@@ -1003,7 +1084,7 @@ export const UPGRADES = [
     name: 'Superconductor Grid',
     icon: '🧲',
     desc: 'All buildings use −30% power',
-    cost: 3.44e14,
+    cost: 4.35e14,
     category: 'power',
     effect: global('demand', 0.7),
   }),
@@ -1080,7 +1161,7 @@ export const UPGRADES = [
     name: 'City Archives',
     icon: '📚',
     desc: 'Population grows +50% faster and all jobs +25%',
-    cost: 5.18e7,
+    cost: 5.24e7,
     category: 'prestige',
     tier: 3,
     // Lands mid-way through the fourth city (config prices it at $52M, off plateau cash):
@@ -1097,7 +1178,7 @@ export const UPGRADES = [
     name: 'Standing Orders',
     icon: '📑',
     desc: 'Tier 3 and Legacy upgrades are yours from the day a city is founded',
-    cost: 4.84e12,
+    cost: 4.03e12,
     category: 'prestige',
     tier: 4,
     unlock: all(hasLegacy(50), owns('institutional-memory')),

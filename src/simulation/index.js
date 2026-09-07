@@ -17,11 +17,9 @@
 // here in tuning.js (resolved once and shared). Per-tick allocation is the mods bag and
 // what folds into it: the byBuilding entries upgrades and the clean-air tiers create
 // (one per polluter per tick once legacy ≥ 15) and the two key arrays plus Object.keys
-// that core's sanitizeMods builds — nothing else on the tick path allocates. Measured
-// 0.009 ms average / 0.10 ms p99 / 0.30 ms max per tick in the browser (10,000-tick verify,
-// logs/gauntlet.json tickStats, 2026-09-07) and ~26k ticks/s in the 12 h Node sim including
-// the bot and the other modules' handlers (logs/sim-final.json ticksPerSec). Re-read those
-// two files rather than this line after a balance pass.
+// that core's sanitizeMods builds — nothing else on the tick path allocates (the
+// allocation test in simulation.test.mjs holds the tick under 0.05 ms; the measured
+// browser figures are logs/<tag>.json tickStats, the Node ones logs/sim-*.json ticksPerSec).
 //
 // Bookkeeping that is not part of the saved state (the pending milestone list, the brownout
 // hysteresis, the tap meter, the bank a founding started from) lives in one object per game
@@ -43,9 +41,10 @@
 // charter-perk currency), gain, can, minGain (the resolved gate), unlockAt (bar denominator;
 // Infinity when founding is out of reach this run), nextAt, mult and multAfter (the real
 // income multiplier now / after founding), startMoneyAfter, nextTierName / nextTierAt,
-// lifetimeEarned, and nextIn / unlockIn (seconds of the current gross income until the
-// next point / until founding arms; 0 once there, Infinity when out of reach — a waiting
-// target for a plateau city with no rung in sight). Do not rebuild the bar from
+// lifetimeEarned, and nextIn / unlockIn (seconds at the current earning rate — the gross
+// output a solvent city scores, earningRate() — until the next point / until founding
+// arms; 0 once there, Infinity when out of reach or in deficit — a waiting target for a
+// plateau city with no rung in sight). Do not rebuild the bar from
 // config.prestige.threshold or the bonus from legacy × incomePerLegacy: neither is the
 // formula the simulation runs.
 import { registry, registerTickHandler, registerAction } from '../core/registry.js';
@@ -81,8 +80,9 @@ import {
   requiredGain,
   availableOf,
   foundingLine,
+  peakIncomeOf,
 } from './prestige.js';
-import { economyTuning, prestigeTuning } from './tuning.js';
+import { economyTuning, prestigeTuning, foundingTuning } from './tuning.js';
 
 export {
   MILESTONES,
@@ -147,11 +147,13 @@ const GATES = [
   },
 ];
 
-// Brownout log hysteresis: enter below this ratio, clear at full power. The entry line is
-// rate-limited (a grid flickering around capacity would otherwise spam the log); the
-// recovery line is logged whenever the entry was, so a logged brownout always resolves in
-// the log. Both transitions emit 'brownout' regardless of the log cooldown.
-const BROWNOUT_ENTER = 0.95;
+// Brownout hysteresis: enter when the grid is in brownout (milestones.js isBrownout — the
+// one definition the Lights Out milestone, the 'brownout' event and the log share: a grid
+// exists and demand outruns it), clear at full power. The entry line is rate-limited (a
+// grid flickering around capacity would otherwise spam the log); the recovery line is
+// logged whenever the entry was, so a logged brownout always resolves in the log. Both
+// transitions emit 'brownout' regardless of the log cooldown, so the UI's grid warning
+// tracks every brownout the milestone or the topbar can show.
 const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
 
 // Precomputed unlock keys (registry is populated before simulation init).
@@ -313,7 +315,7 @@ function refreshDerived(state, derived) {
   const mods = foldMods(state);
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
-  prestigeStatus(state, ensurePrestigeExtra(derived), config, derived.grossIncome);
+  prestigeStatus(state, ensurePrestigeExtra(derived), config, earningRate(derived));
   return derived;
 }
 
@@ -327,12 +329,29 @@ function refreshDerived(state, derived) {
 // pinned at $0) earns nothing at all, so a deficit costs the mayor something and legacy
 // cannot be farmed by a city that is not paying its own way (docs/DESIGN.md principle 2:
 // "legacy comes from lifetime earnings"). A tap counts in full for the same reason: its
-// money reaches the treasury. The pure-net variant (max(0, income) · dt) was measured on
-// the 2026-09-07 tree and is not the rule because the frontier rungs in config.upgrades
-// are placed by the city whose earnings open them (unlock at cost/4 earned): shaving
-// upkeep off the score moved Orbital Solar from the 16th city to the 17th and left the
-// 16th with nothing new (contract: every city after the 5th introduces something). Under
-// the greedy bot the two rules read the same everywhere else (it is never in deficit).
+// money reaches the treasury. Between the two the score ramps rather than steps: the
+// gross counts in full once the net margin is marginRamp (0.1) of the gross and fades
+// linearly to nothing at break-even, so a city hovering at zero margin on an upkeep-heavy
+// grid accrues a steady trickle instead of flipping its legacy countdown between a number
+// and Infinity tick by tick. The pure-net variant (max(0, income) · dt) is not the rule
+// because the frontier rungs in config.upgrades are placed by the city whose earnings
+// open them (unlock at cost/4 earned): shaving upkeep off the score slides a rung a city
+// and leaves one with nothing new (contract: every city after the 5th introduces
+// something). The greedy bot runs well inside the full-credit band, so the ramp reads
+// the same as the step for it.
+// stats.peakIncome (per run, like peakPop) is the best net income the city has reached;
+// prestige.js sizes the next city's seed cash from it and nothing else reads it.
+// Dollars per second the city scores right now (see above): the gross output, faded over
+// the margin band. Also the rate the snapshot's nextIn / unlockIn countdowns are priced at,
+// so "next legacy point in 4 min" is what the score actually does.
+export function earningRate(derived) {
+  const income = Number.isFinite(derived.income) ? derived.income : 0;
+  const gross = Number.isFinite(derived.grossIncome) ? derived.grossIncome : 0;
+  if (!(income > 0) || !(gross > 0)) return 0;
+  const band = foundingTuning(config).marginRamp * gross;
+  return income < band ? gross * (income / band) : gross;
+}
+
 function integrate(state, derived, dt) {
   const res = state.res;
   const stats = state.stats;
@@ -342,8 +361,9 @@ function integrate(state, derived, dt) {
   let money = res.money + income * dt;
   if (!(money > 0)) money = 0;
   res.money = money;
+  if (income > 0 && !(income <= stats.peakIncome)) stats.peakIncome = income;
 
-  const earned = income > 0 && gross > 0 ? gross * dt : 0;
+  const earned = earningRate(derived) * dt;
   if (earned > 0) {
     stats.totalEarned += earned;
     state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + earned;
@@ -431,12 +451,14 @@ function checkGates(state, derived) {
   }
 }
 
-// Same "a grid must exist" predicate as the Lights Out milestone: the first cottage draws
-// power before any generator can be bought, and that is not a brownout worth a log line.
+// The same predicate as the Lights Out milestone (a grid must exist: the first cottage
+// draws power before any generator can be bought, and that is not a brownout worth a log
+// line), so the milestone toast, the log line and the 'brownout' event the UI's grid
+// warning listens for always describe the same tick.
 function watchGrid(b, state, derived) {
   const ratio = derived.powerRatio;
   if (!b.inBrownout) {
-    if (isBrownout(derived) && ratio < BROWNOUT_ENTER) {
+    if (isBrownout(derived)) {
       b.inBrownout = true;
       b.brownoutLogged = state.time - b.lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN;
       if (b.brownoutLogged) {
@@ -466,7 +488,7 @@ export function simulate(state, derived, dt) {
   // The snapshot is refreshed before the goals are checked, so the Founding Charter
   // milestone (and every gate) reads this tick's figures, not the previous tick's.
   const snap = ensurePrestigeExtra(derived);
-  prestigeStatus(state, snap, config, derived.grossIncome);
+  prestigeStatus(state, snap, config, earningRate(derived));
   if (checkMilestones(b, state, derived)) {
     // A reward latched: fold it now rather than a tick later, so what the frame renders
     // (and what a tap pays) already includes it, and refresh the snapshot's "next point
@@ -474,7 +496,7 @@ export function simulate(state, derived, dt) {
     // pre-reward figure. Rare — once per milestone per run; closed-form, no allocation.
     derived.mods = foldMods(state);
     computeDerived(state, derived, derived.mods, config);
-    prestigeStatus(state, snap, config, derived.grossIncome);
+    prestigeStatus(state, snap, config, earningRate(derived));
   }
   checkGates(state, derived);
   watchGrid(b, state, derived);

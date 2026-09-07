@@ -31,20 +31,53 @@
 // out of a meter that refills at tapRefill seconds of output per second — the ceiling on
 // sustained tap income; balance may set config.economy.tapRefill, else TAP_REFILL applies).
 // config.milestones: popIncomeBonus.
+// config.founding (balance carries seedSeconds and marginRamp; any knob it leaves out —
+// seedLegacy, tapPerFounding, tapFoundingCap — falls back to DEFAULTS.founding):
+//   seedSeconds          a founding seeds the new city with the larger of the legacy seed
+//                        (startMoney · (1 + startMoneyPerLegacy · legacy)) and this many
+//                        seconds of the old city's peak net income (stats.peakIncome), so a
+//                        replay opens partway up the ladder instead of re-buying cottages.
+//                        Bounded to [0, SEED_SECONDS_MAX] (600): at the shipped ceiling the
+//                        seed is ≤ 1e18 for any income the 12 h contract allows.
+//   seedLegacy           the window opens with the bank: a founding at L points gets
+//                        seedSeconds · min(1, L / seedLegacy) seconds (0 = the full window
+//                        from the first founding). Early replays are where balance places
+//                        the ladder against a cottage-first opening; late replays are where
+//                        the legacy seed is a fraction of a second of income.
+//                        Shipped OFF (seedSeconds 0): on the 2026-09-07 tree every window
+//                        from 3 s up (with and without the bank ramp) opens each replay with
+//                        jobs and power already bought, so the contract's "happiness dips in
+//                        ≥ 50% of cities" line reads 4–7 of ~28 (baseline 21 of 26),
+//                        under-power drops below 3%, and the late rungs slide a city. It is
+//                        a balance decision (a re-place of config.upgrades against the seeded
+//                        opening), not a simulation one; the mechanism is in place for it.
+//   tapPerFounding       every founding makes a tap worth this much more (mods.tap ×
+//   tapFoundingCap       (1 + tapPerFounding · min(prestiges, tapFoundingCap))): a felt,
+//                        scaling payoff on every founding — the seed ladder above is
+//                        bot-neutral only when it is off, this one always is (the bot taps
+//                        only while income < $1/s, and the tap meter's refill, not the tap's
+//                        value, caps sustained tap income at ×(1 + tapRefill) passive).
+//   marginRamp           earnings fade in over the first marginRamp share of the gross
+//                        margin (index.js integrate(): earned = gross · clamp(income /
+//                        (marginRamp · gross), 0, 1)); 0 restores the step rule. [0, 1].
 //
 // Legacy comes from lifetime earnings only (docs/DESIGN.md, "Late game contract", principle
 // 2). The compounding/maturity source and its knobs (compoundPerMinute, peakCarry,
 // compoundCap, ripenSeconds, legacyDiscount) and the soft-cap knobs (legacyCap,
 // legacyCapTail, legacyCapTailPower) are gone; a config that still carries them is read
-// without them. What counts as earnings is index.js integrate() (the gross output of a
-// solvent city; a deficit earns nothing). Measured pacing with the shipped config: the
-// latest 12 h log (node tools/economy-sim.mjs --ticks 432000, e.g.
-// logs/sim-polish-simulation.json) and docs/DESIGN.md "Late game contract"; the prestige.js
-// header carries a dated orientation snapshot only.
+// without them. What counts as earnings is index.js integrate(). Measured pacing: the
+// latest 12 h log (node tools/economy-sim.mjs --ticks 432000 --out logs/sim-<tag>.json,
+// `metrics` and `cycles`) and docs/DESIGN.md "Late game contract".
 import { config } from '../balance/config.js';
 
 // Hard ceiling on the payoff power (contract principle 4: p ≤ 0.6, no soft-cap machinery).
 export const LEGACY_POWER_MAX = 0.6;
+
+// Ceiling on the seed-cash window (seconds of the old city's peak income): 600 s of the
+// contract's 12 h income ceiling (~1e15/s) stays under the 1e18 money ceiling.
+export const SEED_SECONDS_MAX = 600;
+const SEED_SECONDS_DEFAULT = 0; // off: see the config.founding block above
+const SEED_LEGACY_DEFAULT = 5000;
 
 // Fallbacks: a copy of the shipped numbers in src/balance/config.js, so a missing or
 // malformed config section runs the shipped economy rather than a different one.
@@ -64,6 +97,11 @@ export const DEFAULTS = Object.freeze({
   }),
   economy: Object.freeze({ startMoney: 300, tapSeconds: 1 }),
   milestones: Object.freeze({ popIncomeBonus: 0.02 }),
+  // config.founding overrides these knob by knob (balance carries seedSeconds and marginRamp,
+  // balance.test.mjs pins them to this resolver). The seed window was swept at 0 / 3 / 5 / 10 / 15 / 20 / 30 / 60 / 120 /
+  // 300 s, with and without the bank ramp (seedLegacy 2,000 / 5,000 / 20,000), before it was
+  // shipped off (the readings are in the header block).
+  founding: Object.freeze({ seedSeconds: SEED_SECONDS_DEFAULT, seedLegacy: SEED_LEGACY_DEFAULT, marginRamp: 0.1, tapPerFounding: 0.1, tapFoundingCap: 50 }),
 });
 
 // Sustained tap ceiling: the tap meter refills this many seconds of gross output per game
@@ -75,6 +113,7 @@ export const TAP_REFILL = 2;
 const PRESTIGE_KEYS = Object.keys(DEFAULTS.prestige);
 const ECONOMY_KEYS = Object.keys(DEFAULTS.economy).concat('tapRefill');
 const MILESTONE_KEYS = Object.keys(DEFAULTS.milestones);
+const FOUNDING_KEYS = Object.keys(DEFAULTS.founding);
 
 function finite(v, fallback) {
   return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
@@ -115,6 +154,7 @@ function remember(m, src, out) {
 const prestigeMemo = memo(PRESTIGE_KEYS);
 const economyMemo = memo(ECONOMY_KEYS);
 const milestoneMemo = memo(MILESTONE_KEYS);
+const foundingMemo = memo(FOUNDING_KEYS);
 
 // Resolved prestige knobs, each bounded to a sane range. Shared object; do not mutate.
 export function prestigeTuning(cfg = config) {
@@ -152,5 +192,19 @@ export function milestoneTuning(cfg = config) {
   const D = DEFAULTS.milestones;
   return remember(milestoneMemo, m, {
     popIncomeBonus: Math.max(0, finite(m.popIncomeBonus, D.popIncomeBonus)),
+  });
+}
+
+// Seed-cash window and the earnings margin ramp (see the header). Shared object; do not mutate.
+export function foundingTuning(cfg = config) {
+  const f = section(cfg, 'founding');
+  if (!fresh(foundingMemo, f)) return foundingMemo.out;
+  const D = DEFAULTS.founding;
+  return remember(foundingMemo, f, {
+    seedSeconds: clamp(finite(f.seedSeconds, D.seedSeconds), 0, SEED_SECONDS_MAX),
+    seedLegacy: Math.max(0, finite(f.seedLegacy, D.seedLegacy)),
+    tapPerFounding: Math.max(0, finite(f.tapPerFounding, D.tapPerFounding)),
+    tapFoundingCap: Math.max(0, Math.floor(finite(f.tapFoundingCap, D.tapFoundingCap))),
+    marginRamp: clamp(finite(f.marginRamp, D.marginRamp), 0, 1),
   });
 }

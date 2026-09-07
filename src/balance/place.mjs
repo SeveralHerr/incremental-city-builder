@@ -1,6 +1,7 @@
 // Ladder placement helper. DOM-free, Node only:
 //   node src/balance/place.mjs --plan plan.json [--base "--set a=b --set c=d"] [--save N] [--out prices.json]
-// Reads a plan — an ordered list of `{ id, city, mode }` where `city` is the founding
+// Reads a plan — `{ targets, rungs }` (or a bare array of rungs): `rungs` is an ordered
+// list of `{ id, city, mode }` where `city` is the founding
 // count the rung should be bought in (city 1 is the first replay) and `mode` is `spree`
 // (bought in the city's opening spree, the first four minutes) or `mid` (bought off
 // plateau cash after the spree) — and prices the rungs one at a time in city order:
@@ -13,6 +14,9 @@
 // The result is a `--set` list for the probe plus a JSON file of `{ id: price }` so the
 // numbers can be copied into config.upgrades. Earlier cities do not depend on later
 // prices (the greedy bot never saves toward a rung it cannot afford), so one pass suffices.
+// `targets` are the safety-margin numbers the shipped ladder is held to (see targets.mjs):
+// the final line reports the placed session against them, so a placement that meets the
+// contract only by its last percent is visible before it ships.
 // `--save N` places against the saver profile instead (the probe's `--save N`: a bot that
 // saves toward a rung within N seconds of income; the sim's `--saver` is N = 30). Its reach
 // table is not the default bot's — see config.js, "Why the saver profiles have empty
@@ -23,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { loadPlan, checkTargets, formatChecks } from './targets.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, '..', '..');
@@ -31,7 +36,8 @@ const opt = (k, d) => {
   const i = args.indexOf(k);
   return i >= 0 ? args[i + 1] : d;
 };
-const PLAN = JSON.parse(fs.readFileSync(path.resolve(ROOT, opt('--plan', 'src/balance/plan.json')), 'utf-8'));
+const PLAN_FILE = path.resolve(ROOT, opt('--plan', 'src/balance/plan.json'));
+const { targets: TARGETS, rungs: PLAN } = loadPlan(PLAN_FILE);
 const BASE = (opt('--base', '') || '').split(/\s+/).filter(Boolean);
 const OUT = opt('--out', '');
 const TICKS = Number(opt('--ticks', 432000));
@@ -49,7 +55,7 @@ function run(extra = []) {
   if (SAVE > 0) sets.push('--save', String(SAVE));
   for (const [id, p] of Object.entries(prices)) sets.push('--set', `upgrades.${id}.cost=${p}`);
   const tmp = path.join(HERE, '.place-run.json');
-  const r = spawnSync(process.execPath, [path.join(HERE, 'probe.mjs'), '--ticks', String(TICKS), '--json', path.relative(ROOT, tmp), ...sets, ...extra], { cwd: ROOT, encoding: 'utf-8', timeout: 600000 });
+  const r = spawnSync(process.execPath, [path.join(HERE, 'probe.mjs'), '--ticks', String(TICKS), '--json', path.relative(ROOT, tmp), '--no-margins', ...sets, ...extra], { cwd: ROOT, encoding: 'utf-8', timeout: 600000 });
   if (!fs.existsSync(tmp)) throw new Error(`probe produced no JSON: ${r.stderr.slice(0, 500)}`);
   const report = JSON.parse(fs.readFileSync(tmp, 'utf-8'));
   fs.unlinkSync(tmp);
@@ -102,4 +108,6 @@ for (const [id, p] of Object.entries(prices)) if (p === PARK) console.log(`[plac
 console.log(`[place] result: ${Object.entries(prices).map(([id, p]) => `${id}=${p.toExponential(2)}`).join(' ')}`);
 console.log(`[place] sets: ${Object.entries(prices).map(([id, p]) => `--set upgrades.${id}.cost=${p}`).join(' ')}`);
 console.log(`[place] final: foundings=${report.foundings} maxRatio=${report.maxRatio.ratio}@${report.maxRatio.i} fails=${report.ratioFails.map((r) => `${r.i}:x${r.ratio}`).join(' ') || 'none'} emptyLate=[${report.emptyLate.join(',')}] legacy=${report.legacy} money=${report.maxMoney.toExponential(2)}`);
+const margins = checkTargets(report, TARGETS);
+if (margins.length) console.log(`[place] margins (${path.relative(ROOT, PLAN_FILE)} targets): ${formatChecks(margins)}`);
 if (OUT) fs.writeFileSync(path.resolve(ROOT, OUT), JSON.stringify(prices, null, 2));

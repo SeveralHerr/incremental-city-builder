@@ -1,6 +1,0 @@
-[sim] PASS (contract FAIL) 12h game in 9520ms (45378 t/s) money=2.39e+15 income=1.19e+15/s pop=7702305 prestiges=31 legacy=193641 (spent 127476) issues=2 errors=0
-[sim] cycles(min): 39.9 15.7 17.0 4.9 6.5 7.2 9.7 13.6 16.5 22.7 25.8 24.9 31.1 33.4 29.0 31.7 28.5 35.7 44.8 22.4 18.5 22.2 15.3 17.7 23.5 24.8 28.6 30.6 41.6 19.7 9.5
-[sim] profile=default reach=25% bigRatio=20% (next-step 7%) underPower=3.1% minRatio=0.60 happyDips=19/31 emptyLate=0
-  - [cadence] t=0 cycle 7 (13.63 min) > 1.35× cycle 6 (9.67 min)
-  - [tension] t=0 next upgrade is 30 s–15 min of income away in only 25% of samples (contract ≥ 30%; big-ratio reading 20%)
-[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-tmp-base12h.json

@@ -6,9 +6,9 @@
 // Node fallback / skippedMs handling.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { state, derived, errors, loadState, resetState, sanitize, createInitialState } from './state.js';
+import { state, derived, errors, loadState, resetState, sanitize, createInitialState, MAX_COUNT } from './state.js';
 import { registry, registerBuilding, registerUpgrade, registerTickHandler } from './registry.js';
-import { buildingCost, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
+import { buildingCost, buildingCap, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
 import { fmt, fmtMoney, fmtRate, fmtInt, fmtPct } from './format.js';
 import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from './safe.js';
 import { on, off, emit, isListenerDisabled, listenerCount } from './events.js';
@@ -66,6 +66,80 @@ test('buy("max") never fails its own affordability check; bad n rejected', () =>
   }
   state.res.money = 1e6;
   for (const bad of [0, -1, NaN, 1e12, 'lots']) assert.equal(buy('tb', bad), false, `n=${bad}`);
+});
+
+test('non-finite money or cost never buys and never writes NaN into the wallet', () => {
+  state.buildings.tb = 0;
+  for (const money of [NaN, Infinity, -Infinity]) {
+    assert.equal(maxAffordable(TB, money), 0, `maxAffordable(${money})`);
+    state.res.money = money;
+    assert.equal(buy('tb', 'max'), false, `buy max with money=${money}`);
+    assert.equal(buy('tb', 1), false, `buy 1 with money=${money}`);
+    assert.equal(state.buildings.tb, 0);
+    assert.equal(state.res.money, money); // untouched, not NaN
+  }
+  // An Infinity cost (count so high that growth^count overflows) is refused even with cash.
+  state.res.money = 1e300;
+  state.buildings.tb = 8000; // 1.15^8000 = Infinity
+  assert.equal(buildingCost(TB, 8000, 1), Infinity);
+  assert.equal(buy('tb', 1), false);
+  assert.equal(state.res.money, 1e300);
+  state.buildings.tb = 0;
+});
+
+test('maxCount caps buy() / maxAffordable() / buildings() rows; MAX_COUNT is the global ceiling', () => {
+  const TCAP = registerBuilding({ id: 'tcap', name: 'Capped', baseCost: 10, costGrowth: 1, tier: 1, maxCount: 3 });
+  assert.equal(buildingCap(TCAP), 3);
+  assert.equal(buildingCap(TB), MAX_COUNT);
+  state.buildings.tcap = 0;
+  state.res.money = 1e6;
+  assert.equal(maxAffordable(TCAP), 3);
+  assert.equal(buy('tcap', 5), false); // over the cap in one go: refused, nothing bought
+  assert.equal(state.buildings.tcap, 0);
+  assert.equal(buy('tcap', 2), true);
+  assert.equal(maxAffordable(TCAP), 1);
+  assert.equal(buy('tcap', 'max'), true);
+  assert.equal(state.buildings.tcap, 3);
+  assert.equal(maxAffordable(TCAP), 0);
+  assert.equal(buy('tcap', 1), false);
+  assert.equal(buy('tcap', 'max'), false);
+  const row = buildings().find((b) => b.id === 'tcap');
+  assert.equal(row.maxed, true);
+  assert.equal(row.affordable, false); // rich, but capped out
+  assert.equal(row.maxCount, 3);
+  assert.equal(buildings().find((b) => b.id === 'tb').maxed, false);
+  assert.equal(buildings().find((b) => b.id === 'tb').maxCount, undefined);
+  // Selling frees a slot again.
+  assert.equal(sell('tcap', 1), true);
+  assert.equal(buildings().find((b) => b.id === 'tcap').maxed, false);
+  assert.equal(maxAffordable(TCAP), 1);
+  // Growth > 1 path honours the cap too.
+  const TCAP2 = registerBuilding({ id: 'tcap2', name: 'Capped2', baseCost: 10, costGrowth: 1.5, tier: 1, maxCount: 4 });
+  state.buildings.tcap2 = 0;
+  assert.equal(maxAffordable(TCAP2), 4);
+  assert.equal(buy('tcap2', 'max'), true);
+  assert.equal(state.buildings.tcap2, 4);
+  // Bad maxCount values are rejected at registration.
+  const c = silence();
+  try {
+    for (const bad of [0, -1, 1.5, '3', NaN, Infinity]) {
+      assert.equal(registerBuilding({ id: 'tcap-bad', name: 'x', baseCost: 1, costGrowth: 1.1, maxCount: bad }), null, `maxCount=${bad}`);
+    }
+  } finally {
+    c.restore();
+  }
+  // Global ceiling: sanitize() clamps a hand-edited count, and buy() never crosses it.
+  state.buildings.tb = MAX_COUNT;
+  state.res.money = 1e300;
+  assert.equal(buy('tb', 1), false);
+  state.buildings.tb = 1e300;
+  state.buildings.tflat = MAX_COUNT + 1;
+  sanitize();
+  assert.equal(state.buildings.tb, MAX_COUNT);
+  assert.equal(state.buildings.tflat, MAX_COUNT);
+  assert.ok(Number.isFinite(buildingCost(TFLAT)));
+  state.buildings.tb = 0;
+  state.buildings.tflat = 0;
 });
 
 test('sell refunds exactly sellRefund (0.5) of the price paid and clamps to owned', () => {
@@ -179,6 +253,12 @@ test('fmt floors to the displayed precision on both sides of the 1000 boundary',
   assert.equal(fmtMoney(NaN), '$—');
   assert.equal(fmtRate(2.5), '+2.50/s');
   assert.equal(fmtRate(-3), '-3/s');
+  assert.equal(fmtRate(0), '+0/s');
+  assert.equal(fmtRate(-0.001), '+0.00/s'); // sign follows the displayed value: never an unsigned rate
+  assert.equal(fmtRate(1500, '$'), '+1.50K$/s');
+  assert.equal(fmtRate(NaN), '—'); // like fmtMoney(NaN) === '$—', never '—/s'
+  assert.equal(fmtRate(Infinity), '—');
+  assert.equal(fmtRate('12'), '—');
   assert.equal(fmtInt(1234567.9), '1.23M');
   assert.equal(fmtInt(-12.7), '-12');
 });
@@ -445,6 +525,15 @@ test('registered callbacks are guarded and the game keeps ticking around them', 
     assert.equal(bRow.broken, true);
     assert.equal(buildings().find((b) => b.id === 'tb').broken, false);
     delete state.upgrades['bad-up'];
+    // An upgrade whose UNLOCK rule dies is badged too (mirrors buildings()), not silently locked.
+    const up2 = registerUpgrade({ id: 'bad-up2', name: 'Bad unlock', cost: 1, effect: () => {}, unlock: () => { throw new Error('unlock'); } });
+    for (let i = 0; i < 3; i++) upgrades();
+    assert.equal(up2.unlock.isDisabled(), true);
+    const row2 = upgrades().find((u) => u.id === 'bad-up2');
+    assert.equal(row2.unlocked, false);
+    assert.equal(row2.broken, true);
+    assert.equal(row2.owned, false);
+    assert.equal(upgrades().filter((u) => u.broken).length, 2);
   } finally {
     registry.tickHandlers = registry.tickHandlers.filter((h) => !h.name.startsWith('core-test'));
     c.restore();

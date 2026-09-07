@@ -17,10 +17,13 @@ export const DEFAULT_CATEGORIES = [
   { id: 'civic', name: 'Civic', icon: '🏛️', color: '#c084fc' },
 ];
 
-// Upgrade-only categories (buildings never use these).
+// Upgrade-only categories (buildings never use these). Two legacy-flavoured groups exist and
+// must not look alike: 'prestige' upgrades are unlocked by legacy but paid in money each run
+// (labelled Heritage, fuchsia), while 'charter' perks are priced in legacy itself (◆, the
+// prestige pink shared with the Legacy panel). Only ◆-priced items carry --c-prestige.
 export const EXTRA_CATEGORIES = [
   { id: 'global', name: 'City-wide', icon: '🌐', color: '#38bdf8' },
-  { id: 'prestige', name: 'Legacy', icon: '🏆', color: '#f9a8d4' },
+  { id: 'prestige', name: 'Heritage', icon: '🏆', color: '#e879f9' },
   { id: 'charter', name: 'Charter', icon: '◆', color: '#f9a8d4' },
   { id: 'general', name: 'General', icon: '🔧', color: '#94a3b8' },
 ];

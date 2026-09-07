@@ -36,8 +36,11 @@
 // 2). The compounding/maturity source and its knobs (compoundPerMinute, peakCarry,
 // compoundCap, ripenSeconds, legacyDiscount) and the soft-cap knobs (legacyCap,
 // legacyCapTail, legacyCapTailPower) are gone; a config that still carries them is read
-// without them. Measured pacing with the shipped config: see the header of prestige.js and
-// logs/sim-fix-simulation-12h.json (node tools/economy-sim.mjs --ticks 432000).
+// without them. What counts as earnings is index.js integrate() (the gross output of a
+// solvent city; a deficit earns nothing). Measured pacing with the shipped config: the
+// latest 12 h log (node tools/economy-sim.mjs --ticks 432000, e.g.
+// logs/sim-polish-simulation.json) and docs/DESIGN.md "Late game contract"; the prestige.js
+// header carries a dated orientation snapshot only.
 import { config } from '../balance/config.js';
 
 // Hard ceiling on the payoff power (contract principle 4: p ≤ 0.6, no soft-cap machinery).

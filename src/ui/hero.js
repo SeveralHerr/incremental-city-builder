@@ -1,6 +1,6 @@
 // Hero column: clickable city view (skyline + tap particles), next-milestone card,
 // prestige card (gated by panel:prestige), city stats card (gated by panel:stats).
-import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtTime, fmtInt, reducedMotion } from './dom.js';
+import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtTime, fmtInt, prefersReducedMotion } from './dom.js';
 import { createSkyline } from './skyline.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { tierTitle, nextTier } from './content.js';
@@ -37,7 +37,7 @@ export function createHero(ui) {
     const gained = game.state.res.money - before;
     if (r === undefined && gained <= 0) return; // simulation not loaded yet
     if (gained > 0) spawnParticle(clientX, clientY, '+' + money(gained));
-    if (!reducedMotion) {
+    if (!prefersReducedMotion()) {
       cityView.classList.remove('is-tapped');
       void cityView.offsetWidth; // restart animation
       cityView.classList.add('is-tapped');
@@ -73,7 +73,7 @@ export function createHero(ui) {
       p.remove();
     };
     p.addEventListener('animationend', finish, { once: true });
-    setTimeout(finish, reducedMotion ? 500 : 1100);
+    setTimeout(finish, prefersReducedMotion() ? 500 : 1100);
   }
 
   // ---- Next milestone ----
@@ -153,7 +153,9 @@ export function createHero(ui) {
   const statsPanel = h('section.panel.panel-stats', { hidden: true }, [
     h('div.panel-head', [h('h2.panel-title', { text: 'City stats' })]),
     h('div.stat-grid.stat-grid-2', [
-      statRow('employed', 'Employed'),
+      // 'Jobs filled' (employed / jobs): a full tile next to a high unemployment figure means
+      // the city has more workers than jobs, which 'Employed 45 / 45' used to contradict.
+      statRow('employed', 'Jobs filled'),
       statRow('unemployment', 'Unemployment'),
       statRow('tax', 'Tax revenue'),
       statRow('wages', 'Wages & trade'),
@@ -165,7 +167,9 @@ export function createHero(ui) {
     ]),
   ]);
 
-  const el = h('section.col.col-hero', [h('section.panel.panel-city', [cityView]), nextPanel, prestigePanel, statsPanel]);
+  // The city panel is exposed so the toast overlay can mount inside it (see index.js).
+  const cityPanel = h('section.panel.panel-city', [cityView]);
+  const el = h('section.col.col-hero', [cityPanel, nextPanel, prestigePanel, statsPanel]);
 
   // Called on rebuild frames only (buy/sell/prestige/load/offline events + safety net).
   function setBuildings(list) {
@@ -188,7 +192,7 @@ export function createHero(ui) {
       setClass(hint, 'is-done', clicks >= HINT_TAPS);
       if (clicks >= HINT_TAPS) {
         hintHidden = true;
-        setTimeout(() => setHidden(hint, hintHidden), reducedMotion ? 0 : 650);
+        setTimeout(() => setHidden(hint, hintHidden), prefersReducedMotion() ? 0 : 650);
       }
     } else if (clicks < HINT_TAPS) {
       // A fresh plot after a hard reset brings the pill back.
@@ -305,12 +309,15 @@ export function createHero(ui) {
       setText(statEls.tax, Number.isFinite(br.tax) ? '$' + short(br.tax) + '/s' : '—');
       setText(statEls.wages, Number.isFinite(br.wages) ? '$' + short(br.wages) + '/s' : '—');
       setText(statEls.buildingIncome, Number.isFinite(br.buildings) ? '$' + short(br.buildings) + '/s' : '—');
-      setText(statEls.upkeep, Number.isFinite(br.upkeep) ? '-$' + short(br.upkeep) + '/s' : d.upkeep ? '-$' + short(d.upkeep) + '/s' : '$0/s');
+      // Zero upkeep prints '$0/s', never '-$0/s' (a negative sign on nothing reads like a bug).
+      const upkeep = Number.isFinite(br.upkeep) ? br.upkeep : Number.isFinite(d.upkeep) ? d.upkeep : 0;
+      setText(statEls.upkeep, upkeep > 0 ? '-$' + short(upkeep) + '/s' : '$0/s');
+      setAttr(statTiles.employed, 'title', jobs > 0 ? `${num(emp)} of ${num(jobs)} jobs are filled` : 'No jobs yet — build shops or factories');
       setText(statEls.totalEarned, money(s.stats.totalEarned || 0));
       setText(statEls.peakPop, fmtInt(s.stats.peakPop || 0));
       setText(statEls.built, fmtInt(s.stats.buildingsBuilt || 0));
     }
   }
 
-  return { el, update, rebuild, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
+  return { el, cityPanel, update, rebuild, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
 }

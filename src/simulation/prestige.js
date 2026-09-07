@@ -17,42 +17,43 @@
 // lowers it, and a founding keeps `spent` along with the rest of state.prestige.
 //
 // The payoff is a root of the linear term (legacyPower ≤ 0.6, no soft cap, no tail): the
-// marginal point keeps its relative worth, and a million-point bank at the shipped k = 0.01,
-// p = 0.6 is ×251 (×309 with the first bonus) — bounded by construction, so twelve-hour
-// money stays inside a double's comfortable range (principle 4: money ≤ 1e18, legacy ≤ 1e6).
-// The one-off first bonus makes the very first founding a jump a player can feel; the
-// legacy tiers in milestones.js (5 … 1M points, ×2.5–3.3 apart) give every later founding a
-// target in sight.
+// marginal point keeps its relative worth, and a million-point bank is bounded by
+// construction — ×251 at the ceiling p = 0.6 with the shipped k = 0.01, ×156 (×184 with
+// the first bonus) at the shipped p — so twelve-hour money stays inside a double's
+// comfortable range (principle 4: money ≤ 1e18, legacy ≤ 1e6). The one-off first bonus
+// makes the very first founding a jump a player can feel; the legacy tiers in
+// milestones.js (5 … 1M points, ×2.5–3.3 apart) give every later founding a target in sight.
 //
-// Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out
-// logs/sim-fix-simulation-12h.json`, 2026-09-07 10:00, shipped knobs: threshold $11M,
-// exponent 0.488, k 0.01, p 0.548, firstBonus 0.18, startMoneyPerLegacy 1, minGainShare
-// 0.4): the Legacy panel opens at $1.1M earned (~12 min), the Found button arms at $11M
-// (~20 min), the bot holds out for 5 points and founds at 43.2 min; the seed cash of a
-// bank then makes the replays quick — 10.7 → 9.5 → 4.2 → 5.7 → 7.4 → 10.1 → 14.0 → 16.5 →
-// 21.4 → 27.9 … a 17–39 minute plateau from the 11th founding (39.3 min at most, the
-// 18th), the 31st city founded with 14 min to spare — 31 foundings in 12 h, legacy
-// 193,426 (127,476 spent on charter perks, the Imperial Charter signed in the 31st city),
-// money peak 3.2e16, income 8.7e14/s at the end, zero overflow/stall/magnitude issues, 0
-// errors, contract PASS. The same tree with the saver profile (`--saver`): 34 foundings,
-// legacy 531,027, money peak 5.6e15 — inside the 1e6 / 1e18 contract. Cycle ratios: every
-// city from the 9th on is ≤ 1.32 the previous one with no slack (the tool allows +0.5
-// min); the 7th and 8th cities read 1.36 / 1.39 on this tree because the 8th opens by
-// spending its seed cash on an upgrade at t = 0 (44 citizens at minute one against 13k in
-// the 7th) — the seed-cash knob and the rung prices are balance's, and the same tree with
-// startMoneyPerLegacy 0.05 read 1.29 / 1.27 there. Re-measure after a balance pass.
+// What counts as earnings: the gross output of a solvent city (index.js integrate() — a
+// city in upkeep deficit earns nothing; a tap counts in full). Nothing else feeds
+// lifetimeEarned.
+//
+// Shipped knobs (simulation.test.mjs asserts this line against src/balance/config.js, so
+// it cannot drift): threshold 1.1e7, exponent 0.488, incomePerLegacy 0.01, legacyPower
+// 0.548, firstBonus 0.18, startMoneyPerLegacy 1, minGain 1, minGainShare 0.4,
+// prestigePanelShare 0.1.
+//
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
 // means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
-// while the bonus grows only ×1.4^0.57 = ×1.21 per founding, so a city with nothing new
+// while the bonus grows only ×1.4^0.548 = ×1.20 per founding, so a city with nothing new
 // is ~×1.35 longer than the one before it. Two things keep the plateau flat: the late
-// ladder (one rung or perk per city, placed by balance) and the founding / legacy tiers in
-// milestones.js, which land a +5% income rung exactly in the cities that were ×1.37–1.40
-// the previous one (Seasoned Council in the 7th, the Millennium Bank in the 17th,
-// Founders' Row in the 25th) with the same 5% taken from the city before, so every ratio
-// falls under 1.35 and no later city is faster than it was. A same-tree sweep of
-// minGainShare (0.35 / 0.3 / 0.25 → 34 / 39 / 48 foundings, max ratio 1.33 / 1.34 / 1.30)
-// showed the prestige knobs set the cadence and not the purchase tension (that reading
-// is the rung prices in config.upgrades against the plateau income, see docs/DESIGN.md).
+// ladder (one rung or perk per city, placed by balance in config.upgrades) and the
+// founding / legacy tiers in milestones.js, which land a +5% income rung in the cities
+// that would otherwise run long (see the ladder comment there). A same-tree sweep of
+// minGainShare (0.35 / 0.3 / 0.25 → more, faster foundings, same max ratio) showed the
+// prestige knobs set the cadence and not the purchase tension, which is the rung prices
+// against the plateau income (docs/DESIGN.md, "Late game contract").
+//
+// Measured numbers live in the logs, not here — read the latest 12 h run (`node
+// tools/economy-sim.mjs --ticks 432000 --out logs/<tag>.json`, `metrics` and `cycles`)
+// and docs/DESIGN.md "Late game contract" after any balance pass. Snapshot for
+// orientation only (logs/sim-polish-simulation.json, 2026-09-07, greedy bot): the Legacy
+// panel opens at $1.1M earned and the Found button arms at $11M; the bot holds out for 5
+// points and founds at 43.4 min, then 12.2 → 11.0 → 6.9 → 6.3 → 8.2 → 11.0 → 14.5 …; 32
+// foundings in 12 h, every cycle ≤ ×1.35 the previous (max 1.346, cycle 19), last cycle
+// 23.4 min (three mid-session cycles run 45–50 min); legacy 271,118 (127,476 spent, the
+// Imperial Charter signed), money peak 2.8e16, income 8.4e14/s; under-power 3.5%, floor
+// 0.60; happiness dips in 22/32 cities; 0 issues, 0 errors, contract PASS.
 import { config } from '../balance/config.js';
 import { resetState, addLog } from '../core/state.js';
 import { emit } from '../core/events.js';

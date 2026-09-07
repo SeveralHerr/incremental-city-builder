@@ -91,13 +91,25 @@ export function setDisabled(el, disabled) {
   if (el && el.disabled !== !!disabled) el.disabled = !!disabled;
 }
 
-export const reducedMotion = (() => {
+// Live "prefers-reduced-motion" flag. Backed by a matchMedia query that tracks OS changes, so
+// toggling the setting mid-session takes effect at the next tween/particle/toast instead of at
+// the next reload. Callers read it at use time: `if (prefersReducedMotion()) ...`.
+const motionQuery = (() => {
   try {
-    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
   } catch {
-    return false;
+    return null;
   }
 })();
+let reduced = !!(motionQuery && motionQuery.matches);
+if (motionQuery) {
+  const onChange = (e) => (reduced = !!e.matches);
+  if (typeof motionQuery.addEventListener === 'function') motionQuery.addEventListener('change', onChange);
+  else if (typeof motionQuery.addListener === 'function') motionQuery.addListener(onChange);
+}
+export function prefersReducedMotion() {
+  return reduced;
+}
 
 // Smoothly approach a target. Rises are eased (satisfying counter roll); drops snap
 // (a purchase should visibly cost money at once). Large jumps snap so the display never lags
@@ -110,7 +122,7 @@ export function tween(initial = 0) {
       if (!Number.isFinite(target)) target = 0;
       t.target = target;
       const v = t.value;
-      if (reducedMotion || target < v || dt <= 0 || dt > 0.25) {
+      if (reduced || target < v || dt <= 0 || dt > 0.25) {
         t.value = target;
         return target;
       }

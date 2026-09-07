@@ -181,6 +181,15 @@ test('charter category is registered for the UI', () => {
   assert.equal(c.color, '#f9a8d4');
 });
 
+test('money-priced legacy upgrades are labelled Heritage, distinct from ◆-priced Charter perks', () => {
+  const heritage = EXTRA_CATEGORIES.find((x) => x.id === 'prestige');
+  const charter = EXTRA_CATEGORIES.find((x) => x.id === 'charter');
+  assert.ok(heritage && charter);
+  assert.equal(heritage.name, 'Heritage');
+  assert.notEqual(heritage.name, charter.name, 'two panels must not both say Legacy/Charter');
+  assert.notEqual(heritage.color, charter.color, 'only ◆-priced items carry the prestige pink');
+});
+
 test('tier titles and mood words', () => {
   assert.equal(tierTitle(0), 'Hamlet');
   assert.equal(tierTitle(50), 'Village');

@@ -10,8 +10,9 @@
 // (pop-100, pop-1k, pop-10k, pop-100k, money-1k, money-100k, money-1m, money-1b, brownout,
 // first-upgrade, buildings-100, prestige-1). `metric` + `target` (and `progress`) feed the
 // UI's progress bars. Metrics: pop, totalEarned, buildings, upgrades, brownout, founding,
-// prestiges, legacy, clicks (lifetime taps — the tap ladder scales mods.tap). Listed in roughly the order a growing city reaches them, because the
-// UI shows the first few unreached entries as "next".
+// prestiges, legacy, clicks (lifetime taps — the tap ladder scales mods.tap). Listed in
+// roughly the order a growing city reaches them, because the UI shows the first few
+// unreached entries as "next".
 import { registry } from '../core/registry.js';
 import { buildingMod } from '../core/mods.js';
 import { milestoneTuning, prestigeTuning } from './tuning.js';
@@ -317,21 +318,17 @@ export const MILESTONES = [
   // seed spree can pay for it, and a few percent of income either way slides a rung a
   // city and leaves a founding with nothing new. So every income rung here is placed by
   // the city it lands in, and moving one is a trade with its neighbour, never a net
-  // change: Seven Skylines (+10%) and the Century Bank (+5%) exist because the 8th and
-  // 10th cities were ×1.41 / ×1.38 the previous one (contract: ≤ ×1.35); Serial Founder
-  // gives half its +10% to Seasoned Council one city later because the 7th city was
-  // ×1.38–1.40 the 6th; the Millennium Bank (+5%, lands in the 17th city at the bot's
-  // 1,239-point bank) takes its 5% from the Trillion Club (which the 13th city crosses)
-  // because the 17th was ×1.37 the 16th; Founders' Row adds +5% (the 25th city, ×1.35)
-  // taken from the Quadrillionaire rung (the 23rd). Founding Dynasty pays in growth, not
-  // income, so the product of the permanent income rewards by the 10th founding stays
-  // ×1.27 (×1.05 · ×1.05 · ×1.1 · ×1.05) and every later city keeps its placement. The
-  // test suite pins that product: change it together with the placement table in
-  // config.js. Measured 2026-09-07 (logs/sim-fix-simulation-12h.json): the three trades
-  // took the 7th / 17th / 25th cities from ×1.38 / ×1.37 / ×1.35 the previous one to
-  // ×1.29 / ×1.31 / ×1.30 with the rest of the session unchanged (30 foundings both
-  // ways); the seed-cash retune that followed (startMoneyPerLegacy 1) reads 1.36 / 1.39
-  // at the 7th and 8th cities for reasons of its own (see the prestige.js header).
+  // change. Three such trades are in the list: Serial Founder gives half its +10% to
+  // Seasoned Council one city later; the Millennium Bank's +5% is taken from the Trillion
+  // Club; Founders' Row's +5% is taken from the Quadrillionaire rung — each landed a +5%
+  // in a city that was running past ×1.35 the previous one and left every product past
+  // it unchanged. Founding Dynasty pays in growth, not income, so the product of the
+  // permanent income rewards by the 10th founding stays ×1.27 (×1.05 · ×1.05 · ×1.1 ·
+  // ×1.05) and every later city keeps its placement. simulation.test.mjs pins that
+  // product and each trade's sum: change them together with the placement table in
+  // config.js. Which cities the trades land in and what the ratios read on the current
+  // tree are measurements, not code — see the latest 12 h log (`metrics.cycles`) and
+  // docs/DESIGN.md "Late game contract", never a number in this file.
   legacyMilestone('legacy-5', 5, 'Old Hands', '🧭', 'Bank five legacy points.', 'All buildings cost −5%', costReward(0.95)),
   buildMilestone('buildings-1k', 1000, 'Thousand Rooftops', '🏘️', 'Raise a thousand structures.', '+5% income', incomeReward(1.05)),
   prestigeMilestone('prestige-5', 5, 'Serial Founder', '🏁', 'Found five cities.', '+5% income', incomeReward(1.05)),

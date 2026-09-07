@@ -1,5 +1,5 @@
 // Build panel: category tabs + building cards with buy ×1 / ×10 / ×max / sell modes.
-import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, reducedMotion } from './dom.js';
+import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, prefersReducedMotion } from './dom.js';
 import { CATEGORY_GATES } from './content.js';
 
 const MODES = [
@@ -15,7 +15,8 @@ export function createBuildPanel(ui) {
   let activeCat = null;
   let rows = [];
   const cards = new Map(); // building id -> card
-  const lockedCards = new Map(); // category id -> { el, forId, name, hint }
+  const lockedCards = new Map(); // `${category}:${slot}` -> { el, cat, forId, name, hint } (two teasers per category)
+  const LOCKED_TEASERS = 2; // locked teasers per category: the next two buildings the planners are sketching
   const tabs = new Map(); // category id -> { el, dot, count }
   const seenCats = new Set();
   let firstBuild = true;
@@ -99,7 +100,7 @@ export function createBuildPanel(ui) {
       if (on) t.el.classList.remove('is-new');
     }
     for (const c of cards.values()) setHidden(c.el, c.def.category !== catId);
-    for (const [cid, lc] of lockedCards) setHidden(lc.el, cid !== catId);
+    for (const lc of lockedCards.values()) setHidden(lc.el, lc.cat !== catId);
     updateCards(true);
   }
 
@@ -159,6 +160,11 @@ export function createBuildPanel(ui) {
     // Signature mechanic (tier-3/4 buildings): one subtle line under the stats.
     const synergyText = def.synergy && typeof def.synergy.text === 'string' ? def.synergy.text.trim() : '';
     const synergy = synergyText ? h('div.bcard-synergy', { title: synergyText }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: synergyText })]) : null;
+    // Power hint (buildings module stamps `powerHint` on every consumer that draws at least a
+    // windmill's worth): "Draws 10,500 MW ≈ 0.9 × Nuclear Plant", so a tier-4 card says which
+    // plant it needs before the grid browns out.
+    const powerText = typeof def.powerHint === 'string' ? def.powerHint.trim() : '';
+    const powerLine = powerText ? h('div.bcard-power', { title: powerText }, [h('span.bcard-power-mark', { text: '⚡', 'aria-hidden': 'true' }), h('span', { text: powerText })]) : null;
     const elc = h(`article.bcard.cat-${def.category}`, { dataset: { id: def.id } }, [
       h('div.bcard-icon', { text: def.icon || '🏢', 'aria-hidden': 'true' }),
       h('div.bcard-main', [
@@ -166,6 +172,7 @@ export function createBuildPanel(ui) {
         h('div.bcard-desc', { text: def.desc || '', title: def.desc || null }),
         statsEl,
         synergy,
+        powerLine,
         total,
       ]),
       h('div.bcard-buy', [btn, bar]),
@@ -175,7 +182,7 @@ export function createBuildPanel(ui) {
       let ok = false;
       if (mode === 'sell') ok = game.api.sell(def.id, 1);
       else ok = game.api.buy(def.id, mode === 'max' ? 'max' : mode);
-      if (ok && !reducedMotion) {
+      if (ok && !prefersReducedMotion()) {
         count.classList.remove('bump');
         void count.offsetWidth;
         count.classList.add('bump');
@@ -191,25 +198,27 @@ export function createBuildPanel(ui) {
     return c;
   }
 
-  function lockedCard(catId, def) {
-    let lc = lockedCards.get(catId);
+  function lockedCard(catId, def, slot = 0) {
+    const key = catId + ':' + slot;
+    let lc = lockedCards.get(key);
     if (!lc) {
       const name = h('span.bcard-name', { text: '' });
       const hint = h('div.bcard-desc', { text: '' });
       const fill = h('div.progress-fill');
       const bar = h('div.progress.progress-xs.unlock-bar', { 'aria-hidden': 'true' }, [fill]);
       const meta = h('span.unlock-meta.mono', { text: '' });
-      const elc = h('article.bcard.is-locked', { 'aria-label': 'Locked building' }, [
+      // The second teaser sits further off and reads dimmer (.is-far).
+      const elc = h(`article.bcard.is-locked${slot > 0 ? '.is-far' : ''}`, { 'aria-label': 'Locked building' }, [
         h('div.bcard-icon', { text: '?', 'aria-hidden': 'true' }),
         h('div.bcard-main', [h('div.bcard-row', [name, h('span.bcard-lock', [icon('lock')]), meta]), hint, bar]),
       ]);
-      lc = { el: elc, name, hint, fill, bar, meta, forId: null, def: null };
-      lockedCards.set(catId, lc);
+      lc = { el: elc, cat: catId, slot, name, hint, fill, bar, meta, forId: null, def: null };
+      lockedCards.set(key, lc);
     }
     if (lc.forId !== def.id) {
       lc.forId = def.id;
       lc.def = def;
-      setText(lc.name, 'Undiscovered ' + content.category(catId).name.toLowerCase() + ' building');
+      setText(lc.name, (lc.slot > 0 ? 'Another undiscovered ' : 'Undiscovered ') + content.category(catId).name.toLowerCase() + ' building');
       setText(lc.hint, unlockHint(def));
     }
     return lc;
@@ -263,6 +272,21 @@ export function createBuildPanel(ui) {
     let cost = row.cost;
     let label = 'Buy';
     let enabled;
+    // A capped-out building (core: row.maxed, def.maxCount — the windmill retires at 12) is
+    // not for sale: the button reads "Retired 12/12 built" instead of a greyed price.
+    const maxed = mode !== 'sell' && row.maxed === true;
+    setClass(c.el, 'is-maxed', maxed);
+    if (maxed) {
+      const cap = Number.isInteger(row.maxCount) ? row.maxCount : row.count;
+      setText(c.btnLabel, 'Retired');
+      setText(c.btnCost, `${num(row.count)}/${num(cap)} built`);
+      setAttr(c.btn, 'aria-label', `${def.name} retired: ${num(row.count)} of ${num(cap)} built`);
+      setDisabled(c.btn, true);
+      setClass(c.el, 'is-affordable', false);
+      setProgress(c.fill, 1);
+      updateTotals(c, row, mods);
+      return;
+    }
     if (mode === 'sell') {
       n = 1;
       enabled = row.count > 0;
@@ -287,11 +311,17 @@ export function createBuildPanel(ui) {
     }
     setText(c.btnLabel, label);
     setText(c.btnCost, mode === 'sell' ? (enabled ? '+' + money(cost) : 'none owned') : money(cost));
+    // Screen readers hear the building, not just 'Buy $218': "Buy ×10 Cottage for $2,180".
+    setAttr(c.btn, 'aria-label', mode === 'sell' ? (enabled ? `Sell ${def.name} for ${money(cost)}` : `Sell ${def.name}: none owned`) : `${label} ${def.name} for ${money(cost)}`);
     setDisabled(c.btn, !enabled);
     setClass(c.el, 'is-affordable', enabled && mode !== 'sell');
     setProgress(c.fill, mode === 'sell' ? (enabled ? 1 : 0) : cost > 0 ? Math.min(1, s.res.money / cost) : 1);
+    updateTotals(c, row, mods);
+  }
 
-    // Totals line: what this stack contributes right now.
+  // Totals line: what this stack contributes right now.
+  function updateTotals(c, row, mods) {
+    const def = c.def;
     if (row.count > 0) {
       const parts = [];
       const hs = effectiveStat(def, 'housing', mods) * row.count;
@@ -381,7 +411,8 @@ export function createBuildPanel(ui) {
     reconcile(tabBar, wantedTabs);
     if (!activeCat || !visibleCats.includes(activeCat)) activeCat = visibleCats[0];
 
-    // Cards: unlocked ones per category in registry order, then one locked teaser.
+    // Cards: unlocked ones per category in registry order, then up to two locked teasers so
+    // the early-game column does not sit half empty while the sidebar overflows.
     const wantedCards = [];
     for (const catId of visibleCats) {
       const items = byCat.get(catId) || [];
@@ -391,9 +422,12 @@ export function createBuildPanel(ui) {
         c.row = r;
         wantedCards.push(c.el);
       }
-      const nextLocked = items.find((r) => !r.unlocked);
-      if (nextLocked) wantedCards.push(lockedCard(catId, nextLocked).el);
-      else if (lockedCards.has(catId)) lockedCards.get(catId).el.remove();
+      const nextLocked = items.filter((r) => !r.unlocked).slice(0, LOCKED_TEASERS);
+      nextLocked.forEach((r, i) => wantedCards.push(lockedCard(catId, r, i).el));
+      for (let i = nextLocked.length; i < LOCKED_TEASERS; i++) {
+        const stale = lockedCards.get(catId + ':' + i);
+        if (stale) stale.el.remove();
+      }
     }
     reconcile(list, wantedCards);
     firstBuild = false;

@@ -1,10 +1,11 @@
-// Toasts: milestone / offline / prestige / unlock notices. The host is a zero-height flex item
-// that sticks to the bottom edge of the column it is mounted in (the hero column), so toasts
-// stack upward over the city stats and never over the build column's Buy buttons. Two at most,
-// compact padding, newest at the bottom. Each toast carries a thin timer bar that drains over
-// its lifetime; hovering pauses it.
+// Toasts: milestone / offline / prestige / unlock notices. The host is a zero-height overlay
+// pinned to the top of the panel it is mounted in (the city panel), so toasts stack downward
+// over the skyline — a large, forgiving tap target — and never over the Legacy panel's 'Found a
+// new city' / 'Sign' buttons, the build column's Buy buttons or the sidebar, at any scroll
+// position. Two at most, compact padding, newest at the bottom. Each toast carries a thin timer
+// bar that drains over its lifetime; hovering pauses it.
 // Public shape: createToasts(parent) -> { el, show({ title, body, icon, kind, timeout }), clear(), count() }
-import { h, reducedMotion } from './dom.js';
+import { h, prefersReducedMotion } from './dom.js';
 
 export const MAX_VISIBLE = 2;
 const DEDUPE_MS = 1500; // identical title within this window is folded into the existing toast
@@ -62,7 +63,7 @@ export function createToasts(parent) {
   function dismiss(el, immediate = false) {
     if (!el || !el.isConnected) return;
     if (typeof el.__timer === 'function') el.__timer();
-    if (reducedMotion || immediate) return el.remove();
+    if (prefersReducedMotion() || immediate) return el.remove();
     el.classList.add('is-leaving');
     let done = false;
     const finish = () => {

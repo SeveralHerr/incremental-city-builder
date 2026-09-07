@@ -1,10 +1,15 @@
 // Public game API (used by UI, bot, tools). Pure logic; DOM-free.
-import { state, derived, addLog } from './state.js';
+import { state, derived, addLog, MAX_COUNT } from './state.js';
 import { registry, getBuilding, getUpgrade } from './registry.js';
 import { emit } from './events.js';
 import { step } from './loop.js';
 
-const MAX_COUNT = 1e9;
+// Most units of `def` a player may own: the def's optional `maxCount` (e.g. a windmill whose
+// ×2 cost curve turns it into a trap past a dozen), else the global MAX_COUNT ceiling.
+export function buildingCap(def) {
+  const m = def.maxCount;
+  return Number.isInteger(m) && m >= 1 ? Math.min(m, MAX_COUNT) : MAX_COUNT;
+}
 
 export function buildingCost(def, count = state.buildings[def.id] || 0, n = 1) {
   const g = def.costGrowth;
@@ -16,22 +21,28 @@ export function buildingCost(def, count = state.buildings[def.id] || 0, n = 1) {
   return sum * mult;
 }
 
-// Max affordable count for a building with current money.
+// Max affordable count for a building with current money, never past the def's cap
+// (maxCount / MAX_COUNT) and never more than 10,000 per call. Non-finite money (NaN, or an
+// Infinity that sanitize() has not clamped yet) buys nothing: the closed form would return
+// 10,000 units whose Infinity cost passes `Infinity >= Infinity` and leaves NaN in the wallet.
 export function maxAffordable(def, money = state.res.money) {
+  if (!Number.isFinite(money)) return 0;
   const count = state.buildings[def.id] || 0;
+  const limit = Math.min(10000, buildingCap(def) - count);
+  if (limit <= 0) return 0;
   const g = def.costGrowth;
   const mult = (derived.costMult || 1) * (derived.mods?.byBuilding?.[def.id]?.cost ?? 1);
   const first = def.baseCost * Math.pow(g, count) * mult;
   if (first > money) return 0;
-  if (g === 1) return Math.floor(money / first);
+  if (g === 1) return Math.min(limit, Math.floor(money / first));
   let n = Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
-  n = Math.max(0, Math.min(n, 10000));
+  n = Math.max(0, Math.min(n, limit));
   // The closed form can land one off in either direction when money sits within float error
   // of an exact n-purchase total (log/pow round differently from the series sum): walk back so
   // buy(id, 'max') never fails its own affordability check, and walk forward so an exact total
   // buys every unit it pays for.
   while (n > 0 && buildingCost(def, count, n) > money) n--;
-  while (n < 10000 && buildingCost(def, count, n + 1) <= money) n++;
+  while (n < limit && buildingCost(def, count, n + 1) <= money) n++;
   return n;
 }
 
@@ -85,11 +96,16 @@ export function buildings() {
     const def = registry.buildings.get(id);
     const count = state.buildings[id] || 0;
     const cost = buildingCost(def, count, 1);
+    const cap = buildingCap(def);
+    const maxed = count >= cap;
     out.push({
       ...def,
       count,
       cost,
-      affordable: state.res.money >= cost,
+      // A capped-out building is never affordable: the Buy button greys out like an owned
+      // upgrade. `maxCount` rides along from the def so the UI can print "12/12 built".
+      affordable: !maxed && state.res.money >= cost,
+      maxed,
       unlocked: isBuildingUnlocked(def),
       // The unlock rule threw repeatedly and was disabled by safe.js: the building stays
       // locked forever unless it already latched. UI can badge it; tools can flag it.
@@ -129,9 +145,11 @@ export function upgrades() {
       owned,
       affordable: canAffordUpgrade(def),
       unlocked: isUpgradeUnlocked(def),
-      // The effect threw repeatedly and was disabled by safe.js: an owned upgrade with
-      // `broken` is paid for but inert (its effect no longer folds into mods).
-      broken: !!def.effect?.isDisabled?.(),
+      // The effect or unlock rule threw repeatedly and was disabled by safe.js. An owned
+      // upgrade with a dead effect is paid for but inert (it no longer folds into mods); one
+      // with a dead unlock rule stays locked forever unless it already latched — same rule
+      // as buildings(), so a silently-locked card is badged instead of looking merely far off.
+      broken: !!(def.effect?.isDisabled?.() || def.unlock?.isDisabled?.()),
     });
   }
   return out;
@@ -144,9 +162,12 @@ export function buy(id, n = 1) {
   const count = state.buildings[id] || 0;
   if (n === 'max') n = maxAffordable(def);
   n = Math.floor(n);
-  if (n <= 0 || count + n > MAX_COUNT) return false;
+  if (n <= 0 || count + n > buildingCap(def)) return false;
   const cost = buildingCost(def, count, n);
-  if (!(state.res.money >= cost)) return false;
+  // Both sides must be finite: an Infinity cost (growth^count overflow) or an Infinity wallet
+  // (possible between sanitize() passes) would otherwise pass `Infinity >= Infinity` and leave
+  // NaN in state.res.money. `!(money >= cost)` also rejects a NaN wallet.
+  if (!Number.isFinite(cost) || !Number.isFinite(state.res.money) || !(state.res.money >= cost)) return false;
   state.res.money -= cost;
   state.buildings[id] = count + n;
   state.stats.buildingsBuilt += n;
@@ -214,6 +235,7 @@ export const api = {
   upgradeCurrency,
   canAffordUpgrade,
   buildingCost,
+  buildingCap,
   sellRefund,
   maxAffordable,
   action,

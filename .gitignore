@@ -2,3 +2,5 @@ node_modules/
 logs/*.png
 logs/*.json
 .DS_Store
+logs/*.log
+logs/*.out

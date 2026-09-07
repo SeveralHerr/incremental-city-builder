@@ -65,6 +65,8 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
     const unlocked = api.buildings().filter((b) => b.unlocked);
     const demand = derived.powerDemand + pendingDemand;
     const cap = derived.powerCap + pendingCap;
+    // Reacts to any shortfall: tolerating a 3 % flicker (< 0.97) was tried in the polish pass
+    // and lowered the session's under-power share (2.9 % → 2.6 %) instead of raising it.
     const needPower = derived.powerRatio < 0.999 || (demand > 0 && demand > cap);
     const needHousing = state.res.pop >= derived.housing * 0.9;
     const needJobs = derived.jobs <= derived.employed * 1.05;
@@ -74,7 +76,7 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
     if (needPower) {
       // Save toward the cheapest generator (or wait for one to unlock): nothing that draws
       // power until it is bought.
-      const fix = unlocked.filter((b) => b.powerGen > 0).sort((a, b) => a.cost - b.cost)[0];
+      const fix = unlocked.filter((b) => b.powerGen > 0 && !b.maxed).sort((a, b) => a.cost - b.cost)[0];
       if (!fix || !fix.affordable) bs = bs.filter((b) => !(b.powerUse > 0));
     }
     if (saving) {
@@ -89,6 +91,8 @@ export function botStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, t
       if (needHousing && b.housing > 0) v += 100 * b.housing;
       if (needJobs && b.jobs > 0) v += 60 * b.jobs;
       if (needHappy && b.happiness > 0) v += 3000 * b.happiness;
+      // Generators keep a small base value even at surplus: zeroing it past 2× capacity was
+      // tried (polish pass) — under-power moved 3.5 % → 3.6 % and cycle 16 went empty.
       v += b.income * 40 + b.housing * 3 + b.jobs * 3 + b.powerGen * 2 + (b.happiness || 0) * 50;
       if (b.powerUse > 0 && needPower) v *= 0.2;
       if (b.happiness < 0 && needHappy) v *= 0.3;

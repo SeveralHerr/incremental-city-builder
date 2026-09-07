@@ -1,5 +1,5 @@
 // Top bar: brand + city tier, resource chips (money, population, power, happiness), settings.
-import { h, icon, setText, setClass, setHidden, setProgress, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
+import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
 import { tierTitle, moodWord } from './content.js';
 import { powerChipText } from './text.js';
 
@@ -45,6 +45,7 @@ export function createTopbar(ui) {
 
   const tw = { money: tween(0), pop: tween(0), income: tween(0) };
   let lastTier = '';
+  let lastHappyTip = '';
 
   function update(dt) {
     const s = game.state;
@@ -82,6 +83,14 @@ export function createTopbar(ui) {
       const hp = d.happiness ?? 1;
       setText(happyChip.value, fmtPct(hp));
       setText(happyChip.sub, moodWord(hp));
+      // Tooltip: the signed terms resources reports in derived.extra.happinessBreakdown
+      // (base + civic + mods − unemployment − overcrowd − brownout − pollution = raw, clamped).
+      const hb = d.extra && d.extra.happinessBreakdown;
+      const tip = hb ? happinessTip(hb) : '';
+      if (tip !== lastHappyTip) {
+        lastHappyTip = tip;
+        setAttr(happyChip.el, 'title', tip || null);
+      }
       setClass(happyChip.el, 'is-warn', hp < 0.9);
       setClass(happyChip.el, 'is-bad', hp < 0.6);
       setClass(happyChip.el, 'is-good', hp >= 1.3);
@@ -96,6 +105,31 @@ export function createTopbar(ui) {
   }
 
   return { el, update };
+}
+
+// "Base 100% + civic 76% − unemployment 14% − pollution 22% = 140%" — only the terms that are
+// non-zero, rounded to whole points so the string changes a few times a minute, not per frame.
+const TIP_TERMS = [
+  ['civic', 'civic'],
+  ['mods', 'upgrades'],
+  ['unemployment', 'unemployment'],
+  ['overcrowd', 'overcrowding'],
+  ['brownout', 'brownout'],
+  ['pollution', 'pollution'],
+];
+function happinessTip(hb) {
+  const pct = (v) => Math.round(Math.abs(v) * 100) + '%';
+  const parts = ['Base 100%'];
+  for (const [key, label] of TIP_TERMS) {
+    const v = hb[key];
+    if (!Number.isFinite(v) || Math.round(Math.abs(v) * 100) === 0) continue;
+    parts.push(`${v < 0 ? '−' : '+'} ${label} ${pct(v)}`);
+  }
+  const raw = Number.isFinite(hb.raw) ? hb.raw : 1;
+  const clamped = Number.isFinite(hb.clamped) ? hb.clamped : raw;
+  let s = parts.join(' ') + ' = ' + pct(raw);
+  if (Math.round(raw * 100) !== Math.round(clamped * 100)) s += `, held at ${pct(clamped)}`;
+  return s;
 }
 
 function iconLogo() {

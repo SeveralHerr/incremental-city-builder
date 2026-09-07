@@ -3,12 +3,14 @@
 // Every tick (`simulate`, priority 0):
 //   1. build a fresh mods bag and fold owned upgrades, latched milestones and prestige,
 //   2. computeDerived (resources) with the balance config,
-//   3. integrate money and population over dt, keep the stats honest,
+//   3. integrate money and population over dt, keep the stats honest (earnings are the
+//      gross output of a solvent city; an upkeep deficit earns nothing, see integrate()),
 //   4. refresh derived.extra.prestige (legacy, spent, available, gain, can, targets) for the
 //      dashboard and for the goals that read it,
 //   5. latch milestones and dashboard gates, keep the city log lively; a milestone that
-//      carries a reward is folded into derived on the tick it latches (one extra fold,
-//      only then), so the dashboard, a tap and the next goal read the reward at once.
+//      carries a reward is folded into derived on the tick it latches (one extra fold and
+//      one extra snapshot refresh, only then), so the dashboard, a tap, the next goal and
+//      the "next point in" countdown read the reward at once.
 // Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
 // prestige, tap, setting, brownout ({ active, ratio } on both grid transitions). The
 // prestige rules live in prestige.js, the goals in milestones.js, every config knob read
@@ -16,9 +18,19 @@
 // what folds into it: the byBuilding entries upgrades and the clean-air tiers create
 // (one per polluter per tick once legacy ≥ 15) and the two key arrays plus Object.keys
 // that core's sanitizeMods builds — nothing else on the tick path allocates. Measured
-// 0.008 ms average / 0.10 ms p99 / 0.10 ms max per tick in the browser (verify,
-// logs/fix-simulation.json), ~44k ticks/s in the Node sim including the bot and the other
-// modules' handlers.
+// 0.009 ms average / 0.10 ms p99 / 0.30 ms max per tick in the browser (10,000-tick verify,
+// logs/gauntlet.json tickStats, 2026-09-07) and ~26k ticks/s in the 12 h Node sim including
+// the bot and the other modules' handlers (logs/sim-final.json ticksPerSec). Re-read those
+// two files rather than this line after a balance pass.
+//
+// Bookkeeping that is not part of the saved state (the pending milestone list, the brownout
+// hysteresis, the tap meter, the bank a founding started from) lives in one object per game
+// (game._sim, created by init and reused by a second init of the same game — init is
+// idempotent per game object). The exported simulate/tap/recompute/markFounding read the
+// active book, which init points at the game it was last called with, so a second game
+// object gets its own meter and brownout state instead of silently sharing them. Core's
+// state/derived/registry are process singletons regardless, so two games in one process
+// still share the economy; the per-game book only makes that limitation explicit.
 //
 // The mods bag carries two fields core's createMods does not: `inflow` (resources scales
 // baseInflow by it) and `tap` (seconds of output a tap pays, ×1 by default; the tap ladder
@@ -146,18 +158,36 @@ const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
 let powerBuildingKeys = [];
 let upgradeKeys = [];
 
-// Bookkeeping that is not part of the saved state. The pending list is a fixed array of
-// MILESTONES indices plus a count (list order, compacted in place on latch), rebuilt only
-// when something outside the tick can change state.unlocks — load, import, hard reset,
-// founding — all of which go through resetRunBookkeeping and set pendingDirty.
-const pending = new Int32Array(MILESTONES.length);
-let pendingCount = 0;
-let pendingDirty = true;
-let inBrownout = false;
-let brownoutLogged = false; // the current brownout got its log line
-let lastBrownoutLogAt = -Infinity;
+// Per-game bookkeeping that is not part of the saved state (see the header). The pending
+// list is a fixed array of MILESTONES indices plus a count (list order, compacted in place
+// on latch), rebuilt only when something outside the tick can change state.unlocks — load,
+// import, hard reset, founding — all of which go through resetRunBookkeeping and set
+// pendingDirty. The tap meter fields are documented at tap() below; legacyBefore at
+// markFounding().
+export function createBookkeeping() {
+  return {
+    pending: new Int32Array(MILESTONES.length),
+    pendingCount: 0,
+    pendingDirty: true,
+    inBrownout: false,
+    brownoutLogged: false, // the current brownout got its log line
+    lastBrownoutLogAt: -Infinity,
+    legacyBefore: 0, // the bank before the latest founding (or at load: the whole bank)
+    tapCredit: Infinity, // seconds of output banked; clamped to the cap on the next tap
+    tapCreditAt: 0, // state.time the meter was last settled
+  };
+}
+
+// The active book: the game init was last called with, or a standalone one for direct
+// callers (tests, tools that drive simulate/tap without a game object).
+let book = createBookkeeping();
 let installed = false;
 let gameRef = null;
+
+// The bookkeeping object in use (for tests and tools; never needed on the tick path).
+export function bookkeeping() {
+  return book;
+}
 
 // --- helpers -----------------------------------------------------------------
 
@@ -189,18 +219,20 @@ function refreshKeys() {
   upgradeKeys = registry.upgradeOrder.map((id) => 'u:' + id);
 }
 
-function refreshPending(state) {
+function refreshPending(b, state) {
   const unlocks = state.unlocks;
+  const pending = b.pending;
   let n = 0;
   for (let i = 0; i < MILESTONES.length; i++) if (!unlocks[MILESTONES[i].key]) pending[n++] = i;
-  pendingCount = n;
-  pendingDirty = false;
+  b.pendingCount = n;
+  b.pendingDirty = false;
 }
 
 // Drop pending slot `i`, keeping list order (a handful of moves, no allocation).
-function dropPending(i) {
-  pendingCount--;
-  for (let j = i; j < pendingCount; j++) pending[j] = pending[j + 1];
+function dropPending(b, i) {
+  const pending = b.pending;
+  const n = --b.pendingCount;
+  for (let j = i; j < n; j++) pending[j] = pending[j + 1];
 }
 
 // Seed a brand-new run with its starting treasury. Returns true when money was granted.
@@ -271,8 +303,13 @@ function ensurePrestigeExtra(derived) {
 // was rebuilt under us, so the milestone bookkeeping resyncs on the next tick too and the
 // tap meter starts full.
 export function recompute(state, derived) {
-  pendingDirty = true;
-  resetTapMeter(state);
+  book.pendingDirty = true;
+  resetTapMeter(book, state);
+  return refreshDerived(state, derived);
+}
+
+// Fold, compute and snapshot without touching any bookkeeping.
+function refreshDerived(state, derived) {
   const mods = foldMods(state);
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
@@ -282,6 +319,20 @@ export function recompute(state, derived) {
 
 // --- integration -------------------------------------------------------------
 
+// Earnings — stats.totalEarned (the money milestones, the frontier-rung gates, the
+// prestige bar) and prestige.lifetimeEarned (legacy) — are the city's gross output, and
+// only while the city is net-positive. Upkeep is an operating cost like a building
+// purchase, paid out of the treasury and not out of the score, so a solvent city's
+// earnings are what it produces; but a city running an upkeep deficit (income ≤ 0, money
+// pinned at $0) earns nothing at all, so a deficit costs the mayor something and legacy
+// cannot be farmed by a city that is not paying its own way (docs/DESIGN.md principle 2:
+// "legacy comes from lifetime earnings"). A tap counts in full for the same reason: its
+// money reaches the treasury. The pure-net variant (max(0, income) · dt) was measured on
+// the 2026-09-07 tree and is not the rule because the frontier rungs in config.upgrades
+// are placed by the city whose earnings open them (unlock at cost/4 earned): shaving
+// upkeep off the score moved Orbital Solar from the 16th city to the 17th and left the
+// 16th with nothing new (contract: every city after the 5th introduces something). Under
+// the greedy bot the two rules read the same everywhere else (it is never in deficit).
 function integrate(state, derived, dt) {
   const res = state.res;
   const stats = state.stats;
@@ -292,7 +343,7 @@ function integrate(state, derived, dt) {
   if (!(money > 0)) money = 0;
   res.money = money;
 
-  const earned = gross > 0 ? gross * dt : 0;
+  const earned = income > 0 && gross > 0 ? gross * dt : 0;
   if (earned > 0) {
     stats.totalEarned += earned;
     state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + earned;
@@ -314,31 +365,32 @@ function integrate(state, derived, dt) {
 // a founding does not announce twelve old trophies again. A tier crossed by *this* founding
 // (the bank just passed it, or the founding count just reached it) is news and still fires.
 const CARRY_OVER_WINDOW = 1; // game seconds
-let legacyBefore = 0; // the bank before the latest founding (or at load: the whole bank)
 
-// Record the bank a founding started from, so the tiers it crosses are announced.
+// Record the bank a founding started from (book.legacyBefore), so the tiers it crosses
+// are announced.
 export function markFounding(before) {
-  legacyBefore = Number.isFinite(before) && before > 0 ? before : 0;
+  book.legacyBefore = Number.isFinite(before) && before > 0 ? before : 0;
 }
 
-function justHappened(ms, state) {
+function justHappened(b, ms, state) {
   if (ms.metric === 'prestiges') return state.stats.prestiges === ms.target;
-  if (ms.metric === 'legacy') return legacyBefore < ms.target;
+  if (ms.metric === 'legacy') return b.legacyBefore < ms.target;
   if (ms.metric === 'clicks') return false; // taps are a lifetime count: a replay re-collects them
   return true;
 }
 
 // Returns true when a milestone with a mods reward latched this call (the caller re-folds).
-function checkMilestones(state, derived) {
-  if (pendingDirty) refreshPending(state);
+function checkMilestones(b, state, derived) {
+  if (b.pendingDirty) refreshPending(b, state);
   const unlocks = state.unlocks;
+  const pending = b.pending;
   const replayStart = state.stats.prestiges > 0 && state.time < CARRY_OVER_WINDOW;
   let rewarded = false;
-  for (let i = 0; i < pendingCount; i++) {
+  for (let i = 0; i < b.pendingCount; i++) {
     const ms = MILESTONES[pending[i]];
     if (unlocks[ms.key]) {
       // Latched from outside the tick (a hand-edited save): nothing to announce.
-      dropPending(i);
+      dropPending(b, i);
       i--;
       continue;
     }
@@ -347,16 +399,16 @@ function checkMilestones(state, derived) {
       reached = ms.check(state, derived) === true;
     } catch (e) {
       reportError('milestone:' + ms.id, e);
-      dropPending(i); // a broken check never blocks the loop
+      dropPending(b, i); // a broken check never blocks the loop
       i--;
       continue;
     }
     if (!reached) continue;
     unlocks[ms.key] = true;
-    dropPending(i);
+    dropPending(b, i);
     i--;
     if (ms.reward) rewarded = true;
-    if (replayStart && !justHappened(ms, state)) continue;
+    if (replayStart && !justHappened(b, ms, state)) continue;
     addLog(ms.rewardText ? `Milestone: ${ms.name} (${ms.rewardText})` : `Milestone: ${ms.name}`, 'milestone');
     emit('milestone', ms);
   }
@@ -381,22 +433,22 @@ function checkGates(state, derived) {
 
 // Same "a grid must exist" predicate as the Lights Out milestone: the first cottage draws
 // power before any generator can be bought, and that is not a brownout worth a log line.
-function watchGrid(state, derived) {
+function watchGrid(b, state, derived) {
   const ratio = derived.powerRatio;
-  if (!inBrownout) {
+  if (!b.inBrownout) {
     if (isBrownout(derived) && ratio < BROWNOUT_ENTER) {
-      inBrownout = true;
-      brownoutLogged = state.time - lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN;
-      if (brownoutLogged) {
-        lastBrownoutLogAt = state.time;
+      b.inBrownout = true;
+      b.brownoutLogged = state.time - b.lastBrownoutLogAt >= BROWNOUT_LOG_COOLDOWN;
+      if (b.brownoutLogged) {
+        b.lastBrownoutLogAt = state.time;
         addLog(`Brownout. The grid is running at ${Math.round(ratio * 100)}%: income and growth are dimmed.`, 'brownout');
       }
       emit('brownout', { active: true, ratio });
     }
   } else if (ratio >= 1 || !(derived.powerDemand > 0)) {
-    inBrownout = false;
-    if (brownoutLogged) {
-      brownoutLogged = false;
+    b.inBrownout = false;
+    if (b.brownoutLogged) {
+      b.brownoutLogged = false;
       addLog('Power restored. Every window in the city lights up at once.', 'info');
     }
     emit('brownout', { active: false, ratio });
@@ -406,21 +458,26 @@ function watchGrid(state, derived) {
 // --- the tick ------------------------------------------------------------------
 
 export function simulate(state, derived, dt) {
+  const b = book;
   const mods = foldMods(state);
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
   integrate(state, derived, dt);
   // The snapshot is refreshed before the goals are checked, so the Founding Charter
   // milestone (and every gate) reads this tick's figures, not the previous tick's.
-  prestigeStatus(state, ensurePrestigeExtra(derived), config, derived.grossIncome);
-  if (checkMilestones(state, derived)) {
+  const snap = ensurePrestigeExtra(derived);
+  prestigeStatus(state, snap, config, derived.grossIncome);
+  if (checkMilestones(b, state, derived)) {
     // A reward latched: fold it now rather than a tick later, so what the frame renders
-    // (and what a tap pays) already includes it. Rare — once per milestone per run.
+    // (and what a tap pays) already includes it, and refresh the snapshot's "next point
+    // in" / "founding arms in" countdowns off the rewarded income rather than the
+    // pre-reward figure. Rare — once per milestone per run; closed-form, no allocation.
     derived.mods = foldMods(state);
     computeDerived(state, derived, derived.mods, config);
+    prestigeStatus(state, snap, config, derived.grossIncome);
   }
   checkGates(state, derived);
-  watchGrid(state, derived);
+  watchGrid(b, state, derived);
 }
 
 // --- actions -------------------------------------------------------------------
@@ -440,30 +497,29 @@ export function tapSecondsFor(derived) {
 // autoclicker at any speed adds at most ×tapRefill the passive income on top of it: the
 // late game stays idle-shaped and legacy is not clicked into existence. Not saved: a
 // load or a founding starts with a full meter. Timed on state.time (game seconds), so
-// the meter is deterministic in the Node sim and in verify.
-let tapCredit = Infinity; // seconds of output banked; clamped to the cap on the next tap
-let tapCreditAt = 0; // state.time the meter was last settled
-
-function resetTapMeter(state) {
-  tapCredit = Infinity;
-  tapCreditAt = Number.isFinite(state.time) ? state.time : 0;
+// the meter is deterministic in the Node sim and in verify. Lives in the book as
+// tapCredit (seconds of output banked; clamped to the cap on the next tap) and
+// tapCreditAt (state.time the meter was last settled).
+function resetTapMeter(b, state) {
+  b.tapCredit = Infinity;
+  b.tapCreditAt = Number.isFinite(state.time) ? state.time : 0;
 }
 
 // The meter as the UI may show it: { credit, cap, refill } in seconds of output, settled
 // to now. Allocates; call from a render, not a tick.
 export function tapMeter(state, derived) {
   const cap = tapSecondsFor(derived);
-  return { credit: settleTapMeter(state, cap), cap, refill: economyTuning(config).tapRefill };
+  return { credit: settleTapMeter(book, state, cap), cap, refill: economyTuning(config).tapRefill };
 }
 
-function settleTapMeter(state, cap) {
+function settleTapMeter(b, state, cap) {
   const now = Number.isFinite(state.time) ? state.time : 0;
-  const dt = now - tapCreditAt;
-  tapCreditAt = now;
-  let credit = tapCredit + (dt > 0 ? dt * economyTuning(config).tapRefill : 0);
+  const dt = now - b.tapCreditAt;
+  b.tapCreditAt = now;
+  let credit = b.tapCredit + (dt > 0 ? dt * economyTuning(config).tapRefill : 0);
   if (!(credit < cap)) credit = cap; // also lands the Infinity of a fresh meter on the cap
   if (!(credit > 0)) credit = 0;
-  tapCredit = credit;
+  b.tapCredit = credit;
   return credit;
 }
 
@@ -471,13 +527,17 @@ function settleTapMeter(state, cap) {
 // meter holds — with a floor of $1: a city running an upkeep deficit still taps for what
 // it produces, and a drained meter (or a city with no output yet) still gives the dollar
 // that bootstraps a fresh plot. Tap money is earnings like any other: it counts toward
-// totalEarned (the money milestones) and lifetimeEarned (legacy).
+// totalEarned (the money milestones) and lifetimeEarned (legacy) — in full, deficit or
+// not, because every tapped dollar reaches the treasury (integrate() counts the passive
+// output only while the city is net-positive); upkeep is charged by the tick, not by the
+// tap.
 export function tap(state, derived) {
+  const b = book;
   const gross = Number.isFinite(derived.grossIncome) ? derived.grossIncome : 0;
   const value = tapSecondsFor(derived);
-  const credit = settleTapMeter(state, value);
+  const credit = settleTapMeter(b, state, value);
   const paid = credit < value ? credit : value;
-  tapCredit = credit - paid;
+  b.tapCredit = credit - paid;
   const gain = Math.max(1, gross * paid);
   state.res.money += gain;
   state.stats.totalEarned += gain;
@@ -504,20 +564,28 @@ function setSetting(state, key, value) {
 }
 
 function resetRunBookkeeping(state, derived) {
-  inBrownout = false;
-  brownoutLogged = false;
-  lastBrownoutLogAt = -Infinity;
-  pendingDirty = true;
+  const b = book;
+  b.inBrownout = false;
+  b.brownoutLogged = false;
+  b.lastBrownoutLogAt = -Infinity;
+  b.pendingDirty = true;
   refreshKeys();
   recompute(state, derived);
 }
 
 // --- init ----------------------------------------------------------------------
 
+// Idempotent per game object: a second init(game) with the same game re-points the actions
+// at it and re-registers the handler (registry replaces by name) but keeps its book, so a
+// tap meter half-drained or a brownout in progress is not reset by a re-init. A different
+// game object gets its own book (see the header for what that does and does not isolate).
 export function init(game) {
   try {
     if (!game || !game.state || !game.derived) return;
+    const again = gameRef === game && game._sim === book;
     gameRef = game;
+    if (!game._sim || typeof game._sim !== 'object') game._sim = createBookkeeping();
+    book = game._sim;
     const { state, derived } = game;
     refreshKeys();
 
@@ -554,6 +622,11 @@ export function init(game) {
       });
     }
 
+    if (again) {
+      refreshDerived(state, derived); // derived may be stale; the book's run state stands
+      game.milestones = MILESTONES;
+      return;
+    }
     if (seedStartMoney(state)) {
       addLog('Welcome, Mayor. A plot of land, a small treasury, and big plans.', 'info');
     }

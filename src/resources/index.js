@@ -1,5 +1,50 @@
 // Resources: resource metadata + the derived-rate math every tick runs on.
 // DOM-free. Pure: reads registry buildings, state and the mods bag; writes derived.
+//
+// Math (per second; simulation applies dt). Tuning keys live in src/balance/config.js and are
+// mirrored in DEFAULTS below. This block is the reference the DESIGN.md "Resources" section
+// should match; where the two disagree, this file (and resources.test.mjs) is the truth.
+//
+//   housing     = Σ count·housing·byBuilding.housing · mods.housing        (jobs alike, mods.jobs)
+//   powerCap    = Σ count·powerGen·byBuilding.power  · mods.power
+//   powerDemand = Σ count·powerUse                   · mods.demand
+//   powerRatio  = demand > 0 ? clamp(cap / demand, power.brownoutFloor, 1) : 1
+//   employed    = min(pop, jobs);  unemployment = pop > 0 ? (pop − employed) / pop : 0
+//   overcrowd   = clamp(pop / housing − 1, 0, OVERCROWD_MAX = 10); pop > 0 with no housing → 10
+//   civic       = civicCap · (1 − exp(−Σ count·(+happiness) / civicScale))
+//   pollutionRaw = Σ count·|−happiness| · pollutionScale                      (unsaturated smog)
+//   pollution   = pollutionCap · (1 − exp(−pollutionRaw / pollutionCurve))   (saturating; see below)
+//   happiness   = clamp(1 + civic − pollution − unemployment·unemploymentPenalty
+//                         − overcrowd·overcrowdPenalty − (1 − powerRatio)·brownoutPenalty
+//                         + mods.happiness, happiness.min, happiness.max)
+//   multiplier  = mods.income · powerRatio · (0.5 + 0.5·happiness)
+//   grossIncome = (pop·taxPerPop + employed·wage + Σ count·income·byBuilding.income) · multiplier
+//   upkeep      = Σ count·upkeep · mods.upkeep;   income = grossIncome − upkeep (may be negative)
+//   popGrowth   = pop < housing ? (housing − pop)·growthRate·happiness·powerRatio·mods.growth
+//                                 + baseInflow·mods.inflow
+//               : pop > housing ? −(pop − housing)·shrinkRate : 0
+//   costMult    = mods.cost (must be > 0; anything else reads as 1, like core/mods.sanitizeMods)
+//
+// Pollution saturation: with pollutionCap 1.1 and pollutionCurve 1.0 the penalty has unit slope
+// at zero (a lightly industrial city loses exactly pollutionRaw) and bends toward 1.1, which sits
+// below civicCap 1.12 so a fully civic city always nets positive. Without it the gauntlet's final
+// city (129 coal + 123 factory + 112 refinery, raw smog 2.39 at scale 0.2; 4.18 at the shipped
+// 0.35) pinned happiness at the 0.25 floor for hours. pollutionCap 0 restores the linear form.
+//
+// derived.extra (all numbers finite, objects allocated once and reused every tick):
+//   unemployment, overcrowd, civic, pollution, pollutionRaw, happinessMult,
+//   vacancy = max(0, housing − pop), openJobs = max(0, jobs − employed), powerSurplus = cap − demand,
+//   penalties: { unemployment, overcrowd, brownout, pollution }             (all ≥ 0, subtracted)
+//   incomeBreakdown: { tax, wages, buildings, upkeep, multiplier }         (tax+wages+buildings == gross)
+//   happinessBreakdown: { base: 1, civic, mods, unemployment, overcrowd, brownout, pollution, raw, clamped }
+//     — signed terms that sum to `raw`; `clamped` is derived.happiness. `civic` and `pollution`
+//     at the top level of extra are aliases of happinessBreakdown.civic / penalties.pollution kept
+//     for one release so ui keeps reading; new consumers should use the breakdown.
+//
+// Measured (logs/gauntlet.json, 10,000 bot ticks, 2026-09-07): final city 3,917 pop, happiness
+// 1.556 (civic +0.762, pollution −0.216 on raw 0.219, unemployment −0.140), $3.2k/s at ×2.20;
+// 0.009 ms avg tick across all handlers. logs/sim-final.json (12 h, 432,000 ticks): PASS with
+// contract PASS, 32 foundings, 22 cities dip below 1.0 happiness, under-power 3.5 % at floor 0.6.
 import { registry } from '../core/registry.js';
 import { fmt, fmtMoney, fmtInt, fmtPct } from '../core/format.js';
 import {
@@ -25,6 +70,7 @@ export const RESOURCES = [
     color: '#4ade80',
     kind: 'stock',
     format: 'money',
+    fallback: 0,
     desc: 'Tax receipts, wages and business profits. Spend it on more city.',
   },
   {
@@ -34,6 +80,7 @@ export const RESOURCES = [
     color: '#60a5fa',
     kind: 'stock',
     format: 'int',
+    fallback: 0,
     desc: 'Citizens who call this place home. They move in for housing, stay for the jobs.',
   },
   {
@@ -42,8 +89,10 @@ export const RESOURCES = [
     icon: '⚡',
     color: '#facc15',
     kind: 'derived',
+    source: 'powerCap', // derived field shown as the resource's value
     format: 'power',
     unit: 'MW',
+    fallback: 0,
     desc: 'Grid capacity versus demand. Fall short and the lights dim - along with income.',
   },
   {
@@ -52,7 +101,9 @@ export const RESOURCES = [
     icon: '😊',
     color: '#f472b6',
     kind: 'derived',
+    source: 'happiness',
     format: 'pct',
+    fallback: 1, // a missing multiplier is neutral (1x), not a crisis (0%)
     desc: 'How the city feels. Parks lift it; smog, joblessness and blackouts drag it down.',
   },
 ];
@@ -63,30 +114,28 @@ export function getResource(id) {
   return RESOURCE_MAP.get(id) || null;
 }
 
-// Current value of a resource for display: stocks from state, derived from `derived`.
+// Current value of a resource for display: stocks from state.res[id], derived from
+// derived[r.source]. Every resource declares its own `fallback` for a missing/garbage value,
+// so the metadata is the single source of truth (happiness → 1, everything else → 0).
 export function resourceValue(id, state, derived) {
-  switch (id) {
-    case 'money':
-      return nonNeg(state?.res?.money);
-    case 'pop':
-      return nonNeg(state?.res?.pop);
-    case 'power':
-      return nonNeg(derived?.powerCap);
-    case 'happiness':
-      return num(derived?.happiness, 1);
-    default:
-      return 0;
-  }
+  const r = RESOURCE_MAP.get(id);
+  if (!r) return 0;
+  const fb = num(r.fallback, 0);
+  if (r.kind === 'stock') return nonNeg(state && state.res ? state.res[id] : undefined, fb);
+  const v = derived ? derived[r.source || id] : undefined;
+  return r.id === 'happiness' ? num(v, fb) : nonNeg(v, fb);
 }
 
-// Format a value the way its resource wants to be shown.
+// Format a value the way its resource wants to be shown. The unit (if any) comes from the
+// resource's `unit` field, never from a per-format string.
 export function formatResource(id, value) {
   const r = RESOURCE_MAP.get(id);
   const f = r ? r.format : 'int';
-  if (f === 'money') return fmtMoney(value);
-  if (f === 'pct') return fmtPct(value);
-  if (f === 'power') return fmt(value) + ' MW';
-  return fmtInt(value);
+  const unit = r && r.unit ? ' ' + r.unit : '';
+  if (f === 'money') return fmtMoney(value) + unit;
+  if (f === 'pct') return fmtPct(value) + unit;
+  if (f === 'power' || f === 'float') return fmt(value) + unit;
+  return fmtInt(value) + unit;
 }
 
 // Local mirror of the balance numbers this module reads. `src/balance/config.js` is the
@@ -146,6 +195,9 @@ function ensureExtra(derived) {
   if (!x.incomeBreakdown || typeof x.incomeBreakdown !== 'object') {
     x.incomeBreakdown = { tax: 0, wages: 0, buildings: 0, upkeep: 0, multiplier: 1 };
   }
+  if (!x.happinessBreakdown || typeof x.happinessBreakdown !== 'object') {
+    x.happinessBreakdown = { base: 1, civic: 0, mods: 0, unemployment: 0, overcrowd: 0, brownout: 0, pollution: 0, raw: 1, clamped: 1 };
+  }
   return x;
 }
 
@@ -203,7 +255,9 @@ export function computeDerived(state, derived, mods, config) {
   const modInflow = posOr1(m.inflow);
   const modUpkeep = posOr1(m.upkeep);
   const modHappiness = num(m.happiness, 0);
-  const modCost = posOr1(m.cost);
+  // A zero cost multiplier means free buildings (and NaN in maxAffordable): treat it as 1,
+  // exactly like core/mods.sanitizeMods, so an unsanitized bag cannot break the buy path.
+  const modCost = typeof m.cost === 'number' && Number.isFinite(m.cost) && m.cost > 0 ? m.cost : 1;
 
   // --- sum over owned buildings --------------------------------------------
   let housing = 0;
@@ -267,11 +321,8 @@ export function computeDerived(state, derived, mods, config) {
   const penUnemployment = unemployment * unemploymentPenalty;
   const penOvercrowd = overcrowd * overcrowdPenalty;
   const penBrownout = (1 - powerRatio) * brownoutPenalty;
-  const happiness = clamp(
-    1 + civic - pollution - penUnemployment - penOvercrowd - penBrownout + modHappiness,
-    happyMin,
-    happyMax,
-  );
+  const happinessRaw = finite(1 + civic - pollution - penUnemployment - penOvercrowd - penBrownout + modHappiness);
+  const happiness = clamp(happinessRaw, happyMin, happyMax);
   const happinessMult = happinessIncomeCurve(happiness);
 
   // --- money ----------------------------------------------------------------
@@ -311,13 +362,15 @@ export function computeDerived(state, derived, mods, config) {
   derived.income = income;
   derived.popGrowth = popGrowth;
   derived.costMult = modCost;
-  derived.mods = m === NEUTRAL_MODS ? derived.mods : m;
+  // Always the bag the numbers above were computed from. NEUTRAL_MODS is frozen, so exposing
+  // it is safe; leaving a previous tick's bag here would let derived.mods disagree with derived.
+  derived.mods = m;
 
   const x = ensureExtra(derived);
   x.unemployment = unemployment;
   x.overcrowd = overcrowd;
-  x.civic = civic;
-  x.pollution = pollution;
+  x.civic = civic; // alias of happinessBreakdown.civic (kept one release for ui)
+  x.pollution = pollution; // alias of penalties.pollution (kept one release for ui)
   x.pollutionRaw = pollutionRaw;
   x.happinessMult = happinessMult;
   x.vacancy = finite(Math.max(0, housing - pop));
@@ -332,6 +385,16 @@ export function computeDerived(state, derived, mods, config) {
   x.incomeBreakdown.buildings = fromBuildings;
   x.incomeBreakdown.upkeep = upkeep;
   x.incomeBreakdown.multiplier = multiplier;
+  const hb = x.happinessBreakdown;
+  hb.base = 1;
+  hb.civic = civic;
+  hb.mods = modHappiness;
+  hb.unemployment = -penUnemployment;
+  hb.overcrowd = -penOvercrowd;
+  hb.brownout = -penBrownout;
+  hb.pollution = -pollution;
+  hb.raw = happinessRaw;
+  hb.clamped = happiness;
 
   return derived;
 }

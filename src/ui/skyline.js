@@ -10,7 +10,7 @@
 // a seeded PRNG so buying more never reshuffles what is already standing.
 //
 // Public shape: createSkyline(host, ui) -> { el, update(rows), tick(dt), setPhase(p), phase() }
-import { svg, clear, reducedMotion } from './dom.js';
+import { svg, clear, prefersReducedMotion } from './dom.js';
 
 const W = 480;
 const H = 240;
@@ -178,7 +178,7 @@ function makeCtx(shape, layers, budget) {
       layers.fx.append(el);
     },
     smoke(sx, sy, scale = 1) {
-      if (budget.smoke <= 0 || reducedMotion) return;
+      if (budget.smoke <= 0 || prefersReducedMotion()) return;
       budget.smoke--;
       for (let i = 0; i < 3; i++) {
         const c = svg('circle', { cx: f1(sx), cy: f1(sy), r: f1((2.2 + i * 0.6) * scale), fill: '#c9d0e6', class: 'sk-smoke' });
@@ -356,7 +356,7 @@ const SHAPES = {
     c.rect(c.x + c.w * 0.1, c.gy - c.h * 0.42, c.w * 0.2, c.h * 0.12, shade(c.body, 0.08), { rx: 2 });
     c.glow(tx + tw * 0.5, c.gy - c.h - 1.5, 1.2, '#ff5c5c');
     c.win(c.x + 2, c.gy - c.h * 0.22, c.w * 0.36, 1.6, 0.9);
-    if (!reducedMotion && c.depth === 2) c.smoke(tx + tw * 0.5, c.gy - c.h, c.w / 14);
+    if (!prefersReducedMotion() && c.depth === 2) c.smoke(tx + tw * 0.5, c.gy - c.h, c.w / 14);
   },
   fusion(c) {
     const r = c.w / 2;
@@ -544,7 +544,7 @@ export function createSkyline(host, ui) {
     for (let k = 0; k < puffs; k++) {
       g.append(svg('ellipse', { cx: f1(k * 14 * cd.s), cy: f1(cd.y - (k % 2) * 3 * cd.s), rx: f1((10 + crnd() * 8) * cd.s), ry: f1((5 + crnd() * 3) * cd.s), fill: 'var(--sk-cloud, #fff)' }));
     }
-    if (reducedMotion) g.setAttribute('transform', `translate(${f1(20 + i * 95)} 0)`);
+    if (prefersReducedMotion()) g.setAttribute('transform', `translate(${f1(20 + i * 95)} 0)`);
     else {
       g.style.setProperty('--dur', `${cd.dur}s`);
       g.style.setProperty('--delay', `${(-cd.dur * (0.12 + i * 0.19)).toFixed(0)}s`);

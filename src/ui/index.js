@@ -20,6 +20,28 @@ const REBUILD_EVENTS = ['buy', 'sell', 'upgrade', 'unlock', 'milestone', 'load',
 const UNLOCK_TOAST_DELAY = 350; // ms — batch unlocks that land in the same burst into one toast
 const UNLOCK_QUIET_MS = 1500; // ms — after a load or a founding, re-latched unlocks are not news
 const PERF_WINDOW = 120; // frames in the rolling render-cost average
+const LOG_IN_BUILD_MIN_WIDTH = 1240; // px — at or above, the City log sits under the build panel
+
+// Moves the City log panel between the build column (wide layouts) and the sidebar (narrow),
+// following a matchMedia query so a resize re-homes it without a reload. Reparenting keeps the
+// panel's DOM and per-entry cache intact; nothing rebuilds.
+function placeLog(logEl, buildCol, sideCol, minWidth) {
+  let query = null;
+  try {
+    query = window.matchMedia ? window.matchMedia(`(min-width: ${minWidth}px)`) : null;
+  } catch {
+    query = null;
+  }
+  const apply = (wide) => {
+    const target = wide ? buildCol : sideCol;
+    if (logEl.parentNode !== target) target.append(logEl);
+  };
+  if (!query) return apply(true);
+  apply(query.matches);
+  const onChange = (e) => apply(!!e.matches);
+  if (typeof query.addEventListener === 'function') query.addEventListener('change', onChange);
+  else if (typeof query.addListener === 'function') query.addListener(onChange);
+}
 
 export async function init(game) {
   try {
@@ -78,9 +100,15 @@ async function mount(game) {
   const shell = h('div.shell', [topbar.el, main]);
   app.replaceChildren(shell);
 
-  // Toasts live in the hero column (sticky to its bottom edge) so a burst can never sit on
-  // top of the build column's Buy buttons or the sidebar's upgrade list.
-  ui.toasts = createToasts(hero.el);
+  // City log placement: at desktop widths the build column is half empty early on (2-3 cards
+  // per category) while the sidebar overflows, so the log rides at the foot of the build
+  // column and the centre carries live information. Narrower layouts keep it in the sidebar.
+  placeLog(log.el, build.el, right, LOG_IN_BUILD_MIN_WIDTH);
+
+  // Toasts overlay the city panel (top of the skyline, a large forgiving tap target), so a
+  // burst can never sit on the Legacy panel's 'Found a new city' / 'Sign' buttons — whatever
+  // the hero column's scroll position — nor on the build column's Buy buttons or the sidebar.
+  ui.toasts = createToasts(hero.cityPanel);
   ui.modal = createModal(app);
   ui.settings = createSettingsModal(ui, ui.modal);
 

@@ -34,7 +34,9 @@ import {
   prestigeConfig,
 } from './prestige.js';
 import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
-import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, tapMeter, prestigeSnapshot } from './index.js';
+import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, tapMeter, prestigeSnapshot, init, bookkeeping, createBookkeeping } from './index.js';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createMods } from '../core/mods.js';
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${msg}: ${a} != ${b}`);
@@ -895,6 +897,105 @@ test('the tick is allocation-light: a thousand ticks of a mid-size city average 
   assert.ok(ms < 0.05, `avg ${ms.toFixed(4)} ms per tick`);
   assert.equal(derived.extra.prestige.spent, 30);
   assert.equal(derived.extra.prestige.available, 90);
+  loadState({});
+  markFounding(0);
+});
+
+test('the prestige.js header quotes the shipped knobs knob for knob (no doc drift)', () => {
+  const src = fs.readFileSync(fileURLToPath(new URL('./prestige.js', import.meta.url)), 'utf8');
+  const m = /Shipped knobs[^:]*:([^]*?)\.\n/.exec(src);
+  assert.ok(m, 'the header carries a "Shipped knobs" line');
+  const text = m[1].replace(/\n\/\/ ?/g, ' ');
+  const quoted = {};
+  for (const pair of text.split(',')) {
+    const [, key, val] = /^\s*([A-Za-z]+)\s+([0-9.e-]+)\s*$/.exec(pair) || [];
+    assert.ok(key, `knob pair "${pair.trim()}" parses`);
+    quoted[key] = Number(val);
+  }
+  assert.deepEqual(Object.keys(quoted).sort(), Object.keys(DEFAULTS.prestige).sort(), 'every prestige knob is quoted');
+  for (const k of Object.keys(quoted)) assert.equal(quoted[k], config.prestige[k], `header ${k} matches config`);
+});
+
+test('earnings are the gross output of a solvent city; an upkeep deficit earns nothing', () => {
+  ensureTestBuildings();
+  if (!registry.buildings.has('t-drain')) {
+    registerBuilding({ id: 't-drain', name: 'Drain', icon: 'd', desc: 'test', category: 'civic', tier: 1, baseCost: 10, costGrowth: 1.1, upkeep: 1 });
+  }
+  // $3/s gross from three shops, $1/s upkeep: solvent, and the score counts the gross $3/s.
+  loadState({ res: { money: 100, pop: 0 }, buildings: { 't-shop': 3, 't-drain': 1 } });
+  recompute(state, derived);
+  near(derived.grossIncome, 3, 'gross');
+  near(derived.income, 2, 'net');
+  for (let i = 0; i < 10; i++) simulate(state, derived, 0.1);
+  near(state.res.money, 100 + 2, 'the treasury sees the net', 1e-6);
+  near(state.stats.totalEarned, 3, 'the score counts the gross output', 1e-6);
+  near(state.prestige.lifetimeEarned, 3, 'legacy accrues from the same figure', 1e-6);
+  // Ten drains on three shops: a deficit. Money pins at $0 and nothing accrues at all.
+  loadState({ res: { money: 1, pop: 0 }, buildings: { 't-shop': 3, 't-drain': 10 } });
+  recompute(state, derived);
+  assert.ok(derived.grossIncome > 0 && derived.income < 0, 'gross output under an upkeep deficit');
+  for (let i = 0; i < 50; i++) simulate(state, derived, 0.1);
+  assert.equal(state.res.money, 0);
+  assert.equal(state.stats.totalEarned, 0, 'a deficit city earns nothing toward the milestones');
+  assert.equal(state.prestige.lifetimeEarned, 0, 'nor toward legacy');
+  // A tap still pays for the output and counts in full (the money does reach the treasury).
+  const gain = tap(state, derived);
+  assert.ok(gain > 1);
+  assert.equal(state.stats.totalEarned, gain);
+  loadState({});
+});
+
+test('a rewarded milestone re-folds derived and refreshes the snapshot countdowns on the same tick', () => {
+  ensureTestBuildings();
+  // Ten citizens on the first tick latch First Neighbors (+2% income): the countdowns must
+  // read the rewarded gross income, not the pre-reward figure.
+  loadState({ res: { money: 100, pop: 10 }, buildings: { 't-hut': 5, 't-mill': 2, 't-shop': 3 }, time: 5, tick: 50 });
+  recompute(state, derived);
+  const before = derived.grossIncome;
+  const bonus = 1 + milestoneTuning(config).popIncomeBonus;
+  simulate(state, derived, 0.1);
+  assert.equal(state.unlocks['m:pop-10'], true, 'latched');
+  near(derived.mods.income, bonus, 'the reward is folded into derived on the latching tick', 1e-9);
+  assert.ok(derived.grossIncome > before, 'and the gross income carries it');
+  const snap = prestigeSnapshot(derived);
+  const earned = state.stats.totalEarned;
+  assert.ok(Number.isFinite(snap.nextIn) && snap.nextIn > 0);
+  near(snap.nextIn, (snap.nextAt - earned) / derived.grossIncome, 'nextIn is priced off the rewarded income', 1e-9);
+  near(snap.unlockIn, (snap.unlockAt - earned) / derived.grossIncome, 'unlockIn too', 1e-9);
+  loadState({});
+});
+
+test('init is idempotent per game object: the bookkeeping lives on game._sim and a re-init keeps it', () => {
+  ensureTestBuildings();
+  loadState({});
+  const game = { state, derived };
+  init(game);
+  const book = game._sim;
+  assert.ok(book && typeof book === 'object');
+  assert.equal(bookkeeping(), book, "the active book is the game's");
+  assert.equal(state.res.money, economyTuning(config).startMoney, 'a fresh game is seeded once');
+  assert.equal(game.milestones, MILESTONES);
+  // Drain the meter, re-init: the same book, the meter untouched, the treasury not re-seeded.
+  state.buildings['t-shop'] = 3;
+  recompute(state, derived);
+  tap(state, derived);
+  const credit = book.tapCredit;
+  assert.ok(credit < tapSecondsFor(derived));
+  const money = state.res.money;
+  init(game);
+  assert.equal(game._sim, book, 'same book');
+  assert.equal(bookkeeping(), book);
+  assert.equal(book.tapCredit, credit, 'a re-init does not refill the meter');
+  assert.equal(state.res.money, money, 'a re-init does not seed again');
+  // A different game object gets its own book (its meter and brownout state are not shared).
+  const other = { state, derived };
+  init(other);
+  assert.notEqual(other._sim, book);
+  assert.equal(bookkeeping(), other._sim);
+  assert.equal(other._sim.tapCredit, Infinity, 'a fresh meter');
+  assert.deepEqual(Object.keys(createBookkeeping()).sort(), Object.keys(book).sort());
+  init(game); // back to the first game's book for the tests that follow
+  assert.equal(bookkeeping(), book);
   loadState({});
   markFounding(0);
 });

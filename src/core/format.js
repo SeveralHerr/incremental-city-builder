@@ -63,9 +63,13 @@ export function fmtMoney(n, digits = 2) {
   return s.startsWith('-') ? '-$' + s.slice(1) : '$' + s;
 }
 
+// Signed rate: "+2.50/s", "-3/s". Non-finite reads "—" (like fmtMoney's "$—", never "—/s"), and
+// the sign follows the *displayed* value, so a negative that floors to zero reads "+0.00/s"
+// rather than an unsigned "0.00/s".
 export function fmtRate(n, unit = '', digits = 2) {
+  if (!Number.isFinite(n)) return '—';
   const s = fmt(n, digits);
-  return (n >= 0 ? '+' : '') + s + unit + '/s';
+  return (s.startsWith('-') ? '' : '+') + s + unit + '/s';
 }
 
 export function fmtInt(n) {

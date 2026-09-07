@@ -34,7 +34,7 @@ export function applyOverride(def, override) {
   const cost = typeof override === 'number' ? override : override.cost;
   if (Number.isFinite(cost) && cost > 0) out.cost = cost;
   // Rungs whose gate is a share of their own price (frontier: earned ≥ cost/4; pace rungs:
-  // earned ≥ 100 × cost; charter perks: legacy ≥ cost/2) get a new gate, hint, progress
+  // earned ≥ 100 × cost; charter perks: spendable legacy ≥ cost/2) get a new gate, hint, progress
   // mirror — and, for a perk, the tier bracket — with the new price. The rules live in
   // data.js so this stays two lines.
   if (out.cost !== def.cost) {
@@ -65,8 +65,9 @@ export function sortedUpgrades(defs) {
 // A founding wipes state.upgrades. Two kinds of rung come back on their own:
 //   • charter perks (`currency: 'legacy'`, data.js): paid in legacy points, which a
 //     founding never refunds, so they are permanent by construction;
-//   • the upgrades a keeper rung (`keeps(def)`: Institutional Memory, Standing Orders)
-//     remembers while it is owned.
+//   • the upgrades a keeper rung (`keeps(def)`: Institutional Memory, the Grid Charter,
+//     Standing Orders) remembers while it is owned — a perk can be a keeper too, and
+//     being legacy-priced it is then a permanent one.
 // Ownership is read from the state every tick (so a loaded save is honoured), and on the
 // 'prestige' event — which the simulation fires *after* the reset has wiped
 // state.upgrades — the remembered set is granted back through `grantUpgrade` below. No

@@ -3,13 +3,28 @@
 // Files: data.js (catalogue), README.md (the rationale behind the ladder, the signature
 // mechanics and the unlock spacing), catalogue.mjs (prints the *shipped* catalogue,
 // `node src/buildings/catalogue.mjs`), cadence.mjs (first-city unlock/first-buy probe,
-// `node src/buildings/cadence.mjs`), buildings.test.mjs (`node --test src/buildings/`).
+// `node src/buildings/cadence.mjs`), buildings.test.mjs (`node src/buildings/buildings.test.mjs`).
 //
 // Balance integration: `src/balance/config.js` owns every tuning number. It is loaded
 // via a guarded dynamic import inside init() rather than a static import so that a
 // missing or broken config file degrades to the DESIGN.md defaults instead of taking
 // the whole buildings module down with it. Overrides in `config.buildings[id]` are
-// spread over each definition before `registerBuilding`.
+// spread over each definition before `registerBuilding`. Since the 2026-09-07 polish pass
+// data.js carries the shipped numbers, so the fallback ladder is the one the sim was run on.
+//
+// Hard caps. A def may carry `maxCount` (windmill: 12). Core owns the cap — `api.buy` and
+// `maxAffordable` refuse past it and `api.buildings()` rows carry `maxed` — and this module
+// only validates the field (a non-integer override is dropped rather than handed to the
+// registry, which throws). As a belt to core's braces, a `buy` listener rolls back any
+// purchase that still lands above the cap (an older core without the check): the units
+// above the cap are removed and their exact share of the price refunded, so a Buy Max on
+// the Power tab can never pay $1e16 for 4 MW.
+//
+// Power hints. After registration every consumer whose draw is at least one windmill gets a
+// derived `powerHint` string — "Draws 10,500 MW ≈ 0.9 × Nuclear Plant" — sized against the
+// largest generator whose output is no more than twice the draw, so a tier-4 card says up
+// front which plant it needs (the shipped tier-4 stickers are 12–42× the tier-3 intensity of
+// their column; README "Power"). UI renders it under the synergy line.
 //
 // Live stats. Two data-driven rules scale a per-unit stat with the city (see data.js):
 //   synergy       { stat, source, per, cap, text }  stat = base × min(cap, 1 + source / per)
@@ -39,6 +54,8 @@
 // district never flashes its base income for a frame after a reload.
 import { registerBuilding, registerTickHandler, registry } from '../core/registry.js';
 import { reportError } from '../core/safe.js';
+import { on } from '../core/events.js';
+import { state as coreState, addLog } from '../core/state.js';
 import { BUILDINGS, CATEGORIES } from './data.js';
 
 export { BUILDINGS, CATEGORIES };
@@ -53,7 +70,6 @@ const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 const SYNERGY_STATS = new Set(['income', 'housing', 'jobs', 'powerGen', 'happiness']);
 const GROWTH_STAT = 'powerUse';
 export const LIVE_HANDLER = 'buildings:live';
-export const SYNERGY_HANDLER = LIVE_HANDLER; // former name, kept for callers that pinned it
 const LIVE_PRIORITY = -10; // before simulation's 'simulate' (0)
 
 const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -93,6 +109,13 @@ function applyOverride(def, override) {
       if (isFiniteNum(v)) out[k] = v;
       continue;
     }
+    if (k === 'maxCount') {
+      // null lifts the cap; anything else must be a positive integer (the registry throws
+      // on any other shape, which would take the whole building down).
+      if (v === null) out.maxCount = undefined;
+      else if (Number.isInteger(v) && v >= 1) out.maxCount = v;
+      continue;
+    }
     if (k === 'category') {
       if (CATEGORY_IDS.has(v)) out.category = v;
       continue;
@@ -120,7 +143,85 @@ export function resolveBuilding(base, balance) {
   if (def.sellRefund === undefined && isFiniteNum(refund) && refund >= 0 && refund <= 1) def.sellRefund = refund;
   if (!isFiniteNum(def.baseCost) || def.baseCost <= 0) def.baseCost = base.baseCost;
   if (typeof def.unlock !== 'function') def.unlock = undefined;
+  if (def.maxCount !== undefined && !(Number.isInteger(def.maxCount) && def.maxCount >= 1)) def.maxCount = undefined;
   return def;
+}
+
+// The cap a definition carries, or Infinity when it has none. Pure.
+export function capOf(def) {
+  const m = def?.maxCount;
+  return Number.isInteger(m) && m >= 1 ? m : Infinity;
+}
+
+// Roll back the part of a purchase that landed above `maxCount` (see the header, "Hard
+// caps"). `e` is the core `buy` event { id, n, cost, count }. Units the player already owned
+// above the cap (an old save) are left alone: only this purchase's excess is undone, and
+// the refund is that excess's exact share of the price paid (the cost multiplier cancels
+// out of the ratio, so no mods need re-deriving). Returns the refund, 0 when nothing to do.
+export function rollbackOverCap(e, def = registry.buildings.get(e?.id), state = coreState) {
+  if (!def || !e || typeof e !== 'object') return 0;
+  const cap = capOf(def);
+  if (cap === Infinity) return 0;
+  const count = state?.buildings?.[e.id];
+  if (!isFiniteNum(count) || count <= cap) return 0;
+  // Without a usable unit count nothing can be attributed to this purchase: never
+  // confiscate units on a guess.
+  if (!(isFiniteNum(e.n) && e.n > 0)) return 0;
+  const n = Math.min(Math.floor(e.n), count);
+  const start = count - n;
+  const keep = Math.max(cap, start);
+  const excess = count - keep;
+  if (excess <= 0) return 0;
+  const g = isFiniteNum(def.costGrowth) && def.costGrowth >= 1 ? def.costGrowth : 1;
+  const share = g === 1 ? excess / n : (Math.pow(g, count) - Math.pow(g, keep)) / (Math.pow(g, count) - Math.pow(g, start));
+  const paid = isFiniteNum(e.cost) && e.cost > 0 ? e.cost : 0;
+  const refund = isFiniteNum(share) ? paid * Math.min(1, Math.max(0, share)) : 0;
+  state.buildings[e.id] = keep;
+  if (state.res && isFiniteNum(state.res.money)) state.res.money += refund;
+  if (state.stats && isFiniteNum(state.stats.buildingsBuilt)) state.stats.buildingsBuilt = Math.max(0, state.stats.buildingsBuilt - excess);
+  addLog(`${def.name}: ${cap}/${cap} built — ${excess} refunded`, 'info');
+  return refund;
+}
+
+// ---- power hints -----------------------------------------------------------------------
+
+const fmtMW = (v) => (v >= 10 ? Math.round(v) : +v.toFixed(1)).toLocaleString('en-US');
+
+// Card text sizing a consumer's base draw against the generator ladder: the largest
+// generator whose output is no more than twice the draw (so the count reads ≥ 0.5), or
+// nothing for a draw under the smallest generator. `gens` is [{ name, powerGen }]. Pure.
+export function powerHintFor(def, gens) {
+  const use = def?.powerUse;
+  if (!isFiniteNum(use) || use <= 0 || !Array.isArray(gens)) return '';
+  const ladder = gens.filter((g) => g && typeof g.name === 'string' && isFiniteNum(g.powerGen) && g.powerGen > 0).sort((a, b) => a.powerGen - b.powerGen);
+  if (!ladder.length || use < ladder[0].powerGen) return '';
+  let pick = ladder[0];
+  for (const g of ladder) if (g.powerGen <= use * 2) pick = g;
+  const n = use / pick.powerGen;
+  const count = n >= 10 ? Math.round(n) : +n.toFixed(1);
+  return `Draws ${fmtMW(use)} MW ≈ ${count.toLocaleString('en-US')} × ${pick.name}`;
+}
+
+// Stamp `powerHint` on every registered consumer from the registered generators' base
+// output (a synergy such as the solar farm's park bonus is not counted: the hint is the
+// sticker, like the rest of the card).
+function stampPowerHints() {
+  const gens = [];
+  for (const id of registry.buildingOrder) {
+    const d = registry.buildings.get(id);
+    const gen = baseStat(id, 'powerGen');
+    if (d && isFiniteNum(gen) && gen > 0) gens.push({ name: d.name, powerGen: gen });
+  }
+  for (const id of registry.buildingOrder) {
+    const d = registry.buildings.get(id);
+    if (!d) continue;
+    const hint = powerHintFor({ powerUse: baseStat(id, 'powerUse') }, gens);
+    try {
+      if (hint) d.powerHint = hint;
+    } catch {
+      /* frozen def: the hint is cosmetic */
+    }
+  }
 }
 
 // ---- rules ---------------------------------------------------------------------------
@@ -191,10 +292,13 @@ const bases = new Map();
 // Live value per id: { [stat]: value }. The accessor's backing store.
 const live = new Map();
 
+// Undefined when the building has no such stat: the registry defaults every stat to 0, so
+// a 0 base counts as missing too (0 × any factor is 0 — the rule would be dead weight and
+// its card text a lie), and collectRules reports it.
 function pin(id, stat, def) {
   const key = id + ':' + stat;
   const base = bases.has(key) ? bases.get(key) : def[stat];
-  if (!isFiniteNum(base)) return undefined;
+  if (!isFiniteNum(base) || base === 0) return undefined;
   bases.set(key, base);
   expose(id, stat, def);
   return base;
@@ -239,6 +343,7 @@ function collectRules() {
       else {
         const base = pin(id, rule.stat, def);
         if (base !== undefined) rules.push({ id, stat: rule.stat, base, kind: 'synergy', rule });
+        else reportError('buildings:' + id, new Error(`synergy on missing stat ${rule.stat} ignored`));
       }
     }
     if (def.demandGrowth !== undefined && def.demandGrowth !== null) {
@@ -247,6 +352,7 @@ function collectRules() {
       else {
         const base = pin(id, GROWTH_STAT, def);
         if (base !== undefined) rules.push({ id, stat: GROWTH_STAT, base, kind: 'growth', rule });
+        else reportError('buildings:' + id, new Error(`demandGrowth on missing stat ${GROWTH_STAT} ignored`));
       }
     }
   }
@@ -280,7 +386,6 @@ export function applyLiveStats(state, derived) {
     }
   }
 }
-export const applySynergies = applyLiveStats; // former name
 
 // The value a rule pinned for `stat` at registration (data + config), or the definition's
 // field when nothing scales it. Undefined for an unknown building.
@@ -322,6 +427,10 @@ export function activeGrowth() {
 
 // ---- init ---------------------------------------------------------------------------
 
+function enforceCap(e) {
+  rollbackOverCap(e);
+}
+
 async function loadBalance(game) {
   // Integrator may attach the resolved balance module directly; prefer that.
   if (isObj(game?.balance?.config)) return game.balance;
@@ -350,9 +459,11 @@ export async function init(game) {
     }
     collectRules();
     if (rules.length) registerTickHandler(LIVE_HANDLER, applyLiveStats, LIVE_PRIORITY);
+    stampPowerHints();
+    on('buy', enforceCap); // the bus keys listeners by function, so a repeated init adds nothing
     if (game && typeof game === 'object') {
       const count = BUILDINGS.filter((b) => registry.buildings.has(b.id)).length;
-      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), rules: activeRules(), liveStat, baseStat, liveStats };
+      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), rules: activeRules(), liveStat, baseStat, liveStats, capOf, powerHintFor };
     }
   } catch (e) {
     reportError('buildings:init', e);

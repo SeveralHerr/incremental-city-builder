@@ -1,5 +1,5 @@
 // Ladder placement helper. DOM-free, Node only:
-//   node src/balance/place.mjs --plan plan.json [--base "--set a=b --set c=d"] [--out prices.json]
+//   node src/balance/place.mjs --plan plan.json [--base "--set a=b --set c=d"] [--save N] [--out prices.json]
 // Reads a plan — an ordered list of `{ id, city, mode }` where `city` is the founding
 // count the rung should be bought in (city 1 is the first replay) and `mode` is `spree`
 // (bought in the city's opening spree, the first four minutes) or `mid` (bought off
@@ -13,6 +13,12 @@
 // The result is a `--set` list for the probe plus a JSON file of `{ id: price }` so the
 // numbers can be copied into config.upgrades. Earlier cities do not depend on later
 // prices (the greedy bot never saves toward a rung it cannot afford), so one pass suffices.
+// `--save N` places against the saver profile instead (the probe's `--save N`: a bot that
+// saves toward a rung within N seconds of income; the sim's `--saver` is N = 30). Its reach
+// table is not the default bot's — see config.js, "Why the saver profiles have empty
+// cities" — so a ladder placed for one profile has to be checked against the other with
+// `probe.mjs` before it ships; `--base` is passed to the probe verbatim (any probe flag,
+// e.g. `--boost` / `--frontier-gate` what-ifs, may ride along).
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -29,6 +35,7 @@ const PLAN = JSON.parse(fs.readFileSync(path.resolve(ROOT, opt('--plan', 'src/ba
 const BASE = (opt('--base', '') || '').split(/\s+/).filter(Boolean);
 const OUT = opt('--out', '');
 const TICKS = Number(opt('--ticks', 432000));
+const SAVE = Number(opt('--save', 0));
 
 // Every planned rung starts parked out of reach (a frontier rung this dear never opens, a
 // pace rung never unlocks, a Legacy rung is never affordable), so the reach tables the
@@ -39,6 +46,7 @@ const round1 = (v) => Number(v.toPrecision(3));
 
 function run(extra = []) {
   const sets = [...BASE];
+  if (SAVE > 0) sets.push('--save', String(SAVE));
   for (const [id, p] of Object.entries(prices)) sets.push('--set', `upgrades.${id}.cost=${p}`);
   const tmp = path.join(HERE, '.place-run.json');
   const r = spawnSync(process.execPath, [path.join(HERE, 'probe.mjs'), '--ticks', String(TICKS), '--json', path.relative(ROOT, tmp), ...sets, ...extra], { cwd: ROOT, encoding: 'utf-8', timeout: 600000 });

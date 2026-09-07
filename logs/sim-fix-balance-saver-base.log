@@ -1,4 +1,0 @@
-[sim] PASS (contract PASS) 12h game in 10168ms (42486 t/s) money=4.63e+15 income=1.66e+15/s pop=17951250 prestiges=33 legacy=379034 (spent 127476) issues=0 errors=0
-[sim] cycles(min): 33.7 19.7 21.9 7.8 9.2 10.2 12.7 15.8 19.1 23.4 29.6 20.2 18.2 17.6 16.5 22.9 16.6 14.6 19.8 16.5 21.9 26.4 16.7 21.5 28.8 27.4 34.6 21.9 29.0 36.2 16.3 19.7 25.8
-[sim] profile=saver reach=64% bigRatio=20% (next-step 11%) underPower=1.0% minRatio=0.60 happyDips=29/33 emptyLate=9
-[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-fix-balance-saver-base.json

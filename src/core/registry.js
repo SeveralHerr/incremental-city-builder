@@ -37,6 +37,10 @@ function validate(def, required, kind) {
     if (def.sellRefund !== undefined && (def.sellRefund < 0 || def.sellRefund > 1)) {
       throw new Error(`building ${def.id}: sellRefund must be in [0,1]`);
     }
+    // Optional hard cap on owned units (api.buy / maxAffordable honour it; UI shows "n/max").
+    if (def.maxCount !== undefined && !(Number.isInteger(def.maxCount) && def.maxCount >= 1)) {
+      throw new Error(`building ${def.id}: maxCount must be a positive integer`);
+    }
   } else {
     if (!(Number.isFinite(def.cost) && def.cost >= 0)) throw new Error(`upgrade ${def.id}: cost must be >= 0`);
     if (typeof def.effect !== 'function') throw new Error(`upgrade ${def.id}: effect must be a function`);

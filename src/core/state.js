@@ -2,6 +2,9 @@
 // DOM-free.
 
 export const STATE_VERSION = 1;
+// Hard ceiling on any building count. api.buy() refuses to cross it and sanitize() clamps a
+// hand-edited save to it, so buildingCost() (baseCost * growth^count) can never read Infinity.
+export const MAX_COUNT = 1e9;
 
 export function createInitialState() {
   return {
@@ -127,7 +130,9 @@ export function sanitize() {
   }
   for (const k of Object.keys(state.buildings)) {
     const v = state.buildings[k];
-    if (!Number.isInteger(v) || v < 0) state.buildings[k] = Math.max(0, Math.floor(Number(v)) || 0);
+    if (!Number.isInteger(v) || v < 0 || v > MAX_COUNT) {
+      state.buildings[k] = Math.min(MAX_COUNT, Math.max(0, Math.floor(Number(v)) || 0));
+    }
   }
   for (const sec of ['upgrades', 'unlocks']) {
     for (const k of Object.keys(state[sec])) {

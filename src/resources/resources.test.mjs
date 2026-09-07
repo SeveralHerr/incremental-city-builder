@@ -7,6 +7,7 @@ import { registerBuilding, registry } from '../core/registry.js';
 import { createMods, buildingMod, sanitizeMods } from '../core/mods.js';
 import { config } from '../balance/config.js';
 import { computeDerived, DEFAULTS, RESOURCES, resourceValue, formatResource } from './index.js';
+import { fmtMoney, fmtInt } from '../core/format.js';
 import { civicBonus, pollutionPenalty, posOr1, finite, FINITE_MAX, OVERCROWD_MAX } from './math.js';
 
 const EPS = 1e-9;
@@ -289,4 +290,71 @@ test('resource metadata + display helpers', () => {
   assert.equal(formatResource('power', 12), '12 MW');
   assert.equal(formatResource('pct', 1), '1');
   assert.equal(formatResource('happiness', 1.25), '125%');
+});
+
+test('happinessBreakdown explains derived.happiness and is reused across ticks', () => {
+  const mods = createMods();
+  mods.happiness = 0.1;
+  const derived = {};
+  computeDerived({ res: { pop: 100 }, buildings: { 't-house': 10, 't-shop': 5, 't-windmill': 2, 't-park': 3, 't-factory': 2 } }, derived, mods, CFG);
+  const hb = derived.extra.happinessBreakdown;
+  const pen = derived.extra.penalties;
+  assert.equal(hb.base, 1);
+  near(hb.civic, derived.extra.civic, 'civic alias');
+  near(hb.mods, 0.1, 'mods term');
+  near(hb.unemployment, -pen.unemployment, 'signed unemployment');
+  near(hb.overcrowd, -pen.overcrowd, 'signed overcrowd');
+  near(hb.brownout, -pen.brownout, 'signed brownout');
+  near(hb.pollution, -pen.pollution, 'signed pollution');
+  near(hb.pollution, -derived.extra.pollution, 'pollution alias');
+  near(hb.base + hb.civic + hb.mods + hb.unemployment + hb.overcrowd + hb.brownout + hb.pollution, hb.raw, 'terms sum to raw');
+  assert.ok(hb.raw < 0.25, `raw ${hb.raw} sits below the floor`);
+  near(hb.clamped, derived.happiness, 'clamped == derived.happiness');
+  near(hb.clamped, 0.25, 'clamped to floor');
+  // Reused object, and raw == clamped when the clamp is inactive.
+  computeDerived({ res: { pop: 10 }, buildings: { 't-house': 10, 't-shop': 5, 't-windmill': 2, 't-park': 3 } }, derived, mods, CFG);
+  assert.equal(derived.extra.happinessBreakdown, hb, 'breakdown object reused');
+  near(hb.raw, hb.clamped, 'raw == clamped inside the clamp range');
+  near(hb.raw, derived.happiness, 'matches derived.happiness');
+});
+
+test('null mods leave the neutral bag in derived.mods (never a stale one)', () => {
+  const derived = {};
+  const mods = createMods();
+  mods.income = 2;
+  computeDerived({ res: { pop: 10 }, buildings: { 't-house': 3, 't-shop': 2 } }, derived, mods, CFG);
+  assert.equal(derived.mods, mods);
+  const boosted = derived.income;
+  computeDerived({ res: { pop: 10 }, buildings: { 't-house': 3, 't-shop': 2 } }, derived, null, CFG);
+  assert.notEqual(derived.mods, mods, 'previous bag not left behind');
+  assert.ok(derived.mods && Object.isFrozen(derived.mods), 'neutral bag is frozen');
+  assert.equal(derived.mods.income, 1);
+  assert.equal(derived.mods.happiness, 0);
+  assert.deepEqual(derived.mods.byBuilding, {});
+  near(derived.income, boosted / 2, 'numbers agree with the neutral bag');
+  assert.equal(derived.costMult, 1);
+});
+
+test('cost multiplier of 0 / NaN / negative reads as 1 (matches sanitizeMods)', () => {
+  near(run({ 't-house': 1 }, 1, { cost: 0 }).costMult, 1, 'zero');
+  near(run({ 't-house': 1 }, 1, { cost: NaN }).costMult, 1, 'NaN');
+  near(run({ 't-house': 1 }, 1, { cost: -1 }).costMult, 1, 'negative');
+  near(run({ 't-house': 1 }, 1, { cost: 0.8 }).costMult, 0.8, 'discount kept');
+});
+
+test('resource metadata drives value fallbacks and units', () => {
+  for (const r of RESOURCES) {
+    assert.ok(Number.isFinite(r.fallback), `${r.id} declares a fallback`);
+    assert.equal(resourceValue(r.id, {}, {}), r.fallback, `${r.id} missing → fallback`);
+    assert.equal(resourceValue(r.id, null, null), r.fallback, `${r.id} null → fallback`);
+    assert.equal(resourceValue(r.id, { res: { [r.id]: NaN } }, { [r.source || r.id]: NaN }), r.fallback, `${r.id} NaN → fallback`);
+  }
+  assert.equal(resourceValue('pop', { res: { pop: 42 } }, {}), 42);
+  assert.equal(resourceValue('power', {}, { powerCap: 120 }), 120);
+  assert.equal(resourceValue('power', {}, { powerCap: -5 }), 0);
+  assert.equal(resourceValue('nope', { res: { nope: 9 } }, { nope: 9 }), 0);
+  const power = RESOURCES.find((r) => r.id === 'power');
+  assert.equal(formatResource('power', 12), '12 ' + power.unit, 'unit comes from metadata');
+  assert.equal(formatResource('money', 1234), fmtMoney(1234), 'no unit → bare');
+  assert.equal(formatResource('pop', 1234.7), fmtInt(1234.7), 'int format, no unit');
 });

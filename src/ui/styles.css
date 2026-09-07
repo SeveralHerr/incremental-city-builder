@@ -686,6 +686,7 @@ ul {
 
 /* ---------- Hero / city view ---------- */
 .panel-city {
+  position: relative; /* anchors the toast overlay (.toasts) */
   padding: 0;
   overflow: hidden;
 }
@@ -1241,11 +1242,15 @@ ul {
   container-name: build;
 }
 
-/* Fill the column so a short card list does not leave a dead strip under the panel. */
+/* Fill the column so a short card list does not leave a dead strip under the panel. At desktop
+   widths the City log panel is re-homed under it (src/ui/index.js placeLog) and sits at the foot. */
 .col-build .panel-build {
   display: flex;
   flex-direction: column;
   flex: 1 0 auto;
+}
+.col-build .panel-log {
+  flex: 0 0 auto;
 }
 
 .tabs {
@@ -1567,6 +1572,39 @@ ul {
   color: var(--accent);
 }
 
+/* Power hint line ("Draws 10,500 MW ≈ 0.9 × Nuclear Plant"): same quiet row as the synergy. */
+.bcard-power {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.bcard-power > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bcard-power-mark {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: #facc15;
+  opacity: 0.8;
+}
+
+/* Capped-out building (windmill 12/12): the button is a label, not a price. */
+.bcard.is-maxed .btn-buy {
+  opacity: 0.7;
+  box-shadow: none;
+}
+.bcard.is-maxed .btn-buy .btn-cost {
+  font-size: 11px;
+}
+
 .bcard-total {
   font-size: 11px;
   color: var(--text-3);
@@ -1654,6 +1692,10 @@ ul {
 }
 .unlock-bar .progress-fill {
   --accent: var(--text-3);
+}
+/* Second teaser in a category: one step further off, so the pair reads as a queue. */
+.bcard.is-locked.is-far {
+  opacity: 0.52;
 }
 .bcard.is-locked.is-close {
   opacity: 0.85;
@@ -1848,9 +1890,30 @@ ul {
   overflow: hidden;
 }
 
-/* Legacy-tier upgrades describe a formula; give them a third line before the tooltip. */
+/* Heritage (legacy-tier) upgrades describe a formula; give them a third line before the tooltip. */
 .ucard.cat-prestige .ucard-desc {
   -webkit-line-clamp: 3;
+}
+
+/* Narrow sidebar (300px column at ≤1180px): a slimmer buy column and a third description line
+   keep 'Malls earn +100% income and provide...' and the Heritage formulas from truncating. */
+@media (max-width: 1180px) {
+  .ucard {
+    padding: 8px;
+    gap: 8px;
+  }
+  .ucard-buy {
+    width: 76px;
+  }
+  .ucard-desc {
+    -webkit-line-clamp: 3;
+  }
+  .ucard.cat-prestige .ucard-desc {
+    -webkit-line-clamp: 4; /* the Dynasty Ledger formula runs four lines in a 150px column */
+  }
+  .ucard .btn-buy {
+    padding: 6px 5px;
+  }
 }
 
 .ucard-buy {
@@ -2113,28 +2176,29 @@ ul {
 }
 
 /* ---------- Toasts ---------- */
-/* The host is the last flex item of the hero column: zero height, pushed to the column foot
-   (margin-top: auto) and sticky to the scrollport's bottom edge, so the stack grows upward over
-   the city stats tiles and never over the build column's Buy buttons or the sidebar. */
+/* The host is an absolutely positioned overlay inside the city panel (.panel-city), so the
+   stack grows downward over the skyline — a large, forgiving tap target — and can never sit on
+   the Legacy panel's 'Found a new city' / 'Sign' buttons (whatever the hero column's scroll
+   position), the build column's Buy buttons or the sidebar. Two toasts fit inside the 220px
+   minimum city view; the panel's overflow: hidden clips anything taller. */
 .toasts {
-  position: sticky;
-  bottom: 0;
+  position: absolute;
+  inset: 0 0 auto 0;
   height: 0;
-  flex: 0 0 0px;
-  margin-top: auto;
-  order: 99;
-  z-index: 50;
+  z-index: 5;
   pointer-events: none;
 }
 
+/* Starts under the city title overlay (name + tier line, ~44px) so a toast never hides the
+   city's name; two clamped toasts end well above the 220px view's tap hint. */
 .toast-stack {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 6px;
+  left: 8px;
+  right: 8px;
+  top: 50px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .toast {
@@ -2245,7 +2309,7 @@ ul {
 @keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.98);
+    transform: translateY(-12px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -2256,7 +2320,7 @@ ul {
 @keyframes toast-out {
   to {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(-8px) scale(0.98);
   }
 }
 

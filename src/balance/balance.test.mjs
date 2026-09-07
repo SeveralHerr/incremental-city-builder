@@ -9,6 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { config, costGrowthFor } from './config.js';
 import { init } from './index.js';
@@ -208,6 +209,29 @@ test('the core money ladder stays monotone from the first shop-priced rung to th
   assert.ok(config.economy.startMoney >= config.buildings.shop.baseCost, 'seed cash covers the first shop');
 });
 
+test('placement tools: probe.mjs and place.mjs parse, and plan.json names priced rungs in the shipped city order', () => {
+  for (const f of ['probe.mjs', 'place.mjs']) {
+    const r = spawnSync(process.execPath, ['--check', path.join(ROOT, 'src/balance', f)], { encoding: 'utf-8' });
+    assert.equal(r.status, 0, `${f} parses: ${r.stderr}`);
+  }
+  const plan = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/balance/plan.json'), 'utf-8'));
+  assert.ok(Array.isArray(plan) && plan.length >= 15, 'a plan step per late rung');
+  let lastCity = 0;
+  for (const step of plan) {
+    assert.ok(upgradeById.has(step.id), `plan: ${step.id} is an upgrade`);
+    assert.ok(isNum(config.upgrades[step.id]?.cost), `plan: ${step.id} is priced in config`);
+    assert.ok(Number.isInteger(step.city) && step.city >= lastCity, `plan: ${step.id} in city order`);
+    assert.ok(step.mode === undefined || step.mode === 'spree' || step.mode === 'mid', `plan: ${step.id} mode`);
+    lastCity = step.city;
+  }
+  // The plan's city order and the config's price order agree for money rungs (the bot meets
+  // rungs in price order, so a plan that lists a dearer rung in an earlier city is unplaceable).
+  const money = plan.filter((s) => upgradeById.get(s.id).currency !== 'legacy');
+  for (let i = 1; i < money.length; i++) {
+    if (money[i].city > money[i - 1].city) assert.ok(config.upgrades[money[i].id].cost > config.upgrades[money[i - 1].id].cost, `${money[i].id} is dearer than ${money[i - 1].id}`);
+  }
+});
+
 // ---- measured cadence: the sim's own numbers, held to the contract's letter (no slack) ----
 //
 // tools/economy-sim.mjs allows each cycle 1.35× the previous *plus 30 s* and only checks
@@ -217,7 +241,7 @@ test('the core money ladder stays monotone from the first shop-priced rung to th
 // `node tools/economy-sim.mjs --ticks 432000 [--saver] --out logs/<name>.json`; a log that
 // is missing is skipped (the sim is not run from the test), a log from a shorter session
 // is ignored, and both profiles are held to the magnitude ceilings.
-const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-fix-balance-12h.json', 'logs/sim-fix-balance-saver.json'];
+const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-final.json', 'logs/sim-polish-balance.json', 'logs/sim-polish-balance-saver.json'];
 const RATIO_MAX = 1.35;
 const RATIO_FROM = 4; // cycles[i] / cycles[i - 1] from the 5th founding (i = 4) on
 function readLog(rel) {

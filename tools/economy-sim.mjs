@@ -182,7 +182,9 @@ if (state.stats.prestiges === 0 && TICKS >= 100000) issues.push({ tick: state.ti
 if (maxMoney > 1e18 || state.prestige.legacy > 1e6) issues.push({ tick: state.tick, kind: 'magnitude', msg: `money peak ${maxMoney.toExponential(2)}, legacy ${state.prestige.legacy} (contract: ≤1e18 / ≤1e6 at 12h)` });
 for (let i = 1; i < cycles.length; i++) {
   const a = cycles[i - 1], b = cycles[i];
-  if (!SAVER && i >= 5 && b.minutes > a.minutes * 1.35 + 0.5) issues.push({ tick: 0, kind: 'cadence', msg: `cycle ${b.n} (${b.minutes} min) > 1.35× cycle ${a.n} (${a.minutes} min)` });
+  // Strict ×1.35, no minute slack: src/balance is tuned to the strict ratio and
+  // balance.test.mjs asserts it, so the gate here enforces the same line.
+  if (!SAVER && i >= 5 && b.minutes > a.minutes * 1.35) issues.push({ tick: 0, kind: 'cadence', msg: `cycle ${b.n} (${b.minutes} min) > 1.35× cycle ${a.n} (${a.minutes} min)` });
 }
 const lateCycles = cycles.filter((c) => c.n >= 5);
 const emptyCycles = lateCycles.filter((c) => c.newItems.length === 0);
@@ -236,6 +238,7 @@ const report = {
     upgrades: Object.keys(state.upgrades),
     legacy: state.prestige.legacy,
     legacySpent: state.prestige.spent || 0,
+    prestige: { legacy: state.prestige.legacy, spent: state.prestige.spent || 0, lifetimeEarned: state.prestige.lifetimeEarned || 0 },
     prestiges: state.stats.prestiges,
     totalEarned: state.stats.totalEarned,
   },

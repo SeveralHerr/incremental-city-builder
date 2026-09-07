@@ -1,3 +1,0 @@
-[verify] PASS ticks=6000 money=1222 pop=462 income=567.86/s tick avg=0.009ms p99=0.10ms fps=60.2 errors=0
-[verify] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\fix-buildings.json
-verify exit 0

@@ -3,7 +3,9 @@
 //               createSettingsModal(ui, modal) -> { open() }
 // Every destructive action confirms inline (never window.confirm). Save/export/import/reset go
 // through api.action('save'|'exportSave'|'importSave'|'hardReset'); `undefined` from an action
-// means the save module has not registered it yet and is reported as "not available".
+// means the save module has not registered it yet and is reported as "not available". When the
+// save module has parked an unreadable save (saveStatus().hasCorrupt), a "Previous save" section
+// offers api.action('recoverSave') and shows its raw bytes via api.action('exportCorrupt').
 import { h, icon, setText, setHidden, money, num, fmtTime, fmtPct } from './dom.js';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -130,6 +132,40 @@ export function createSettingsModal(ui, modal) {
       } else note(ok === undefined ? 'Import is not available yet.' : 'That code could not be read. Check that it was pasted whole.', 'bad');
     });
 
+    // ---- Recover a parked unreadable save ----
+    // The save module parks a save it could not read (metropolis.save.v1.corrupt) instead of
+    // overwriting it, and registers `recoverSave` (re-parse and restore; false if it still
+    // does not read) plus `exportCorrupt` (its raw bytes). The row only renders while such a
+    // copy exists; nothing here is shown on a healthy profile.
+    const hasRecover = !!(game.registry && game.registry.actions && game.registry.actions.has('recoverSave'));
+    const status0 = hasRecover ? game.api.action('saveStatus') : null;
+    const parked = hasRecover && (status0 && typeof status0 === 'object' ? status0.hasCorrupt === true : game.api.action('exportCorrupt') !== '');
+    let recoverSection = null;
+    if (parked) {
+      const recoverBtn = h('button.btn', { type: 'button', text: 'Recover previous save' });
+      recoverBtn.addEventListener('click', () => {
+        const r = game.api.action('recoverSave');
+        if (r === true) {
+          note('The previous city was restored. Welcome back, Mayor.', 'ok');
+          setHidden(recoverSection, true);
+          ui.rebuild();
+        } else note('That record still cannot be read. Its raw bytes are kept; use "Show raw record" to copy them somewhere safe.', 'bad');
+      });
+      const rawBtn = h('button.btn.btn-ghost', { type: 'button', text: 'Show raw record' });
+      rawBtn.addEventListener('click', () => {
+        const raw = game.api.action('exportCorrupt');
+        if (typeof raw !== 'string' || !raw) return note('The parked record is gone.', 'warn');
+        exportArea.value = raw;
+        exportArea.select();
+        note('Raw record shown in the export box. Copy it before erasing anything.', 'ok');
+      });
+      recoverSection = h('section.form-section.form-recover', [
+        h('h3.form-title', { text: 'Previous save' }),
+        h('p.form-help', { text: 'An older city record could not be read and was set aside rather than overwritten. A newer build may read it; try restoring it.' }),
+        h('div.btn-row', [recoverBtn, rawBtn]),
+      ]);
+    }
+
     // ---- Hard reset with inline confirm ----
     const resetBtn = h('button.btn.btn-danger', { type: 'button', text: 'Erase city…' });
     const confirmRow = h('div.confirm-row', { hidden: true }, [
@@ -182,6 +218,7 @@ export function createSettingsModal(ui, modal) {
         h('div.btn-row', [importBtn]),
         importArea,
       ]),
+      recoverSection,
       h('section.form-section', [
         h('h3.form-title', { text: 'Danger zone' }),
         h('p.form-help', { text: 'Erasing the city also clears its save. Export first if you might want it back.' }),

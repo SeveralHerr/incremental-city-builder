@@ -37,14 +37,14 @@
 //     arrive as they can be paid for. Institutional Memory (tiers 1–2, city 3), the Grid
 //     Charter (tier 3, city 6) and Standing Orders (the Legacy rungs, city 21) grant the
 //     ladder back at every founding, so a replay starts at the decisions below;
-//   • the pace ladder (`pace: true`), nine tier-4 rungs from $90M to $344T placed one per
+//   • the pace ladder (`pace: true`), nine tier-4 rungs from $88M to $435T placed one per
 //     city by the balance builder: each opens once this run has earned a hundred times its
 //     price (`earnedGate: PACE_GATE`, see `earnedUnlock`). That is the point at which the
 //     replay's cash — a few seconds of income in a mature city — is about to reach it, so a
 //     pace rung arrives as a reward that can be funded on the spot, not a card that sits
 //     "almost affordable" for twenty minutes (measured: the greedy bot buys each pace rung
 //     for the first time when the city has earned 100–130× its price);
-//   • the frontier ladder (`frontier: true`), nine fixed-dollar rungs from $2.2B to $26Qa
+//   • the frontier ladder (`frontier: true`), nine fixed-dollar rungs from $2.3B to $4.9Qa
 //     (Dyson Swarm … Helios Array … Exchange Ring), each opening once this run has earned a quarter of its
 //     price (`earnedGate: FRONTIER_GATE`). Deliberately uneven (×1.1–1,900 apart — the
 //     balance builder places them by city, see config.js): with the pace rungs hidden until
@@ -54,21 +54,28 @@
 //     $1e18 is what these rungs were before the first balance pass; the ×10 spacing never
 //     shipped;
 //   • the Legacy rungs (category 'prestige'): unlocked by legacy points (the whole bank,
-//     spent or not), paid in money each run;
+//     spent or not), paid in money each run. The three dear ones — Institutional Memory
+//     ($30M), City Archives ($52M) and Standing Orders ($4T) — also carry the frontier's
+//     earnings door (`legacyGate`, see `legacyFrontier`): the points alone opened Standing
+//     Orders in the 9th replay city and parked a $4T card as the only visible money target
+//     for four hours (measured: 60–80% of the samples in cycles 20–24 had the next upgrade
+//     over 15 min of income away), so each waits until this run has earned a quarter of
+//     its price, the same rule as the frontier;
 //   • the Charter perks (category 'charter', currency 'legacy'): twelve permanent perks
 //     bought with legacy points (core's api.buyUpgrade debits state.prestige.spent; the
-//     income bonus keeps using the whole bank). Costs run ×2.5 apart from 3 to 76,488
+//     income bonus keeps using the whole bank). Costs run ×2.5 apart from 3 to 195,808
 //     points (whole points, never under ×2.5), each opening once the *spendable* bank —
 //     legacy − spent, the same number core's canAffordUpgrade checks — holds half its
 //     price, and every one is a real jump: +50–200% income, +50–100% housing, +100–200%
-//     power, −15% cost. The bot signs the Imperial Charter in its 30th replay city (measured:
-//     cycle 31 of 32 in 12 h); the unlock rule and tier bracket follow the config price
+//     power, −15% cost. The bot signs the Imperial Charter in its 32nd replay city (measured:
+//     cycle 33 of 34 in 12 h); the unlock rule and tier bracket follow the config price
 //     (`charterUnlockFor`). A founding wipes state.upgrades, so index.js grants every owned
 //     perk back the moment a city is founded (`keptUpgradeIds` is the pure rule).
 //
-// All four self-priced gates (frontier cost/4, pace cost×100 or hold the price, funded core
-// rungs' hold door, charter cost/2) are rebuilt by index.js after a config override, so a
-// retuned price moves its gate, hint and progress mirror with it.
+// All five self-priced gates (frontier cost/4, pace cost×100 or hold the price, funded core
+// rungs' hold door, the dear Legacy rungs' earnings door at cost/4, charter cost/2) are
+// rebuilt by index.js after a config override, so a retuned price moves its gate, hint and
+// progress mirror with it.
 //
 // Nothing here reads the run clock: content gates on the economy, never on elapsed time.
 //
@@ -334,8 +341,8 @@ export function earnedUnlock(def) {
   if (def && def.pace) {
     // Both doors stay in the rule, but the card surfaces only the one that opens it in
     // practice: the treasury holding the price (measured: every pace rung's first purchase
-    // came through the cash door). A hint that read "Earn $34.4Qa in this city or hold
-    // $344T" and a bar drawn against the earnings door read ~1 % at the moment the card
+    // came through the cash door). A hint that read "Earn $43.5Qa in this city or hold
+    // $435T" and a bar drawn against the earnings door read ~1 % at the moment the card
     // became buyable, so the mirror is the price and the hint the hold.
     const hold = holds(cost);
     const fn = any(hasEarned(at), hold);
@@ -350,18 +357,45 @@ export const frontierUnlock = earnedUnlock;
 const frontier = (def) => ({ ...def, category: def.category || 'global', tier: 4, frontier: true, earnedGate: FRONTIER_GATE, ...earnedUnlock({ ...def, earnedGate: FRONTIER_GATE }) });
 const pace = (def) => ({ ...def, category: def.category || 'global', tier: 4, pace: true, earnedGate: PACE_GATE, ...earnedUnlock({ ...def, pace: true, earnedGate: PACE_GATE }) });
 
+// ---------- the Legacy rungs' earnings door ----------
+//
+// A dear Legacy rung carries two doors and needs both: its legacy gate (`legacyGate`:
+// "Bank 50 legacy points and own Institutional Memory") and this run having earned a
+// quarter of its price — the frontier's FRONTIER_GATE, so the card shows up while the
+// rung is four times what the city has earned and is fundable minutes later, never hours.
+// The points are banked cities before the earnings are (Standing Orders' 50 points landed
+// in the 9th replay city, its $1T of earnings in the 21st), so the earnings door is the one
+// that opens last: the hint names both and the mirror counts earnings toward cost/4, like a
+// frontier card. Founding memory re-grants a kept rung without consulting the door, so a
+// keeper still comes back the moment a city is founded.
+// `legacyFrontier` is the one place the rule lives: index.js rebuilds it after a config
+// override so the door follows the registered price (`legacyGate` survives the override).
+export function legacyFrontier(def) {
+  const cost = def && Number.isFinite(def.cost) && def.cost > 0 ? def.cost : 0;
+  const gate = def && typeof def.legacyGate === 'function' ? def.legacyGate : null;
+  const earn = hasEarned(cost * FRONTIER_GATE);
+  const fn = gate ? all(gate, earn) : earn;
+  const hint = gate && gate.hint ? `${gate.hint}, then ${earn.hint.charAt(0).toLowerCase() + earn.hint.slice(1)}` : earn.hint;
+  return { unlock: fn, unlockHint: hint.charAt(0).toUpperCase() + hint.slice(1), unlockAt: { earned: cost * FRONTIER_GATE } };
+}
+// The hint is rendered here, before the ladder is complete, so each rung registers its own
+// name first: Standing Orders' "own Institutional Memory" reads the rung built before it.
+const legacyRung = (def) => {
+  NAME_OF[def.id] = def.name;
+  return { ...def, category: 'prestige', ...legacyFrontier(def) };
+};
+
 // ---------- frontier ladder (fixed dollars, each opens at a quarter of its price) ----------
 //
 // Nine rungs, each a different lever. Prices are config's placement-by-city (see the
 // header; cities counted from the first founding): the Dyson Swarm lands mid-city 10, the
 // Quantum Exchange in city 13, then the Mass-Driver Port (23), Ringworld District (24),
 // Stellar Engine (26), Galactic Charter (28, beside the Energy Charter), Orbital Shipyard
-// (29), the Helios Array (the module's own $5Qa default until config places it; between
-// the Shipyard and the Ring, where the ladder used to step ×23) and the Exchange Ring
-// (31) carry the last four hours of a 12 h session. A rung is visible from the city that
-// earns a quarter of its price, four to eight cities before the one that buys it. The
-// Exchange Ring at $26Qa is the priciest thing in the game — a 12 h bot's cash peaks at
-// $2.8e16 — and stays two orders under the $1e18 money ceiling.
+// (29), the Helios Array (30; between the Shipyard and the Ring, where the ladder used to
+// step ×23) and the Exchange Ring (31) carry the last four hours of a 12 h session. A rung
+// is visible from the city that earns a quarter of its price, four to eight cities before
+// the one that buys it. The Exchange Ring at $4.9Qa is the priciest thing in the game — a
+// 12 h bot's cash peaks at $3.2e17 — and stays under the $1e18 money ceiling.
 
 const FRONTIER = [
   frontier({
@@ -435,7 +469,7 @@ const FRONTIER = [
     name: 'Helios Array',
     icon: '🔆',
     desc: 'All power generation ×3 · all income +25%',
-    // The 20th late rung, between the Shipyard ($1.1Qa) and the Exchange Ring ($26Qa):
+    // The 20th late rung, between the Shipyard ($1.35Qa) and the Exchange Ring ($4.9Qa):
     // that ×23 step was the ladder's widest and left the 30th–32nd cities with one new
     // card each over 45–50 minutes (DESIGN.md names the gap). A sun-tap whose surplus is
     // sold: the income clause is the "felt" term the balance notes ask of the late power
@@ -883,7 +917,7 @@ export const UPGRADES = [
     id: 'maintenance-contracts',
     name: 'Maintenance Contracts',
     icon: '🔧',
-    desc: 'Building upkeep −25%',
+    desc: 'Power plants cost −20% · building upkeep −40%',
     cost: 200000,
     category: 'global',
     tier: 3,
@@ -892,7 +926,19 @@ export const UPGRADES = [
       hasBuilt('coal', 5),
       hasBuilt('solar', 1)
     ),
-    effect: global('upkeep', 0.75),
+    // Upkeep is a sliver of the gross when this is bought (measured: 0.0% at minute 27.5
+    // of the first city, 1–2% through its last quarter hour; a plain −25% upkeep was worth
+    // +0% net income, the one rung whose felt effect was nil). The plant discount is what
+    // the card is worth on the day: from this purchase to the founding, power plants are
+    // 42% of what the city spends (nuclear 15%, solar 12%, coal 8%, fusion 7%), so −20% on
+    // their price is ~8% more city for the same income, on the cards being bought right
+    // then; the deeper upkeep cut is what it grows into once nuclear plants and fusion
+    // reactors carry real upkeep in the replays. Not an income clause: the Grid Charter
+    // re-grants tier 3 in every replay, and +10% income here compounded through thirty
+    // foundings (measured: 36 foundings, money peak 1.7e18 and legacy 1.05e6 — both over
+    // the ceiling — where the plant discount keeps the placed ladder to the minute).
+    // Windmills are left out: capped at a dozen and long since bought by minute 27.
+    effect: compose(global('upkeep', 0.6), costOf('coal', 0.8), costOf('solar', 0.8), costOf('nuclear', 0.8), costOf('fusion', 0.8)),
   }),
   funded({
     id: 'welcome-center',
@@ -1001,7 +1047,7 @@ export const UPGRADES = [
     effect: powerOf('nuclear', 2),
   },
 
-  // ===== Pace ladder ($90M – $344T): one rung per replay city, each opens once the city has earned 100× its price =====
+  // ===== Pace ladder ($88M – $435T): one rung per replay city, each opens once the city has earned 100× its price =====
   // In price (= city) order. Config places them by city (5 Championship Season · 7 Robotic
   // Assembly · 9 AI Governance · 12 Planetary Charter · 15 Megastructures · 16 Orbital Solar
   // · 18 Arcology Gardens · 20 Algorithmic Trading · 27 Superconductor Grid; "mid-city"
@@ -1089,7 +1135,7 @@ export const UPGRADES = [
     effect: global('demand', 0.7),
   }),
 
-  // ===== Frontier ($2.2B – $26Qa, each opens at a quarter of its price earned this run) =====
+  // ===== Frontier ($2.3B – $4.9Qa, each opens at a quarter of its price earned this run) =====
   ...FRONTIER,
 
   // ===== Legacy (prestige) — unlocked by legacy points, paid in money each run =====
@@ -1144,25 +1190,26 @@ export const UPGRADES = [
       mods.income *= 1 + 0.5 * Math.cbrt(pts);
     },
   },
-  {
+  // The three dear rungs below add the earnings door (see "the Legacy rungs' earnings door"):
+  // the points open in a city that cannot yet fund them, so each also waits for this run
+  // to earn a quarter of its price — $7.5M, $13.1M, $1T — seconds in the city that buys it.
+  legacyRung({
     id: 'institutional-memory',
     name: 'Institutional Memory',
     icon: '🗃️',
     desc: 'Every tier 1–2 upgrade is yours from the day a new city is founded',
     cost: 3e7,
-    category: 'prestige',
     tier: 4,
-    unlock: hasLegacy(10),
+    legacyGate: hasLegacy(10),
     keeps: (def) => isCore(def) && def.tier <= 2,
     effect: noEffect,
-  },
-  {
+  }),
+  legacyRung({
     id: 'city-archives',
     name: 'City Archives',
     icon: '📚',
     desc: 'Population grows +50% faster and all jobs +25%',
     cost: 5.24e7,
-    category: 'prestige',
     tier: 3,
     // Lands mid-way through the fourth city (config prices it at $52M, off plateau cash):
     // the one replay between the Mint Charter and Championship Season that had nothing
@@ -1170,26 +1217,25 @@ export const UPGRADES = [
     // jobs, not income: it is re-granted in every later city, and an income term here
     // compounds through thirty foundings (measured: +40% income turned the 12 h session
     // into 43 foundings and 1e7 legacy).
-    unlock: hasLegacy(20),
+    legacyGate: hasLegacy(20),
     effect: compose(global('growth', 1.5), global('jobs', 1.25)),
-  },
-  {
+  }),
+  legacyRung({
     id: 'standing-orders',
     name: 'Standing Orders',
     icon: '📑',
     desc: 'Tier 3 and Legacy upgrades are yours from the day a city is founded',
     cost: 4.03e12,
-    category: 'prestige',
     tier: 4,
-    unlock: all(hasLegacy(50), owns('institutional-memory')),
-    // Config prices it at $4.84T, the 21st city's novelty. Tier 3 has usually been kept by
+    legacyGate: all(hasLegacy(50), owns('institutional-memory')),
+    // Config prices it at $4.03T, the 21st city's novelty. Tier 3 has usually been kept by
     // the Grid Charter since city 6 by then (a `keeps` overlap is harmless: a rung is
     // granted once); what this adds is the six Legacy rungs.
     keeps: (def) => (isCore(def) && def.tier === 3) || def.category === 'prestige',
     effect: noEffect,
-  },
+  }),
 
-  // ===== Charter — permanent perks bought with legacy points (◆ 3 … ◆ 76,488) =====
+  // ===== Charter — permanent perks bought with legacy points (◆ 3 … ◆ 195,808) =====
   ...CHARTER,
 ];
 

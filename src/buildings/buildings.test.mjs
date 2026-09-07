@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { registry, registerBuilding } from '../core/registry.js';
 import { errors, state } from '../core/state.js';
 import { emit } from '../core/events.js';
@@ -25,6 +26,8 @@ import {
   costGrowthForTier,
   normalizeSynergy,
   normalizeGrowth,
+  ruleRatePct,
+  strainText,
   synergySource,
   synergyFactor,
   growthFactor,
@@ -168,7 +171,8 @@ test('resolveBuilding applies config overrides and drops poisonous values', () =
   const arc = resolveBuilding(data('arcology'), { config: { buildings: { arcology: { demandGrowth: null } } } });
   assert.equal(arc.demandGrowth, null);
   const arc2 = resolveBuilding(data('arcology'), { config: { buildings: { arcology: { demandGrowth: { per: 10, cap: 3 } } } } });
-  assert.deepEqual(arc2.demandGrowth, { per: 10, cap: 3 });
+  // ...and, carrying no text of its own, gets the card line its numbers derive.
+  assert.deepEqual(arc2.demandGrowth, { per: 10, cap: 3, text: 'Grid strain: draw +10% per Arcology owned (up to ×3)' });
   // Data definitions never mutate.
   assert.equal(base.jobs, 50);
   assert.equal(data('arcology').demandGrowth.per, 40);
@@ -428,6 +432,7 @@ test('tier-4 draw is a power bill the card states (≤ 50× the tier-3 intensity
     // The resolved rule (config may re-pin it) still prints a card line that quotes its rate.
     const r = normalizeGrowth(registry.buildings.get(id).demandGrowth);
     assert.ok(r && r.text.length > 0 && r.text.length <= 70, `${id} resolved strain has card text`);
+    assert.ok(r.text.includes(`+${ruleRatePct(r)}%`) && r.text.includes(`×${r.cap}`), `${id} resolved strain text "${r.text}" quotes ${ruleRatePct(r)}% / ×${r.cap}`);
     // The bill names a tier-3/4 plant (the stadium's config draw sits at four solar farms).
     assert.match(registry.buildings.get(id).powerHint, /(Nuclear Plant|Solar Farm)$/, `${id} hint names a plant`);
   }
@@ -764,4 +769,100 @@ test('catalogue.mjs prints the shipped catalogue with every config override flag
   }
   const shipped = rows.find((r) => r.id === 'stadium');
   assert.ok(shipped.synergy && shipped.demandGrowth, 'rule texts ride along');
+  // The rule fields are compared on their numbers: config's +12.5 % / ×40 strain against
+  // this folder's +2.5 % / ×1.5 fallback is a delta the tool prints in brackets.
+  const key = (r) => (r ? [r.stat, r.source, r.per, r.cap].filter((v) => v !== undefined).join('/') : '');
+  for (const row of rows) {
+    for (const f of ['synergy', 'demandGrowth']) {
+      const differs = key(registry.buildings.get(row.id)[f]) !== key(data(row.id)[f]);
+      assert.equal(row.overridden.includes(f), differs, `${row.id}.${f} flagged iff config re-pins the rule`);
+      if (differs) assert.equal(row['default_' + f], data(row.id)[f]?.text ?? 'none', `${row.id}.${f} default line in brackets`);
+    }
+  }
+  const strainDelta = ['arcology', 'techpark', 'financial', 'stadium'].some((id) => key(registry.buildings.get(id).demandGrowth) !== key(data(id).demandGrowth));
+  assert.equal(rows.some((row) => row.overridden.includes('demandGrowth')), strainDelta, 'a re-pinned strain rule shows as an override');
+});
+
+test('every synergy / strain card line quotes the rate and cap its own rule derives — in data.js and as shipped', () => {
+  // ruleRatePct is the single source: per 1,000 citizens for a pop/employed source, per unit
+  // otherwise. The Orbital Ring once said '+1% per 100,000 citizens' for a rule that is
+  // ×2 at 100,000 (+1 % per 1,000): a card 100× too small. The text is derived here from the
+  // numbers so that cannot drift again.
+  assert.equal(ruleRatePct({ source: 'pop', per: 100000 }), 1);
+  assert.equal(ruleRatePct({ source: 'pop', per: 5000 }), 20);
+  assert.equal(ruleRatePct({ source: 'employed', per: 20000 }), 5);
+  assert.equal(ruleRatePct({ source: 'building:apartment', per: 25 }), 4);
+  assert.equal(ruleRatePct({ per: 40 }), 2.5);
+  assert.equal(ruleRatePct({ per: 8 }), 12.5);
+  assert.ok(Number.isNaN(ruleRatePct({ per: 0 })) && Number.isNaN(ruleRatePct(null)));
+  const nameOf = (id) => data(id)?.name || registry.buildings.get(id)?.name;
+  const check = (label, id, kind, raw) => {
+    const r = kind === 'synergy' ? normalizeSynergy(raw) : normalizeGrowth(raw);
+    assert.ok(r, `${label} ${id} ${kind} is well-formed`);
+    const rate = ruleRatePct(r);
+    const pct = `+${rate.toLocaleString('en-US')}%`;
+    assert.ok(r.text.includes(pct), `${label} ${id} ${kind} "${r.text}" quotes ${pct}`);
+    assert.ok(r.text.includes(`×${r.cap.toLocaleString('en-US')}`), `${label} ${id} ${kind} "${r.text}" quotes the ×${r.cap} cap`);
+    if (kind === 'synergy' && (r.source === 'pop' || r.source === 'employed')) {
+      assert.match(r.text, /per 1,000 /, `${label} ${id} synergy "${r.text}" is stated per 1,000 citizens`);
+      if (r.per !== 1000) assert.ok(!r.text.includes(`per ${r.per.toLocaleString('en-US')} `), `${label} ${id} synergy "${r.text}" never quotes the raw per`);
+    } else if (kind === 'synergy') {
+      // A building-count source names the building it counts.
+      assert.ok(r.text.includes(nameOf(r.source.slice(9))), `${label} ${id} synergy "${r.text}" names ${nameOf(r.source.slice(9))}`);
+    } else {
+      assert.match(r.text, /^Grid strain: draw \+[\d.]+% per \S+ owned \(up to ×[\d.]+\)$/, `${label} ${id} strain "${r.text}" has the strain shape`);
+    }
+  };
+  let n = 0;
+  for (const b of BUILDINGS) {
+    if (b.synergy) { check('data', b.id, 'synergy', b.synergy); n++; }
+    if (b.demandGrowth) { check('data', b.id, 'growth', b.demandGrowth); n++; }
+  }
+  for (const id of registry.buildingOrder) {
+    const d = registry.buildings.get(id);
+    if (d.synergy) { check('shipped', id, 'synergy', d.synergy); n++; }
+    if (d.demandGrowth) { check('shipped', id, 'growth', d.demandGrowth); n++; }
+  }
+  assert.equal(n, 32, 'sixteen rules, checked in data.js and as shipped');
+  // The ring's rule, in numbers: ×2 at 100,000 citizens, ×12 from 1.1 M.
+  assert.equal(synergyFactor(data('ring').synergy, cityState(100000), grid(0)), 2);
+  assert.equal(synergyFactor(data('ring').synergy, cityState(1100000), grid(0)), 12);
+  assert.ok(data('ring').synergy.text.includes('+1% jobs per 1,000 citizens'), 'the ring line reads +1 % per 1,000');
+  // A strain rule re-pinned by config without a text gets one that quotes its numbers.
+  const bare = resolveBuilding(data('arcology'), { config: { buildings: { arcology: { demandGrowth: { per: 8, cap: 40 } } } } });
+  assert.equal(bare.demandGrowth.text, 'Grid strain: draw +12.5% per Arcology owned (up to ×40)');
+  assert.ok(bare.demandGrowth.text.length <= 70);
+  assert.equal(strainText({ per: 40, cap: 1.5 }, 'Stadium'), 'Grid strain: draw +2.5% per Stadium owned (up to ×1.5)');
+  assert.equal(strainText({ per: 0, cap: 1 }, 'x'), '');
+  // A configured text is kept verbatim, and it is the string the card renders.
+  assert.equal(registry.buildings.get('arcology').demandGrowth.text, config.buildings.arcology.demandGrowth.text);
+});
+
+test('README tables quote the shipped rules and tier-5 gates (regex over the file, so prose cannot drift)', () => {
+  const readme = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'README.md'), 'utf-8');
+  // Synergy table: `| id | stat | source (per → +100 %) | ×cap |`, one row per rule.
+  const rows = [...readme.matchAll(/^\| (\w+) \| (\w+) \| .*?\(([\d,]+) → \+100 %\) \| ×([\d.]+) \|$/gm)];
+  const seen = new Set();
+  for (const [, id, stat, per, cap] of rows) {
+    const rule = data(id)?.synergy;
+    assert.ok(rule, `README synergy row ${id} is a real rule`);
+    assert.equal(stat, rule.stat, `README ${id} stat`);
+    assert.equal(Number(per.replace(/,/g, '')), rule.per, `README ${id} per`);
+    assert.equal(Number(cap), rule.cap, `README ${id} cap`);
+    seen.add(id);
+  }
+  for (const b of BUILDINGS) if (b.synergy) assert.ok(seen.has(b.id), `README synergy table lists ${b.id}`);
+  // Tier-5 table: `| Name emoji | column | legacy ≥ N | city C (...) |` against data + config.
+  const t5 = [...readme.matchAll(/^\| (Orbital Ring|Space Elevator) \S+ \| \w+ \| legacy ≥ ([\d,]+) \| city (\d+) /gm)];
+  assert.equal(t5.length, 2, 'both tier-5 rows found');
+  for (const [, name, legacy, city] of t5) {
+    const id = name === 'Orbital Ring' ? 'ring' : 'elevator';
+    const gate = Number(legacy.replace(/,/g, ''));
+    assert.equal(gate, data(id).unlockAt.legacy, `README ${id} gate matches data.js`);
+    assert.equal(gate, registry.buildings.get(id).unlockAt.legacy, `README ${id} gate matches the shipped def`);
+    assert.ok(Number(city) >= 5, `${id} opens after the fifth city`);
+  }
+  // The ring's rate sentence in prose reads per 1,000 (README "Jobs and housing").
+  assert.match(readme, /Orbital Ring hires \+1 % per\s+1,000 citizens/, 'README prose states the ring per 1,000');
+  assert.doesNotMatch(readme, /\+1 % per\s+100,000/, 'README prose never says +1 % per 100,000');
 });

@@ -16,7 +16,9 @@ export function createToasts(parent) {
   parent.append(host);
   const recent = new Map(); // title -> { el, at }
 
-  function show({ title = '', body = '', icon = '✨', kind = 'info', timeout = 5600 } = {}) {
+  // 4.2 s default: two stacked toasts at 5.6 s hid the skyline for most of the opening's unlock
+  // bursts; a milestone line reads in under three seconds, and the stack still pauses on hover.
+  function show({ title = '', body = '', icon = '✨', kind = 'info', timeout = 4200 } = {}) {
     const now = performance.now();
     const dup = recent.get(title);
     if (dup && dup.el.isConnected && now - dup.at < DEDUPE_MS) {

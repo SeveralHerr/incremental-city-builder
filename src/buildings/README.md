@@ -11,7 +11,7 @@ up to ×40, the fallback in `data.js` stays the +2.5 % / ×1.5 tax argued under 
 what the game ships, or to see a delta, run
 
 ```
-node src/buildings/catalogue.mjs            # resolved catalogue, default in brackets where config differs
+node src/buildings/catalogue.mjs            # resolved catalogue, default in brackets where config differs (stickers and the synergy / strain rules)
 node src/buildings/cadence.mjs [--curve 30] # first-city open / first-buy probe (exit 1 on a fault); --curve prints the pop/demand/cash curve gates are placed on
 node src/buildings/columns.mjs [--ticks N]  # 12 h session probe: jobs vs housing per city, upgrade-mod swing, tier-5 open/buy cities (exit 1 on a fault)
 node src/buildings/buildings.test.mjs       # unit tests + both probes (cadence at the first founding, columns at 6 h)
@@ -74,7 +74,7 @@ carries three things instead of one number:
    stays 1,000 because a 2,500 arcology tripped every later first-city gate within a minute,
    and the rule only reaches ×1.15 in the first city's last five minutes.
 3. **A late jobs engine that grows with the population:** the Orbital Ring hires +1 % per
-   100,000 citizens up to ×12 (600,000 jobs in a city of 1.1 M). It opens in the 14th city —
+   1,000 citizens (×2 at 100,000) up to ×12 (600,000 jobs in a city of 1.1 M). It opens in the 14th city —
    one city after the Megastructures rung doubles housing — and from then on it is 60–80 %
    of the jobs column, the one term that scales with the thing the housing rungs inflate.
 
@@ -96,15 +96,18 @@ megastructures fix that, each on a legacy tier the simulation already announces:
 | card | column | gate | opens (12 h bot) | price | curve | identity |
 |---|---|---|---|---|---|---|
 | Orbital Ring 🛸 | residential | legacy ≥ 500 | city 14 (~3.8 h) | $2e11 | ×3 | 80,000 housing (eighty arcologies), 50,000 jobs ×(1 + pop/100k) up to ×12, +0.5 joy, draws 1.2 GW ("≈ 20 × Fusion Reactor") |
-| Space Elevator 🚀 | power | legacy ≥ 15,000 | city 24 (~7.3 h) | $2e13 | ×3 | 3 GW (fifty fusion reactors) +10 % per ring up to ×3, 40,000 jobs, +0.3 joy, upkeep $75k/s (nuclear's $0.025/MW/s, a third of it at ×3) |
+| Space Elevator 🚀 | power | legacy ≥ 300,000 | city 33 (~11.4 h) | $2e13 | ×3 | 3 GW (fifty fusion reactors) +10 % per ring up to ×3, 40,000 jobs, +0.3 joy, upkeep $75k/s (nuclear's $0.025/MW/s, a third of it at ×3) |
 
 Both are pace-inert by construction — housing, jobs, power and joy are "variety, not pace"
 in a replay (config.js) — and priced at seconds of their opening city's income so they are
 bought in the city they open (measured: both first bought 1.7–2.6 min after opening). The
 ×3 curve is what keeps them a target rather than a spree: a city buys a handful in its
 opening minutes and the next one costs more than the spree reached, so the bot buys rings
-in every one of the 22 cities after the 14th (166 in 12 h) and elevators in every city after
-the 24th (80), without eating the cash that re-buys the core ladder. Their rules are the
+in every one of the 21 cities from the 14th (148 in 12 h, `columns.mjs`) and elevators in
+both cities from the 33rd (20), without eating the cash that re-buys the core ladder. (The
+elevator's gate was re-pinned from 15,000 legacy / city 24 to 300,000 / city 33 by the
+integrator so it follows the Imperial Charter's city and stays the never-bought item of
+its own; config and `data.js` agree, the gate-table test below holds this row to both.) Their rules are the
 module's normal vocabulary (`synergy`, a pinned `costGrowth`, a `{ legacy }` unlock mirror
 that `cadence.mjs` and `catalogue.mjs` print as `legacy N`); the UI's locked card shows the
 hint ("Bank 500 legacy") and no progress bar, since its mirror reader knows pop and demand.
@@ -258,7 +261,7 @@ being edited — so the reading that matters is a same-tree A/B: the previous ca
 |---|---|---|
 | foundings / first city | 28 / 44.6 min | 35 / 42.5 min |
 | every building and upgrade bought | no (5 late rungs never reached) | yes |
-| new building after the first city | none | ring in city 14, elevator in city 24 |
+| new building after the first city | none | ring in city 14, elevator in city 24 (now 33 after the gate re-pin) |
 | under-power share / floor | 4.3 % / 0.60 | 4.2 % / 0.60 |
 | happiness dips below 1.0 | 21 of 28 cities | 21 of 35 |
 | purchase tension (reach) | 55 % | 42 % |
@@ -283,3 +286,10 @@ registered definition is therefore an *accessor* over the live store: reading it
 `game.buildings.liveStat` / `baseStat` instead of reading the field. `game.buildings` also
 carries `capOf(def)` and `powerHintFor(def, generators)` for tools, and `index.js` exports
 `DEFAULT_TIER_GROWTH` (the config ladder's fallback copy) for the test that holds it to config.
+
+The card strings a definition carries are `synergy.text` (✦), `demandGrowth.text` (⚡, the
+strain line — a config re-pin of per/cap without a text gets one from `strainText`) and the
+derived `powerHint`; the UI renders all three under the stats. `ruleRatePct(rule)` is the
+percentage a line must quote (per 1,000 citizens for a population or employed source, per
+unit otherwise) and the test derives every line from it, so a card can never again quote
+a rule's raw `per` as its rate (the ring's line once read 100× too small).

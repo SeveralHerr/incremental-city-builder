@@ -1,0 +1,5 @@
+[sim] FAIL (contract FAIL) 12h game in 25585ms (16885 t/s) money=5.38e+17 income=3.70e+16/s pop=119951813 prestiges=38 legacy=2045934 (spent 265153) issues=1 errors=0
+[sim] cycles(min): 37.2 13.9 13.0 6.7 8.2 9.4 11.9 11.3 8.7 11.6 15.5 4.6 5.4 7.1 8.3 10.7 13.4 15.7 20.3 19.2 25.4 32.0 16.5 21.2 27.1 23.0 23.6 16.1 16.2 18.5 22.7 27.2 15.6 19.3 25.3 34.0 25.5 34.7
+[sim] profile=saver reach=48% bigRatio=45% (next-step 12%) underPower=3.6% minRatio=0.60 happyDips=21/38 emptyLate=17
+  - [magnitude] t=26440 money peak 3.30e+18, legacy 2045934 (contract: ≤1e18 / ≤1e6 at 12h)
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-fix-ui-saver.json

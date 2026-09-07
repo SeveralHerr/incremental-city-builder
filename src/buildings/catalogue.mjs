@@ -1,6 +1,8 @@
 // Prints the *shipped* building catalogue: every definition as the game registers it
 // (data.js defaults + config.buildings overrides + tier cost growth), one row per building,
-// with the data.js default shown next to any field config re-pins. DOM-free, Node only.
+// with the data.js default shown next to any field config re-pins — the numeric stickers and
+// the two rule fields (`synergy`, `demandGrowth`: a re-pinned per/cap/source prints the
+// default rule's card line in brackets, so the tier-4 strain delta is visible). DOM-free, Node only.
 //   node src/buildings/catalogue.mjs [--json]
 // Use this, not the numbers in data.js, when quoting what the game ships.
 import path from 'node:path';
@@ -16,6 +18,10 @@ const { BUILDINGS } = await import('./data.js');
 const { registry } = game;
 
 const FIELDS = ['baseCost', 'costGrowth', 'housing', 'jobs', 'income', 'powerGen', 'powerUse', 'upkeep', 'happiness'];
+// The rule fields: compared on their numbers (stat / source / per / cap), not their text.
+const RULE_FIELDS = ['synergy', 'demandGrowth'];
+const ruleKey = (r) => (r && typeof r === 'object' ? [r.stat, r.source, r.per, r.cap].filter((v) => v !== undefined).join('/') : '');
+const ruleText = (r) => (r && typeof r === 'object' && typeof r.text === 'string' && r.text ? r.text : r ? ruleKey(r) : 'none');
 const gateOf = (d) => {
   const at = d?.unlockAt || {};
   if (!d?.unlock) return 'start';
@@ -42,8 +48,13 @@ for (const id of registry.buildingOrder) {
     }
   }
   if (row.gate !== row.defaultGate) row.overridden.push('unlock');
-  if (shipped.synergy) row.synergy = shipped.synergy.text;
-  if (shipped.demandGrowth) row.demandGrowth = shipped.demandGrowth.text;
+  for (const f of RULE_FIELDS) {
+    if (shipped[f]) row[f] = shipped[f].text;
+    if (ruleKey(shipped[f]) !== ruleKey(def[f])) {
+      row.overridden.push(f);
+      row['default_' + f] = ruleText(def[f]);
+    }
+  }
   rows.push(row);
 }
 
@@ -57,8 +68,10 @@ if (JSON_OUT) {
     const f = (k, w) => cell(num(r[k]) + (r.overridden.includes(k) ? ` [${num(r['default_' + k])}]` : ''), w);
     const gate = r.gate + (r.overridden.includes('unlock') ? ` [${r.defaultGate}]` : '');
     console.log(`${r.id.padEnd(12)} ${r.tier}  ${gate.padEnd(24)} ${f('baseCost', 14)} ${f('costGrowth', 6)} ${f('housing', 11)} ${f('jobs', 8)} ${f('income', 8)} ${f('powerGen', 8)} ${f('powerUse', 14)} ${f('upkeep', 12)} ${f('happiness', 6)}`);
-    if (r.synergy) console.log(`             ${r.synergy}`);
-    if (r.demandGrowth) console.log(`             ${r.demandGrowth}`);
+    for (const f of RULE_FIELDS) {
+      const line = (r[f] || (r.overridden.includes(f) ? `no ${f}` : '')) + (r.overridden.includes(f) ? ` [${r['default_' + f]}]` : '');
+      if (line) console.log(`             ${line}`);
+    }
   }
   const n = rows.filter((r) => r.overridden.length).length;
   console.log(`${rows.length} buildings, ${n} with a config override; errors ${game.errors.length}`);

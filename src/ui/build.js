@@ -1,6 +1,7 @@
 // Build panel: category tabs + building cards with buy ×1 / ×10 / ×max / sell modes.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, prefersReducedMotion } from './dom.js';
 import { CATEGORY_GATES } from './content.js';
+import { unlockMeasure, unlockLabel, unlockDisplayKey } from './text.js';
 
 const MODES = [
   { id: 1, label: '×1', title: 'Buy one at a time' },
@@ -38,7 +39,25 @@ export function createBuildPanel(ui) {
   }
 
   const tabBar = h('div.tabs', { role: 'tablist', 'aria-label': 'Building categories' });
-  const list = h('div.cards', { role: 'tabpanel' });
+  const list = h('div#build-cards.cards', { role: 'tabpanel' });
+  // ARIA tabs pattern: a roving tabindex (only the active tab is in the tab order) and
+  // Left/Right/Home/End move the focus and the selection together.
+  tabBar.addEventListener('keydown', (e) => {
+    const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    const order = [...tabBar.children].filter((el) => el.getAttribute('role') === 'tab');
+    if (!order.length) return;
+    let i = order.indexOf(document.activeElement);
+    if (i < 0) i = order.findIndex((el) => el.classList.contains('is-active'));
+    if (e.key === 'ArrowLeft') i = (i - 1 + order.length) % order.length;
+    else if (e.key === 'ArrowRight') i = (i + 1) % order.length;
+    else if (e.key === 'Home') i = 0;
+    else i = order.length - 1;
+    e.preventDefault();
+    const next = order[i];
+    setActive(next.dataset.cat);
+    next.focus();
+  });
   const empty = h('div.empty-state', [
     h('div.empty-icon', { text: '🏗️', 'aria-hidden': 'true' }),
     h('div.empty-title', { text: 'No zoning permits on file' }),
@@ -77,7 +96,7 @@ export function createBuildPanel(ui) {
       const dot = h('span.tab-dot', { 'aria-hidden': 'true' });
       const count = h('span.tab-count.mono', { text: '' });
       // Name as title + aria-label too: in a narrow column inactive tabs collapse to icon + count.
-      const btn = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-label': cat.name, title: cat.name, dataset: { cat: cat.id } }, [
+      const btn = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-controls': 'build-cards', tabindex: '-1', 'aria-label': cat.name, title: cat.name, dataset: { cat: cat.id } }, [
         h('span.tab-icon', { text: cat.icon, 'aria-hidden': 'true' }),
         h('span.tab-label', { text: cat.name }),
         count,
@@ -96,6 +115,7 @@ export function createBuildPanel(ui) {
     for (const [id, t] of tabs) {
       const on = id === catId;
       setAttr(t.el, 'aria-selected', on ? 'true' : 'false');
+      setAttr(t.el, 'tabindex', on ? '0' : '-1');
       setClass(t.el, 'is-active', on);
       if (on) t.el.classList.remove('is-new');
     }
@@ -160,6 +180,10 @@ export function createBuildPanel(ui) {
     // Signature mechanic (tier-3/4 buildings): one subtle line under the stats.
     const synergyText = def.synergy && typeof def.synergy.text === 'string' ? def.synergy.text.trim() : '';
     const synergy = synergyText ? h('div.bcard-synergy', { title: synergyText }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: synergyText })]) : null;
+    // Grid strain (tier-4 consumers): "draw +2.5% per unit owned (up to ×1.5)" — a second,
+    // quieter synergy line, so the card says its draw climbs before the grid browns out.
+    const strainText = def.demandGrowth && typeof def.demandGrowth.text === 'string' ? def.demandGrowth.text.trim() : '';
+    const strain = strainText ? h('div.bcard-synergy.bcard-strain', { title: strainText }, [h('span.bcard-synergy-mark', { text: '↯', 'aria-hidden': 'true' }), h('span', { text: strainText })]) : null;
     // Power hint (buildings module stamps `powerHint` on every consumer that draws at least a
     // windmill's worth): "Draws 10,500 MW ≈ 0.9 × Nuclear Plant", so a tier-4 card says which
     // plant it needs before the grid browns out.
@@ -172,6 +196,7 @@ export function createBuildPanel(ui) {
         h('div.bcard-desc', { text: def.desc || '', title: def.desc || null }),
         statsEl,
         synergy,
+        strain,
         powerLine,
         total,
       ]),
@@ -218,6 +243,7 @@ export function createBuildPanel(ui) {
     if (lc.forId !== def.id) {
       lc.forId = def.id;
       lc.def = def;
+      lc.labelKey = '';
       setText(lc.name, (lc.slot > 0 ? 'Another undiscovered ' : 'Undiscovered ') + content.category(catId).name.toLowerCase() + ' building');
       setText(lc.hint, unlockHint(def));
     }
@@ -230,34 +256,26 @@ export function createBuildPanel(ui) {
     return 'Grow your city to reveal what the planners are sketching.';
   }
 
-  // Progress toward a locked building's unlock rule, from the data mirror `unlockAt`
-  // ({pop} | {powerDemand} | {pop, legacy}). Returns { p, label } or null when unmeasurable.
-  function unlockProgress(def, s, d) {
-    const at = def.unlockAt;
-    if (!at || typeof at !== 'object') return null;
-    if (Number.isFinite(at.pop) && at.pop > 0) {
-      const v = Math.floor(s.res.pop || 0);
-      return { p: Math.min(1, v / at.pop), label: `${num(v)} / ${num(at.pop)}` };
-    }
-    if (Number.isFinite(at.powerDemand) && at.powerDemand > 0) {
-      const v = d.powerDemand || 0;
-      if (at.powerDemand < 1) return { p: v > 0 ? 1 : 0, label: v > 0 ? 'ready' : '0 MW drawn' };
-      return { p: Math.min(1, v / at.powerDemand), label: `${short(v)} / ${short(at.powerDemand)} MW` };
-    }
-    return null;
-  }
-
+  // Progress toward a locked building's unlock rule comes from the data mirror `unlockAt`
+  // ({pop} | {powerDemand} | {legacy} | {pop, legacy} ...); text.js reads every shape the
+  // buildings and upgrades modules ship and returns null when unmeasurable (hint alone).
   function updateLocked(lc, s, d) {
     if (!lc.def) return;
-    const pr = unlockProgress(lc.def, s, d);
-    setHidden(lc.bar, !pr);
-    if (!pr) {
+    const m = unlockMeasure(lc.def.unlockAt, s, d, game.api);
+    setHidden(lc.bar, !m);
+    if (!m) {
+      lc.labelKey = '';
       setText(lc.meta, '');
       return;
     }
-    setProgress(lc.fill, pr.p);
-    setText(lc.meta, pr.label);
-    setClass(lc.el, 'is-close', pr.p >= 0.75);
+    setProgress(lc.fill, m.p);
+    // Two locale-formatted numbers per label: only rebuild it when the printed figure moved.
+    const key = m.kind + '|' + m.t + '|' + unlockDisplayKey(m);
+    if (lc.labelKey !== key) {
+      lc.labelKey = key;
+      setText(lc.meta, unlockLabel(m));
+    }
+    setClass(lc.el, 'is-close', m.p >= 0.75);
   }
 
   function updateCard(c, s, d, force) {

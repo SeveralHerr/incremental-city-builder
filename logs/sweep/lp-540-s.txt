@@ -1,0 +1,47 @@
+[probe] saver 30s prestige.legacyPower=0.540
+[probe] foundings=38 first=37.2 min last=37.1 legacy=2044932 money=3.01e+18 errors=0 FAIL
+[probe] cycles: 37.2 13.9 13.0 6.4 8.2 9.2 11.9 10.9 8.8 11.7 15.8 4.6 5.5 7.1 8.4 11.0 13.7 16.0 20.8 19.8 26.3 33.1 19.9 22.0 28.1 23.9 24.6 16.8 21.3 19.4 23.8 29.3 16.1 20.1 26.8 36.2 27.2 37.1
+[probe] max ratio x1.365 at cycle 37 (27.17 -> 37.1); over 1.35: 10:x1.356 35:x1.353 37:x1.365; over 1.30: 9:x1.322 10:x1.356 15:x1.301 20:x1.332 34:x1.332 35:x1.353 37:x1.365
+[probe] first city: panel at 18.5 min, Found button at 24.6 min, founding at 37.2 min; reach 54% of its 37 samples (20 in 30 s – 15 min)
+[probe] emptyLate=[9,10,12,13,15,18,20,21,23,24,30,31,34,35,36,37] reach=52% noReach=37% under=3.5% byHour=[29.8 10.6 1.1 0.4 0.2 0.2 0.1 0 0 0 0 0] floor=0.60 dips=21/38 midDips=3/38
+[probe] margins (plan.json targets): 8/13 inside · ratioMax 1.365 (<= x1.345) FAIL · underPowerMin 0.0353 (>= 0.04) FAIL · foundingsMax 38 (<= 34) FAIL · moneyMax 3.01e+18 (<= 5e+17) FAIL · legacyMax 2.04e+6 (<= 8e+5) FAIL
+[probe] rungs: legacy-archive@1(0) founders-blueprints@1(4) veteran-planners@1(6.3) dynasty-ledger@1(7.5) institutional-memory@2(10.1) city-archives@4(3.8) championship-season@5(6.8) robotic-assembly@7(8.4) ai-governance@7(8.6) dyson-swarm@7(8.9) planetary-charter@11(2.3) quantum-exchange@11(2.6) megastructures@14(2.7) orbital-solar@16(2.4) arcology-gardens@17(2.7) algorithmic-trading@19(2.7) standing-orders@19(3.3) mass-driver-port@22(3) ringworld-district@22(16.2) stellar-engine@25(4) superconductor-grid@26(5) galactic-charter@26(17.6) orbital-shipyard@27(5.9) helios-array@27(6.9) exchange-ring@29(6.7)
+  city  0   37.2 min  legacy      5  earned 2.98e+8  income 1.16e+6  spree 2.71e+2@0  plateau 2.04e+7@34.3  53
+  city  1   13.9 min  legacy     10  earned 9.38e+8  income 9.56e+6  spree 4.81e+3@4  plateau 2.15e+7@11.6  5
+  city  2   13.0 min  legacy     15  earned 1.61e+9  income 1.15e+7  spree 8.70e+3@3.9  plateau 3.03e+7@10.1  1
+  city  3    6.4 min  legacy     21  earned 2.82e+9  income 2.30e+7  spree 2.01e+7@3.8  plateau 4.80e+7@6.4  charter-mint
+  city  4    8.2 min  legacy     30  earned 6.07e+9  income 2.76e+7  spree 5.32e+7@3.8  plateau 8.37e+7@7.5  city-archives
+  city  5    9.2 min  legacy     42  earned 1.16e+10  income 3.87e+7  spree 5.53e+7@3.1  plateau 1.57e+8@8.9  championship-season
+  city  6   11.9 min  legacy     59  earned 2.35e+10  income 5.38e+7  spree 6.64e+7@4  plateau 2.23e+8@11.8  charter-grid
+  city  7   10.9 min  legacy     83  earned 4.77e+10  income 1.82e+8  spree 1.24e+8@4  plateau 2.56e+9@8.9  robotic-assembly+ai-governance+dyson-swarm
+  city  8    8.8 min  legacy    117  earned 9.63e+10  income 2.68e+8  spree 2.49e+9@3  plateau 1.08e+9@8.8  charter-guild
+  city  9   11.7 min  legacy    164  earned 1.89e+11  income 3.68e+8  spree 2.54e+9@2.5  plateau 1.57e+9@11.2  -
+  city 10   15.8 min  legacy    230  earned 3.81e+11  income 5.04e+8  spree 2.43e+9@2  plateau 3.15e+9@15.2  -
+  city 11    4.6 min  legacy    322  earned 7.59e+11  income 6.66e+9  spree 8.07e+10@3.1  plateau 1.33e+10@4.6  charter-merchant+planetary-charter+quantum-exchange
+  city 12    5.5 min  legacy    452  earned 1.52e+12  income 8.83e+9  spree 1.57e+11@3  plateau 1.79e+10@4.6  -
+  city 13    7.1 min  legacy    633  earned 3.02e+12  income 1.13e+10  spree 2.44e+11@3.1  plateau 2.50e+10@7.1  -
+  city 14    8.4 min  legacy    887  earned 6.03e+12  income 1.73e+10  spree 2.82e+11@2.7  plateau 4.77e+10@8.2  charter-settlers+megastructures+ring
+  city 15   11.0 min  legacy   1242  earned 1.20e+13  income 2.62e+10  spree 2.83e+11@2.3  plateau 1.08e+11@10.7  -
+  city 16   13.7 min  legacy   1739  earned 2.39e+13  income 3.76e+10  spree 3.49e+11@2.4  plateau 1.78e+11@13.4  orbital-solar
+  city 17   16.0 min  legacy   2435  earned 4.77e+13  income 6.14e+10  spree 7.91e+11@2.7  plateau 4.03e+11@15.4  charter-masons+arcology-gardens
+  city 18   20.8 min  legacy   3410  earned 9.51e+13  income 8.92e+10  spree 7.95e+11@2.3  plateau 7.50e+11@19.7  -
+  city 19   19.8 min  legacy   4775  earned 1.90e+14  income 2.06e+11  spree 4.15e+12@3.3  plateau 1.37e+12@19.3  charter-civic+algorithmic-trading+standing-orders
+  city 20   26.3 min  legacy   6686  earned 3.78e+14  income 2.87e+11  spree 2.86e+12@3.1  plateau 3.07e+12@26  -
+  city 21   33.1 min  legacy   9361  earned 7.53e+14  income 4.33e+11  spree 7.00e+12@2.7  plateau 5.58e+12@32.8  -
+  city 22   19.9 min  legacy  13110  earned 1.50e+15  income 2.07e+12  spree 4.40e+13@3  plateau 5.07e+13@16.2  charter-treasury+mass-driver-port+ringworld-district
+  city 23   22.0 min  legacy  18357  earned 2.99e+15  income 2.86e+12  spree 5.06e+13@3.5  plateau 4.37e+13@4.1  -
+  city 24   28.1 min  legacy  25701  earned 5.96e+15  income 4.18e+12  spree 1.05e+14@3.9  plateau 1.07e+14@4.1  -
+  city 25   23.9 min  legacy  35988  earned 1.19e+16  income 1.16e+13  spree 3.17e+14@4  plateau 3.27e+14@4  charter-skyline+stellar-engine
+  city 26   24.6 min  legacy  50390  earned 2.37e+16  income 3.16e+13  spree 3.26e+14@3.9  plateau 5.51e+14@17.6  superconductor-grid+galactic-charter
+  city 27   16.8 min  legacy  70562  earned 4.73e+16  income 7.40e+13  spree 3.25e+14@3.5  plateau 2.31e+15@6.9  orbital-shipyard+helios-array
+  city 28   21.3 min  legacy  98800  earned 9.42e+16  income 1.03e+14  spree 4.44e+14@4  plateau 2.27e+15@6.2  charter-energy
+  city 29   19.4 min  legacy 138346  earned 1.88e+17  income 2.70e+14  spree 4.48e+14@3.6  plateau 5.70e+15@7.5  exchange-ring
+  city 30   23.8 min  legacy 193719  earned 3.74e+17  income 3.82e+14  spree 4.57e+14@4  plateau 1.25e+16@7.5  -
+  city 31   29.3 min  legacy 271254  earned 7.46e+17  income 5.57e+14  spree 7.29e+14@4  plateau 2.45e+16@7.5  -
+  city 32   16.1 min  legacy 379775  earned 1.49e+18  income 2.52e+15  spree 2.36e+15@3.6  plateau 1.70e+17@7.5  charter-imperial
+  city 33   20.1 min  legacy 531895  earned 2.97e+18  income 3.57e+15  spree 4.75e+15@4  plateau 2.43e+17@7.5  elevator
+  city 34   26.8 min  legacy 744828  earned 5.91e+18  income 4.85e+15  spree 4.95e+15@3.9  plateau 3.53e+17@7.5  -
+  city 35   36.2 min  legacy 1042893  earned 1.18e+19  income 6.57e+15  spree 7.77e+15@4  plateau 5.00e+17@7.3  -
+  city 36   27.2 min  legacy 1460317  earned 2.35e+19  income 1.82e+16  spree 7.12e+16@4  plateau 1.58e+18@7  -
+  city 37   37.1 min  legacy 2044932  earned 4.68e+19  income 2.47e+16  spree 1.89e+17@4  plateau 2.17e+18@6.6  -
+[probe] items: 0:53 1:5 2:1 3:charter-mint 4:city-archives 5:championship-season 6:charter-grid 7:robotic-assembly+ai-governance+dyson-swarm 8:charter-guild 9:- 10:- 11:charter-merchant+planetary-charter+quantum-exchange 12:- 13:- 14:charter-settlers+megastructures+ring 15:- 16:orbital-solar 17:charter-masons+arcology-gardens 18:- 19:charter-civic+algorithmic-trading+standing-orders 20:- 21:- 22:charter-treasury+mass-driver-port+ringworld-district 23:- 24:- 25:charter-skyline+stellar-engine 26:superconductor-grid+galactic-charter 27:orbital-shipyard+helios-array 28:charter-energy 29:exchange-ring 30:- 31:- 32:charter-imperial 33:elevator 34:- 35:- 36:- 37:-

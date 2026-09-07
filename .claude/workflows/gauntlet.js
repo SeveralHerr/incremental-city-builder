@@ -63,7 +63,8 @@ const history = []
 for (let round = startRound; round <= MAX_ROUNDS; round++) {
   phase('Critique')
   const cp = critics(evidence?.summary || '')
-  const names = Object.keys(cp).filter((m) => !(scores[m]?.pass))
+  const only = Array.isArray(args?.only) && args.only.length ? new Set(args.only) : null
+  const names = Object.keys(cp).filter((m) => !(scores[m]?.pass) && (!only || only.has(m)))
   const results = (await parallel(names.map((m) => () => agent(cp[m], { label: `critic:${m}:r${round}`, phase: 'Critique', schema: SCORE, effort: m === 'ui' || m === 'balance' ? 'high' : 'medium' })))).filter(Boolean)
   for (const r of results) scores[r.module] = { ...r, round }
   const failing = results.filter((r) => !(r.score >= THRESH && r.errors === 0 && r.pass))

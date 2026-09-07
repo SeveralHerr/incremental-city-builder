@@ -1,8 +1,10 @@
-// UI unit tests for the DOM-free parts of src/ui: unlock announcer, text helpers, content
-// lookups and milestone progress. Run: node src/ui/ui.test.mjs
+// UI unit tests for the DOM-free parts of src/ui: unlock announcer, text helpers, unlock
+// progress mirrors, upgrade teaser selection, content lookups and milestone progress.
+// Run: node src/ui/ui.test.mjs
 import assert from 'node:assert/strict';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { TEASERS } from './upgrades.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { MAX_VISIBLE } from './toast.js';
@@ -217,6 +219,80 @@ test('milestone progress from ids, metrics and custom functions', () => {
   assert.equal(milestoneProgress({ id: 'mystery' }, state, derived), null);
   const list = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
   assert.deepEqual(nextMilestones(list, { unlocks: { 'm:a': true } }, 2).map((m) => m.id), ['b', 'c']);
+});
+
+test('unlock progress reads every unlockAt shape the content modules ship', () => {
+  const state = {
+    res: { money: 40, pop: 187.6 },
+    stats: { totalEarned: 2.5e5, buildingsBuilt: 30 },
+    buildings: { house: 3, shop: 0 },
+    upgrades: { a: true, b: true, c: false },
+    prestige: { legacy: 12, spent: 5 },
+  };
+  const derived = { powerDemand: 17, extra: { prestige: { available: 7 } } };
+  const api = { legacyAvailable: () => 7 };
+  assert.deepEqual(unlockProgress({ pop: 250 }, state, derived, api), { p: 187 / 250, label: '187 / 250', kind: 'pop' });
+  assert.deepEqual(unlockProgress({ money: 75 }, state, derived, api), { p: 40 / 75, label: '$40 / $75', kind: 'money' });
+  assert.deepEqual(unlockProgress({ earned: 5e5 }, state, derived, api), { p: 0.5, label: '$250,000 / $500,000 earned', kind: 'earned' });
+  assert.deepEqual(unlockProgress({ building: 'house', count: 4 }, state, derived, api), { p: 0.75, label: '3 / 4 built', kind: 'building' });
+  assert.deepEqual(unlockProgress({ building: 'shop', count: 15 }, state, derived, api), { p: 0, label: '0 / 15 built', kind: 'building' });
+  assert.deepEqual(unlockProgress({ powerDemand: 34 }, state, derived, api), { p: 0.5, label: '17 / 34 MW', kind: 'powerDemand' });
+  assert.deepEqual(unlockProgress({ powerDemand: 0.001 }, state, derived, api), { p: 1, label: 'ready', kind: 'powerDemand' });
+  assert.equal(unlockProgress({ powerDemand: 0.001 }, state, { powerDemand: 0 }, api).label, '0 MW drawn');
+  assert.deepEqual(unlockProgress({ legacy: 20 }, state, derived, api), { p: 0.6, label: `${LEGACY_GLYPH} 12 / 20`, kind: 'legacy' });
+  // Spendable legacy: the api's figure wins over the derived snapshot and over legacy − spent;
+  // a half-point threshold (cost × 0.5) rounds up in the label.
+  assert.deepEqual(unlockProgress({ legacyAvailable: 62.5 }, state, derived, api), { p: 7 / 62.5, label: `${LEGACY_GLYPH} 7 / 63 spendable`, kind: 'legacyAvailable' });
+  assert.equal(unlockProgress({ legacyAvailable: 10 }, state, derived, null).p, 0.7, 'falls back to the derived snapshot');
+  assert.equal(unlockProgress({ legacyAvailable: 10 }, state, {}, null).p, 0.7, 'then to legacy − spent');
+  assert.deepEqual(unlockProgress({ built: 60 }, state, derived, api), { p: 0.5, label: '30 / 60 built', kind: 'built' });
+  assert.deepEqual(unlockProgress({ upgrades: 1 }, state, derived, api), { p: 1, label: '2 / 1 funded', kind: 'upgrades' });
+  // Fusion mirrors {pop, legacy}: the first measurable door (pop) draws the bar.
+  assert.equal(unlockProgress({ pop: 36000, legacy: 1 }, state, derived, api).kind, 'pop');
+  // Progress clamps to [0, 1] and never leaks NaN.
+  assert.equal(unlockProgress({ pop: 100 }, { res: { pop: 250 } }, {}, null).p, 1);
+  assert.deepEqual(unlockProgress({ money: 50 }, { res: { money: NaN } }, {}, null), { p: 0, label: '$0 / $50', kind: 'money' });
+});
+
+test('unlock progress is null for missing, malformed or unmeasurable mirrors', () => {
+  const state = { res: { money: 1, pop: 1 }, stats: {}, buildings: {}, upgrades: {}, prestige: {} };
+  assert.equal(unlockProgress(undefined, state, {}, null), null);
+  assert.equal(unlockProgress(null, state, {}, null), null);
+  assert.equal(unlockProgress('pop', state, {}, null), null);
+  assert.equal(unlockProgress({ upgrade: 'zoning-reform' }, state, {}, null), null, 'ownership flags have no bar');
+  assert.equal(unlockProgress({ pop: 0 }, state, {}, null), null);
+  assert.equal(unlockProgress({ pop: NaN, money: -5 }, state, {}, null), null);
+  assert.equal(unlockProgress({ building: 7 }, state, {}, null), null);
+  assert.equal(unlockProgress({ pop: 10 }, null, null, null).label, '0 / 10', 'no state at all still reads as zero');
+});
+
+test('teaser rungs: the cheapest locked money rungs, never owned, open, broken or ◆-priced', () => {
+  const rows = [
+    { id: 'open', cost: 10, unlocked: true, owned: false, currency: 'money', category: 'global' },
+    { id: 'owned', cost: 5, unlocked: true, owned: true, currency: 'money', category: 'global' },
+    { id: 'c', cost: 300, unlocked: false, owned: false, currency: 'money', category: 'power' },
+    { id: 'a', cost: 75, unlocked: false, owned: false, currency: 'money', category: 'residential' },
+    { id: 'broken', cost: 1, unlocked: false, owned: false, broken: true, currency: 'money', category: 'global' },
+    { id: 'perk', cost: 3, unlocked: false, owned: false, currency: 'legacy', category: 'charter' },
+    { id: 'b', cost: 80, unlocked: false, owned: false, currency: 'money', category: 'commercial' },
+    { id: 'nan', cost: NaN, unlocked: false, owned: false, currency: 'money', category: 'global' },
+    null,
+  ];
+  assert.equal(TEASERS, 2);
+  assert.deepEqual(teaserRungs(rows, { count: TEASERS }).map((r) => r.id), ['a', 'b']);
+  assert.deepEqual(teaserRungs(rows, { count: 3 }).map((r) => r.id), ['a', 'b', 'c']);
+  assert.deepEqual(teaserRungs(rows, { count: 0 }), []);
+  assert.deepEqual(teaserRungs(undefined), []);
+});
+
+test('teaser rungs keep Heritage (legacy-gated) rungs back until a founding is on the table', () => {
+  const rows = [
+    { id: 'legacy-archive', cost: 1000, unlocked: false, owned: false, currency: 'money', category: 'prestige' },
+    { id: 'franchising', cost: 1200, unlocked: false, owned: false, currency: 'money', category: 'commercial' },
+    { id: 'green-belts', cost: 1500, unlocked: false, owned: false, currency: 'money', category: 'civic' },
+  ];
+  assert.deepEqual(teaserRungs(rows, { count: 2 }).map((r) => r.id), ['franchising', 'green-belts']);
+  assert.deepEqual(teaserRungs(rows, { count: 2, prestigeKnown: true }).map((r) => r.id), ['legacy-archive', 'franchising']);
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

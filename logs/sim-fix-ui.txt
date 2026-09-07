@@ -1,0 +1,8 @@
+[sim] FAIL (contract FAIL) 12h game in 26882ms (16070 t/s) money=1.57e+17 income=1.96e+16/s pop=113685600 prestiges=36 legacy=1046382 (spent 265153) issues=4 errors=0
+[sim] cycles(min): 40.0 12.6 11.1 7.5 6.8 8.0 10.6 12.6 15.2 18.7 20.2 16.8 20.5 5.9 8.0 9.9 13.0 16.0 19.7 26.2 25.0 31.8 21.7 26.8 26.7 21.8 28.8 30.7 22.0 27.5 29.3 25.0 12.3 16.2 22.3 31.3
+[sim] profile=default reach=30% bigRatio=47% (next-step 9%) underPower=4.2% minRatio=0.60 happyDips=21/36 emptyLate=2
+  - [magnitude] t=12920 money peak 1.68e+18, legacy 1046382 (contract: ≤1e18 / ≤1e6 at 12h)
+  - [cadence] t=0 cycle 34 (22.3 min) > 1.35× cycle 33 (16.17 min)
+  - [cadence] t=0 cycle 35 (31.33 min) > 1.35× cycle 34 (22.3 min)
+  - [variety] t=0 2/31 cycles after the 5th introduced nothing new (first: cycle 34)
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-fix-ui.json

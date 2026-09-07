@@ -1,0 +1,10 @@
+[probe] default (shipped config)
+[probe] foundings=6 first=41.9 min last=8.9 legacy=42 money=1.93e+8 errors=0 FAIL
+[probe] cycles: 41.9 12.7 11.4 7.7 7.2 8.9
+[probe] max ratio x1.241 at cycle 5 (7.17 -> 8.9); over 1.35: none; over 1.30: none
+[probe] first city: panel at 18.7 min, Found button at 27.5 min, founding at 41.9 min; reach 54% of its 41 samples (22 in 30 s – 15 min)
+[probe] emptyLate=[] reach=43% noReach=4% under=25.5% byHour=[32.2 15.3] floor=0.60 dips=6/6 midDips=3/6
+[probe] margins (plan.json targets): 11/13 inside · underPowerMax 0.2547 (<= 0.18) FAIL · foundingsMin 6 (>= 20) FAIL
+[probe] never bought: ring, elevator, robotic-assembly, ai-governance, planetary-charter, megastructures, orbital-solar, arcology-gardens, algorithmic-trading, superconductor-grid, dyson-swarm, quantum-exchange, mass-driver-port, ringworld-district, stellar-engine, galactic-charter, orbital-shipyard, helios-array, exchange-ring, standing-orders, charter-guild, charter-merchant, charter-settlers, charter-masons, charter-civic, charter-treasury, charter-skyline, charter-energy, charter-imperial
+[probe] rungs: legacy-archive@1(0) founders-blueprints@1(5.8) veteran-planners@1(7.1) dynasty-ledger@1(8.4) preventive-care@1(10.4) breeder-reactors@2(10.2) institutional-memory@3(5.8) city-archives@5(3.6) championship-season@5(7.9)
+[probe] items: 0:51 1:6 2:1 3:charter-mint+institutional-memory 4:- 5:city-archives+championship-season

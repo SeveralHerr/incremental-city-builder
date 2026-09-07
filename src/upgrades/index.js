@@ -4,9 +4,9 @@ import { registerUpgrade, registerTickHandler, registerAction, registry } from '
 import { reportError } from '../core/safe.js';
 import { on, emit } from '../core/events.js';
 import { addLog } from '../core/state.js';
-import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, charterUnlockFor, keptUpgradeIds, isPermanent } from './data.js';
+import { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, legacyFrontier, charterUnlockFor, keptUpgradeIds, isPermanent } from './data.js';
 
-export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, charterUnlockFor, keptUpgradeIds, isPermanent };
+export { UPGRADES, UPGRADE_CATEGORIES, MILESTONE_IDS, FRONTIER_GATE, PACE_GATE, CHARTER_GATE, earnedUnlock, frontierUnlock, holdUnlock, legacyFrontier, charterUnlockFor, keptUpgradeIds, isPermanent };
 
 const CATEGORY_IDS = new Set(UPGRADE_CATEGORIES.map((c) => c.id));
 const DESC_MAX = 70;
@@ -35,12 +35,14 @@ export function applyOverride(def, override) {
   if (Number.isFinite(cost) && cost > 0) out.cost = cost;
   // Rungs whose gate reads their own price (frontier: earned ≥ cost/4; pace rungs: earned
   // ≥ 100 × cost or the treasury holds the price; funded core rungs: their economy gate and
-  // the treasury holding the price; charter perks: spendable legacy ≥ cost/2) get a new
-  // gate, hint, progress mirror — and, for a perk, the tier bracket — with the new price.
-  // The rules live in data.js so this stays three lines.
+  // the treasury holding the price; the dear Legacy rungs: their legacy gate and earned ≥
+  // cost/4; charter perks: spendable legacy ≥ cost/2) get a new gate, hint, progress
+  // mirror — and, for a perk, the tier bracket — with the new price. The rules live in
+  // data.js so this stays four lines.
   if (out.cost !== def.cost) {
     if (out.earnedGate) Object.assign(out, earnedUnlock(out));
     else if (out.hold) Object.assign(out, holdUnlock(out));
+    else if (out.legacyGate) Object.assign(out, legacyFrontier(out));
     else if (out.currency === 'legacy') Object.assign(out, charterUnlockFor(out));
   }
   if (typeof override === 'object') {

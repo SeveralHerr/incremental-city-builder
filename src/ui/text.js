@@ -1,5 +1,5 @@
 // Pure text/number helpers shared by the panels. DOM-free so ui.test.mjs can cover them.
-import { short, num, fmtPct } from './dom.js';
+import { short, num, money, fmtPct } from './dom.js';
 
 export const LEGACY_GLYPH = '◆';
 
@@ -56,4 +56,152 @@ export function nameList(defs, shown = 2) {
   const names = defs.map((d) => d.name);
   if (names.length <= shown + 1) return names.join(', ');
   return `${names.slice(0, shown).join(', ')} and ${names.length - shown} more`;
+}
+
+// ---- Unlock progress from a data mirror ----
+//
+// Buildings (`src/buildings/data.js`) and upgrades (`src/upgrades/data.js`) both ship an
+// `unlockAt` object beside their unlock rule: the one measurable threshold the rule reads, in
+// one of these shapes — {pop} | {powerDemand} | {money} | {earned} | {building, count} |
+// {legacy} | {legacyAvailable} | {built} | {upgrades}. `unlockMeasure` turns it into
+// { v (live value), t (threshold), p (0..1), kind } without formatting anything, so a panel
+// can compare `v` frame to frame and only build the label (`unlockLabel`, two locale-formatted
+// numbers) when the displayed figure actually moves; `unlockProgress` does both at once for
+// callers that do not care. Null when the mirror is missing or unmeasurable (the card then
+// shows its hint alone). `api.legacyAvailable()` is preferred for spendable legacy since core
+// owns the spend rule; everything else reads state/derived directly.
+const KEY_ORDER = ['pop', 'powerDemand', 'money', 'earned', 'building', 'legacy', 'legacyAvailable', 'built', 'upgrades'];
+
+function ownedUpgrades(state) {
+  const u = state && state.upgrades;
+  if (!u || typeof u !== 'object') return 0;
+  let n = 0;
+  for (const k in u) if (u[k]) n++;
+  return n;
+}
+
+function finitePositive(v) {
+  return Number.isFinite(v) && v > 0;
+}
+
+function measure(v, t, kind) {
+  return { v, t, p: Math.min(1, Math.max(0, v / t)), kind };
+}
+
+export function unlockMeasure(at, state, derived, api) {
+  if (!at || typeof at !== 'object') return null;
+  const s = state || {};
+  const res = s.res || {};
+  const stats = s.stats || {};
+  const d = derived || {};
+  for (const key of KEY_ORDER) {
+    if (!(key in at)) continue;
+    const t = at[key];
+    switch (key) {
+      case 'pop':
+        if (finitePositive(t)) return measure(Math.floor(finitePositive(res.pop) ? res.pop : 0), t, 'pop');
+        break;
+      case 'powerDemand':
+        if (finitePositive(t)) {
+          const v = finitePositive(d.powerDemand) ? d.powerDemand : 0;
+          // A "draws any power" gate (windmill: 0.001 MW) is a switch, not a bar.
+          return t < 1 ? { v, t, p: v > 0 ? 1 : 0, kind: 'powerAny' } : measure(v, t, 'powerDemand');
+        }
+        break;
+      case 'money':
+        if (finitePositive(t)) return measure(finitePositive(res.money) ? res.money : 0, t, 'money');
+        break;
+      case 'earned':
+        if (finitePositive(t)) return measure(finitePositive(stats.totalEarned) ? stats.totalEarned : 0, t, 'earned');
+        break;
+      case 'building': {
+        const id = typeof t === 'string' ? t : '';
+        if (!id) break;
+        const count = finitePositive(at.count) ? at.count : 1;
+        const v = s.buildings && finitePositive(s.buildings[id]) ? Math.floor(s.buildings[id]) : 0;
+        return measure(v, count, 'building');
+      }
+      case 'legacy':
+        if (finitePositive(t)) return measure(legacyBank(s, null, null).legacy, t, 'legacy');
+        break;
+      case 'legacyAvailable':
+        if (finitePositive(t)) return measure(legacyBank(s, api, d.extra ? d.extra.prestige : null).available, t, 'legacyAvailable');
+        break;
+      case 'built':
+        if (finitePositive(t)) return measure(finitePositive(stats.buildingsBuilt) ? Math.floor(stats.buildingsBuilt) : 0, t, 'built');
+        break;
+      case 'upgrades':
+        if (finitePositive(t)) return measure(ownedUpgrades(s), t, 'upgrades');
+        break;
+    }
+  }
+  return null;
+}
+
+// The figure the label prints for a measure — integers as they are, money floored, megawatts
+// to three significant digits — so a panel can skip formatting while it has not moved.
+export function unlockDisplayKey(m) {
+  if (!m) return '';
+  switch (m.kind) {
+    case 'money':
+    case 'earned':
+      return m.v < 1e6 ? Math.floor(m.v) : +m.v.toPrecision(4);
+    case 'powerDemand':
+      return +m.v.toPrecision(3);
+    case 'powerAny':
+      return m.v > 0 ? 1 : 0;
+    default:
+      return m.v;
+  }
+}
+
+export function unlockLabel(m) {
+  if (!m) return '';
+  const { v, t } = m;
+  switch (m.kind) {
+    case 'pop':
+      return `${num(v)} / ${num(t)}`;
+    case 'powerAny':
+      return v > 0 ? 'ready' : '0 MW drawn';
+    case 'powerDemand':
+      return `${short(v)} / ${short(t)} MW`;
+    case 'money':
+      return `${money(v)} / ${money(t)}`;
+    case 'earned':
+      return `${money(v)} / ${money(t)} earned`;
+    case 'building':
+    case 'built':
+      return `${num(v)} / ${num(t)} built`;
+    case 'legacy':
+      return `${LEGACY_GLYPH} ${num(v)} / ${num(Math.ceil(t))}`;
+    case 'legacyAvailable':
+      return `${LEGACY_GLYPH} ${num(v)} / ${num(Math.ceil(t))} spendable`;
+    case 'upgrades':
+      return `${num(v)} / ${num(t)} funded`;
+    default:
+      return '';
+  }
+}
+
+export function unlockProgress(at, state, derived, api) {
+  const m = unlockMeasure(at, state, derived, api);
+  if (!m) return null;
+  return { p: m.p, label: unlockLabel(m), kind: m.kind === 'powerAny' ? 'powerDemand' : m.kind };
+}
+
+// The next locked money rungs worth teasing under the open cards: cheapest first, never a
+// broken or owned row, and Heritage rungs (unlocked by legacy) only once the player knows
+// what a founding is — the Legacy panel is open or legacy is banked — so a first-city
+// player is never told to "Found a new city" before the game has introduced the idea.
+export function teaserRungs(rows, { count = 2, prestigeKnown = false } = {}) {
+  const out = [];
+  for (const r of rows || []) {
+    if (!r || r.unlocked || r.owned || r.broken) continue;
+    if (r.currency === 'legacy') continue;
+    if (r.category === 'prestige' && !prestigeKnown) continue;
+    if (!Number.isFinite(r.cost)) continue;
+    out.push(r);
+  }
+  out.sort((a, b) => a.cost - b.cost);
+  return out.slice(0, Math.max(0, count));
 }

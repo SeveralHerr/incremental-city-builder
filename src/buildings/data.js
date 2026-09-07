@@ -134,15 +134,15 @@ export const BUILDINGS = [
     baseCost: 2e11,
     costGrowth: 3,
     housing: 80000, // eighty arcologies' worth
-    // Orbital industry: the ring's yards hire from the city below, +1% per 100,000
-    // citizens up to ×12 (600,000 jobs in a city of 1.1 M). This is the late jobs engine:
+    // Orbital industry: the ring's yards hire from the city below, +1% per 1,000
+    // citizens (×2 at 100,000) up to ×12 (600,000 jobs in a city of 1.1 M). This is the late jobs engine:
     // from the 14th city on the housing rungs outrun the jobs rungs (×42 against ×12 by
     // the 30th, columns.mjs) and a static sticker cannot follow — a jobs number that
     // grows with the population can, and it comes online as a replay's citizens arrive,
     // which is what keeps the jobs column within reach of the housing column through 12 h
     // (README "Jobs and housing").
     jobs: 50000,
-    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 12, text: 'Orbital industry: +1% jobs per 100,000 citizens (up to ×12)' },
+    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 12, text: 'Orbital industry: +1% jobs per 1,000 citizens (up to ×12)' },
     powerUse: 1.2e6, // 12 MW per citizen, twice the arcology's 6.5: the card says "≈ 20 × Fusion Reactor"
     happiness: 0.5, // ten parks: a sealed world with weather it chose
     unlock: legacy(500),
@@ -204,7 +204,8 @@ export const BUILDINGS = [
     income: 46,
     synergy: { stat: 'income', source: 'pop', per: 5000, cap: 3, text: 'Income +20% per 1,000 citizens (up to ×3)' },
     powerUse: 60,
-    // 2,800: between the refinery (2,200) and the solar farm (3,600), ~2 min apart each.
+    // 3,000 (was 2,800): between the refinery (2,200, 13.5 min) and the solar farm (3,600,
+    // 17.1) in the first city, ~2 and ~1.6 min apart (cadence.mjs: opens 15.5, bought 19.1).
     unlock: pop(3000),
     unlockAt: { pop: 3000 },
     unlockHint: 'Reach 3,000 citizens',
@@ -249,8 +250,8 @@ export const BUILDINGS = [
     // 65 citizens (was 45, before that 30): at 30 the $500 card opened at 1.9 min and glowed
     // unaffordable for seven minutes while income was $3–6/s; at 45 it opened at 4.1 min and,
     // on the final tree (cheaper apartments, growthRate 0.1), was bought at 9.4 — 20 s past
-    // the lag rule; at 65 it opens ~4.7 min, inside the exempt opening window, and is bought
-    // within 5 min. The population crawls on cottages and then jumps with the apartment
+    // the lag rule; at 65 it opens ~4.9 min, inside the exempt opening window, and is bought
+    // at 9.4 (lag 4.6, the rule's limit is 5.0). The population crawls on cottages and then jumps with the apartment
     // spree, so the gate sits just under that jump (87 citizens at 5.0 min).
     unlock: pop(65),
     unlockAt: { pop: 65 },
@@ -269,7 +270,8 @@ export const BUILDINGS = [
     synergy: { stat: 'income', source: 'building:factory', per: 50, cap: 2, text: 'Income +2% per Factory (up to ×2)' },
     powerUse: 120,
     happiness: -0.03,
-    // 2,200: 90 s+ ahead of the mall (2,800) in the first city; at 2,500 they opened a minute apart.
+    // 2,200: ~2 min ahead of the mall (3,000) in the first city (cadence.mjs: 13.5 vs 15.5);
+    // at 2,500 they opened a minute apart.
     unlock: pop(2200),
     unlockAt: { pop: 2200 },
     unlockHint: 'Reach 2,200 citizens',
@@ -360,8 +362,9 @@ export const BUILDINGS = [
     // Panels want open land: every city park lifts the farm's output.
     synergy: { stat: 'powerGen', source: 'building:park', per: 50, cap: 1.5, text: 'Output +2% per City Park (up to ×1.5)' },
     happiness: 0.03,
-    // 3,600: ~2 min after the mall (2,800) and ~3 min before the hospital (5,000); the
-    // population jumps in tower sprees around 3,000, so 3,200–3,300 lands on the mall.
+    // 3,600: ~1.6 min after the mall (3,000, 15.5 min) and ~3 min before the hospital
+    // (5,000, 20.2); the population jumps in tower sprees around 3,000, so 3,200–3,300
+    // lands on the mall (cadence.mjs: opens 17.1).
     unlock: pop(3600),
     unlockAt: { pop: 3600 },
     unlockHint: 'Reach 3,600 citizens',
@@ -402,10 +405,10 @@ export const BUILDINGS = [
     happiness: 0.05,
     // The same bill per MW as nuclear at the sticker ($0.025/MW/s), a third of it at ×3.
     upkeep: 1500,
-    // 36,000: the first-city trophy gate, placed on the curve so the reactor opens ~36.1
-    // min — ~4 min after the district (27,000 at 32.3), ~2 min before the stadium
-    // (43,000 at 37.9) — and is bought 2.3 min later; at 28,000 it opened at 32.9 and
-    // glowed for six minutes. `legacy >= 1` stays the normal route.
+    // 36,000: the first-city trophy gate, placed on the curve so the reactor opens ~34.8
+    // min — ~2.6 min after the district (30,000 at 32.2), ~2 min before the stadium
+    // (45,000 at 36.9) — and is bought 2 min later (cadence.mjs); at 28,000 it opened at
+    // 32.9 and glowed for six minutes. `legacy >= 1` stays the normal route.
     unlock: (state) => (state?.res?.pop ?? 0) >= 36000 || (state?.prestige?.legacy ?? 0) >= 1,
     unlockAt: { pop: 36000, legacy: 1 },
     unlockHint: 'Found a new city (or reach 36,000 citizens)',

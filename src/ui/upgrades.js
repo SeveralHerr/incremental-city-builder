@@ -1,18 +1,26 @@
-// Upgrades panel: available first (cheapest up), owned collapsed underneath, locked count teased.
-import { h, setText, setHidden, setClass, setDisabled, setProgress, money, num } from './dom.js';
+// Upgrades panel: available first (cheapest up), then the next two locked rungs as dimmed
+// teasers with their unlock hint and a progress bar, owned collapsed underneath, the rest of
+// the locked count teased in one line.
+import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num } from './dom.js';
+import { unlockMeasure, unlockLabel, unlockDisplayKey, teaserRungs } from './text.js';
 
 const VISIBLE_DEFAULT = 6;
+export const TEASERS = 2; // locked rungs shown under the open cards
+const CLOSE_AT = 0.75; // progress at which a teaser brightens (.is-close), same as the build cards
 
 export function createUpgradesPanel(ui) {
   const { game, content } = ui;
   const cards = new Map(); // id -> card
+  const teasers = new Map(); // id -> locked teaser card
   const chips = new Map(); // id -> owned chip
   let rows = [];
   let signature = '';
   let expanded = false;
+  let teased = []; // rows currently rendered as teasers
 
   const countEl = h('span.panel-meta.mono', { text: '' });
   const list = h('div.ucards');
+  const teaserList = h('div.ucards.ucards-locked', { 'aria-label': 'Ideas not yet available' });
   const ownedList = h('div.owned-list');
   const ownedSummary = h('summary.owned-summary', { text: 'Owned' });
   const owned = h('details.owned', { hidden: true }, [ownedSummary, ownedList]);
@@ -29,6 +37,7 @@ export function createUpgradesPanel(ui) {
     list,
     empty,
     showMore,
+    teaserList,
     owned,
     locked,
   ]);
@@ -62,6 +71,34 @@ export function createUpgradesPanel(ui) {
     return c;
   }
 
+  // Locked teaser: the rung's name and price, its unlock hint where the description would
+  // be, and a thin bar toward the mirror threshold (money held, earned, citizens, ...).
+  function teaser(def) {
+    let t = teasers.get(def.id);
+    if (t) return t;
+    const cat = content.category(def.category);
+    const hint = typeof def.unlockHint === 'string' && def.unlockHint.trim() ? def.unlockHint.trim() : 'Grow the city to reveal this idea.';
+    const fill = h('div.progress-fill');
+    const bar = h('div.progress.progress-xs.unlock-bar', { 'aria-hidden': 'true' }, [fill]);
+    const meta = h('span.unlock-meta.mono', { text: '' });
+    const barRow = h('div.ucard-unlock', [bar, meta]);
+    const cost = h('span.ucard-lockcost.mono', { text: money(def.cost) });
+    const elc = h(`article.ucard.is-locked.cat-${def.category}`, { dataset: { id: def.id }, title: def.desc || null, 'aria-label': `${def.name} (locked): ${hint}` }, [
+      h('div.ucard-icon', { text: def.icon || '⚡', 'aria-hidden': 'true' }),
+      h('div.ucard-main', [
+        h('span.ucard-cat', { text: `${cat.name} · locked` }),
+        h('span.ucard-name', { text: def.name }),
+        h('div.ucard-desc.ucard-hint', { text: hint }),
+        barRow,
+      ]),
+      h('div.ucard-buy.ucard-lock', [h('span.ucard-lockmark', { 'aria-hidden': 'true' }, [icon('lock')]), cost]),
+    ]);
+    elc.style.setProperty('--accent', cat.color);
+    t = { el: elc, def, fill, bar, barRow, meta, cost };
+    teasers.set(def.id, t);
+    return t;
+  }
+
   function chip(def) {
     let c = chips.get(def.id);
     if (!c) {
@@ -80,6 +117,11 @@ export function createUpgradesPanel(ui) {
     return out;
   }
 
+  function prestigeKnown(s) {
+    const legacy = s.prestige && Number.isFinite(s.prestige.legacy) ? s.prestige.legacy : 0;
+    return legacy > 0 || !!(s.unlocks && s.unlocks['panel:prestige']);
+  }
+
   function rebuild(newRows) {
     rows = moneyRows(newRows);
     const s = game.state;
@@ -89,9 +131,11 @@ export function createUpgradesPanel(ui) {
     const available = rows.filter((r) => r.unlocked && !r.owned).sort((a, b) => a.cost - b.cost);
     const ownedRows = rows.filter((r) => r.owned);
     const lockedCount = rows.length - available.length - ownedRows.length;
-    const sig = available.map((r) => r.id).join(',') + '|' + ownedRows.map((r) => r.id).join(',');
+    const nextLocked = teaserRungs(rows, { count: TEASERS, prestigeKnown: prestigeKnown(s) });
+    const rest = lockedCount - nextLocked.length;
+    const sig = available.map((r) => r.id).join(',') + '|' + ownedRows.map((r) => r.id).join(',') + '|' + nextLocked.map((r) => r.id).join(',');
     setText(countEl, `${ownedRows.length} / ${rows.length}`);
-    setText(locked, lockedCount > 0 ? `${num(lockedCount)} more ${lockedCount === 1 ? 'idea waits' : 'ideas wait'} to be discovered.` : '');
+    setText(locked, rest > 0 ? `${num(rest)} more ${rest === 1 ? 'idea waits' : 'ideas wait'} to be discovered.` : '');
     setHidden(empty, available.length > 0);
     if (sig === signature) return;
     signature = sig;
@@ -100,10 +144,52 @@ export function createUpgradesPanel(ui) {
     const hiddenCount = available.length - shown.length;
     setHidden(showMore, available.length <= VISIBLE_DEFAULT);
     setText(showMore, expanded ? 'Show fewer' : `Show ${num(hiddenCount)} more`);
+    teased = nextLocked;
+    reconcile(teaserList, nextLocked.map((r) => teaser(r).el));
+    nextLocked.forEach((r, i) => setClass(teaser(r).el, 'is-far', i > 0));
+    setHidden(teaserList, nextLocked.length === 0);
+    // A teaser that opened (or was bought) is stale: drop its element so a later re-lock
+    // (a founding re-locks the ladder) builds a fresh card instead of reviving an old one.
+    for (const [id, t] of teasers) if (!nextLocked.some((r) => r.id === id)) {
+      t.el.remove();
+      teasers.delete(id);
+    }
     reconcile(ownedList, ownedRows.map((r) => chip(r)));
     setHidden(owned, ownedRows.length === 0);
     setText(ownedSummary, `Owned (${ownedRows.length})`);
     update(rows);
+  }
+
+  function updateTeaser(t, s, d) {
+    const r = t.def;
+    if (t.costShown !== r.cost) {
+      t.costShown = r.cost;
+      setText(t.cost, money(r.cost));
+    }
+    const m = unlockMeasure(r.unlockAt, s, d, game.api);
+    setHidden(t.barRow, !m);
+    if (!m) {
+      setClass(t.el, 'is-close', false);
+      setClass(t.el, 'is-gated', false);
+      return;
+    }
+    setProgress(t.fill, m.p);
+    // The label costs two locale-formatted numbers; build it only when the printed figure
+    // (floored money, whole citizens, ...) or the threshold moved.
+    const key = m.kind + '|' + m.t + '|' + unlockDisplayKey(m);
+    if (t.labelKey !== key) {
+      t.labelKey = key;
+      // A full bar on a card that is still locked means the mirrored clause is met and the
+      // rung waits on the other one (funded rungs: "Build 3 factories, then hold $600" with
+      // the treasury already holding it) — tick the clause so the bar never reads as a
+      // broken gate.
+      const label = unlockLabel(m);
+      const met = m.p >= 1;
+      setText(t.meta, met ? `${label} ✓` : label);
+      setAttr(t.bar, 'title', met ? `${label} — met; the rest of the hint is what remains` : label);
+      setClass(t.el, 'is-gated', met);
+    }
+    setClass(t.el, 'is-close', m.p >= CLOSE_AT);
   }
 
   function update(newRows) {
@@ -118,6 +204,18 @@ export function createUpgradesPanel(ui) {
       setText(c.cost, money(r.cost));
       setProgress(c.fill, r.cost > 0 ? Math.min(1, m / r.cost) : 1);
     }
+    if (teased.length) {
+      const s = game.state;
+      const d = game.derived;
+      for (const r of teased) {
+        const t = teasers.get(r.id);
+        if (!t || !t.el.isConnected) continue;
+        // Rows are re-read every frame; keep the teaser on the live row (cost overrides, etc.).
+        const live = rows.find((x) => x.id === r.id);
+        if (live) t.def = live;
+        updateTeaser(t, s, d);
+      }
+    }
   }
 
   function reconcile(parent, wanted) {
@@ -128,5 +226,5 @@ export function createUpgradesPanel(ui) {
     while (parent.children.length > wanted.length) parent.lastChild.remove();
   }
 
-  return { el, update, rebuild };
+  return { el, update, rebuild, teased: () => teased.map((r) => r.id) };
 }

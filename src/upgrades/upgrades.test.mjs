@@ -29,6 +29,7 @@ import {
   frontierUnlock,
   earnedUnlock,
   holdUnlock,
+  legacyFrontier,
   keptUpgradeIds,
   isPermanent,
   fmtMoney,
@@ -89,7 +90,11 @@ test('definitions: unique ids, categories, tiers, short descs, hints everywhere'
     }
     if (d.currency !== undefined) assert.ok(d.currency === 'money' || d.currency === 'legacy', `${d.id}: currency ${d.currency}`);
   }
-  assert.ok(UPGRADES.length >= 69, `ladder has ${UPGRADES.length} rungs`);
+  // 70 rungs: 33 core, 9 pace, 9 frontier, 7 Legacy, 12 charter perks. A count the header
+  // comments, README.md and docs/DESIGN.md quote — pinned so a new rung updates them.
+  assert.equal(UPGRADES.length, 70, `ladder has ${UPGRADES.length} rungs`);
+  assert.equal(UPGRADES.filter((d) => d.currency === 'legacy').length, 12);
+  assert.equal(UPGRADES.filter((d) => d.currency !== 'legacy').length, 58);
   assert.equal(MILESTONE_IDS.length, new Set(MILESTONE_IDS).size);
   // Card variety: the thirty identical Civic Bonds are gone for good. The repeats below
   // are money rungs whose ids and effects predate this pass (the two "+50% growth" rungs,
@@ -129,9 +134,14 @@ test('hints read as the rule they mirror', () => {
   assert.equal(byId('breeder-reactors').unlockHint, 'Reach 10,000 citizens or build a Nuclear Plant');
   assert.deepEqual(byId('tourism-board').unlockAt, { money: 50000 });
   assert.equal(byId('legacy-archive').unlockHint, 'Found a new city');
-  assert.deepEqual(byId('institutional-memory').unlockAt, { legacy: 10 });
+  assert.deepEqual(byId('founders-blueprints').unlockAt, { legacy: 2 });
   assert.match(byId('smart-grid').unlockHint, /brownout/i);
-  assert.deepEqual(byId('standing-orders').unlockAt, { legacy: 50 });
+  // The dear Legacy rungs name the points and the earnings door, and mirror the earnings
+  // (the door that opens last), like a frontier card.
+  assert.equal(byId('standing-orders').unlockHint, 'Bank 50 legacy points and own Institutional Memory, then earn $1T in this city');
+  assert.deepEqual(byId('standing-orders').unlockAt, { earned: 4.03e12 / 4 });
+  assert.equal(byId('institutional-memory').unlockHint, 'Bank 10 legacy points, then earn $7.5M in this city');
+  assert.deepEqual(byId('institutional-memory').unlockAt, { earned: 7.5e6 });
   // Frontier rungs quote the earnings gate in the hint and mirror it for the bar.
   assert.equal(byId('dyson-swarm').unlockHint, 'Earn $567.5M in this city');
   assert.deepEqual(byId('dyson-swarm').unlockAt, { earned: 5.675e8 });
@@ -148,7 +158,7 @@ test('hints read as the rule they mirror', () => {
   assert.deepEqual(byId('robotic-assembly').unlockAt, { money: 3.0e8 });
   assert.equal(byId('superconductor-grid').unlockHint, 'Hold $435T');
   assert.deepEqual(byId('superconductor-grid').unlockAt, { money: 4.35e14 });
-  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points');
+  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points, then earn $13.1M in this city');
   // Charter perks quote the spendable points they wait for (bank − spent, what the Sign
   // button checks), never the whole bank.
   assert.equal(byId('charter-homestead').unlockHint, 'Have 2 spendable legacy points');
@@ -253,7 +263,44 @@ test('every unlock tolerates {} / undefined / frozen inputs and returns a boolea
   assert.equal(byId('charter-grid').unlock(FROZEN_STATE), false, '4 spendable of 12 banked is short of 10');
   assert.equal(byId('charter-grid').unlock({ prestige: { legacy: 12, spent: 0 } }), true);
   assert.equal(byId('city-archives').unlock(FROZEN_STATE), false, '12 points is short of 20');
-  assert.equal(byId('city-archives').unlock({ prestige: { legacy: 20 } }), true);
+  assert.equal(byId('city-archives').unlock({ prestige: { legacy: 20 }, stats: { totalEarned: 1.31e7 } }), true);
+});
+
+test('legacy rungs: the three dear ones need their points and a quarter of the price earned this run; the door follows a config price', () => {
+  const doored = UPGRADES.filter((d) => typeof d.legacyGate === 'function');
+  assert.deepEqual(doored.map((d) => d.id), ['institutional-memory', 'city-archives', 'standing-orders']);
+  for (const d of doored) {
+    assert.equal(d.category, 'prestige');
+    assert.ok(!d.hold && !d.earnedGate, `${d.id}: one door builder only`);
+    const gate = d.cost * FRONTIER_GATE;
+    assert.deepEqual(d.unlockAt, { earned: gate }, `${d.id}: mirrors the earnings door`);
+    assert.match(d.unlockHint, /^Bank \d+ legacy points.*, then earn \$.* in this city$/, `${d.id}: names both doors`);
+    // A bank of points with nothing earned stays shut (the four-hour card); the earnings
+    // with no points stay shut; both together open it.
+    const rich = { prestige: { legacy: 1e6 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: gate }, res: { money: d.cost * 10 } };
+    assert.equal(d.unlock(rich), true, `${d.id}: opens at ${gate} earned with the points`);
+    assert.equal(d.unlock({ ...rich, stats: { totalEarned: gate * 0.999 } }), false, `${d.id}: shut a hair short of the earnings door`);
+    assert.equal(d.unlock({ ...rich, prestige: { legacy: 0 } }), false, `${d.id}: earnings alone do not open it`);
+    assert.equal(d.unlock({ ...rich, stats: { totalEarned: 0 }, unlocks: { 'm:money-1b': true, 'm:prestige-1': true } }), false, `${d.id}: no milestone shortcut`);
+  }
+  // Standing Orders keeps its ownership door too.
+  assert.equal(byId('standing-orders').unlock({ prestige: { legacy: 1e6 }, upgrades: {}, stats: { totalEarned: 1e15 } }), false, 'needs Institutional Memory');
+  // The cheap Legacy rungs open on points alone (bought within seconds of a founding).
+  for (const id of ['legacy-archive', 'founders-blueprints', 'veteran-planners', 'dynasty-ledger']) {
+    assert.equal(byId(id).unlock({ prestige: { legacy: 5 }, stats: { totalEarned: 0 } }), true, `${id}: points alone`);
+  }
+  // A config price moves the door, and the legacy gate rides along.
+  const moved = applyOverride(byId('standing-orders'), { cost: 8e12 });
+  assert.deepEqual(moved.unlockAt, { earned: 2e12 });
+  assert.equal(moved.unlockHint, 'Bank 50 legacy points and own Institutional Memory, then earn $2T in this city');
+  assert.equal(moved.unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 2e12 } }), true);
+  assert.equal(moved.unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1.9e12 } }), false);
+  assert.equal(moved.unlock({ prestige: { legacy: 49 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1e13 } }), false, 'the points still count');
+  assert.equal(byId('standing-orders').unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1.01e12 } }), true, 'source def keeps its own door');
+  assert.equal(legacyFrontier({ cost: 400 }).unlockHint, 'Earn $100 in this city');
+  assert.equal(legacyFrontier(undefined).unlock({ stats: { totalEarned: 0 } }), true, 'garbage def: a zero door, never a throw');
+  // Founding memory still re-grants a kept rung without consulting the door.
+  assert.ok(keptUpgradeIds(['standing-orders', 'institutional-memory']).includes('city-archives'));
 });
 
 test('nothing gates on the clock: unlocks ignore state.time / tick, and the source has no wall-clock rule', () => {
@@ -282,6 +329,8 @@ test('charter perks: ≥12, legacy currency, ×2.5–4 apart from 3 to 195,808, 
   assert.equal(costs[costs.length - 1], CHARTER_MAX_COST);
   assert.equal(CHARTER_MIN_COST, 3);
   assert.equal(CHARTER_MAX_COST, 195808);
+  assert.equal(CHARTER_MAX_COST, PERKS[PERKS.length - 1].cost, 'the constant is the last perk: a new top rung must move it');
+  assert.equal(CHARTER_MIN_COST, PERKS[0].cost);
   for (let i = 1; i < costs.length; i++) {
     const r = costs[i] / costs[i - 1];
     assert.ok(r >= 2.5 - 1e-9 && r <= 4 + 1e-9, `${PERKS[i].id}: ×${r.toFixed(2)} after ${PERKS[i - 1].id}`);
@@ -615,6 +664,16 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   const m4 = createMods();
   byId('smart-grid').effect(m4, {});
   assert.ok(near(m4.demand, 0.8));
+  // Maintenance Contracts: upkeep is ~0–2% of the gross when it is bought, so the plant
+  // discount is the felt term (plants are 42% of the spend that follows) and the upkeep
+  // cut is what it grows into; never an income clause, which compounds through every
+  // replay's tier-3 re-grant (measured, see data.js).
+  const mm = createMods();
+  byId('maintenance-contracts').effect(mm, {});
+  assert.ok(near(mm.upkeep, 0.6) && near(mm.income, 1));
+  for (const id of ['coal', 'solar', 'nuclear', 'fusion']) assert.ok(near(mm.byBuilding[id].cost, 0.8), `maintenance: ${id}`);
+  assert.ok(!mm.byBuilding.windmill || near(mm.byBuilding.windmill.cost, 1));
+  assert.equal(byId('maintenance-contracts').desc, 'Power plants cost −20% · building upkeep −40%');
   const m5 = createMods();
   byId('superconductor-grid').effect(m5, {});
   assert.ok(near(m5.demand, 0.7));

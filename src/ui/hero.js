@@ -9,6 +9,8 @@ import { unemploymentLevel, LEGACY_GLYPH } from './text.js';
 
 const MAX_PARTICLES = 24;
 const HINT_TAPS = 5; // the 'tap the city' pill fades once the mayor has clearly got it
+const HINT_POP = 50; // ... or once the town outgrows the tutorial (Village)
+const HINT_SECONDS = 180; // ... or after three minutes at the keyboard without tapping
 
 export function createHero(ui) {
   const { game } = ui;
@@ -188,13 +190,17 @@ export function createHero(ui) {
     skyline.tick(dt);
     setText(cityTier, tierTitle(s.res.pop));
     const clicks = (s.stats && s.stats.clicks) || 0;
+    // The pill also retires for a pure idler: once the town has fifty citizens or three minutes
+    // at the keyboard have passed, tapping is a bonus the player has chosen to skip, and the
+    // pill would otherwise sit on the front-row buildings forever.
+    const outgrown = s.res.pop >= HINT_POP || ((s.stats && s.stats.playtime) || 0) >= HINT_SECONDS;
     if (!hintHidden) {
-      setClass(hint, 'is-done', clicks >= HINT_TAPS);
-      if (clicks >= HINT_TAPS) {
+      setClass(hint, 'is-done', clicks >= HINT_TAPS || outgrown);
+      if (clicks >= HINT_TAPS || outgrown) {
         hintHidden = true;
         setTimeout(() => setHidden(hint, hintHidden), prefersReducedMotion() ? 0 : 650);
       }
-    } else if (clicks < HINT_TAPS) {
+    } else if (clicks < HINT_TAPS && !outgrown) {
       // A fresh plot after a hard reset brings the pill back.
       hintHidden = false;
       hint.classList.remove('is-done');

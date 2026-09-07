@@ -29,6 +29,9 @@
 // Live stats. Two data-driven rules scale a per-unit stat with the city (see data.js):
 //   synergy       { stat, source, per, cap, text }  stat = base × min(cap, 1 + source / per)
 //   demandGrowth  { per, cap, text }                powerUse = base × min(cap, 1 + (count − 1) / per)
+// Both `text`s are card lines the UI renders under the stats (synergy ✦, strain ⚡, then the
+// powerHint); `ruleRatePct` is the percentage a line must quote and the test holds every
+// line to it. A resolved strain rule without a text gets one (`strainText`).
 // The `buildings:live` tick handler runs at priority −10, before the simulation's fold,
 // and evaluates every rule once per tick into the `live` store. The base is the value
 // resolved at registration (data + config override), pinned in `bases` the first time a
@@ -147,6 +150,10 @@ export function resolveBuilding(base, balance) {
   if (!isFiniteNum(def.baseCost) || def.baseCost <= 0) def.baseCost = base.baseCost;
   if (typeof def.unlock !== 'function') def.unlock = undefined;
   if (def.maxCount !== undefined && !(Number.isInteger(def.maxCount) && def.maxCount >= 1)) def.maxCount = undefined;
+  // A strain rule always ships with a card line: a config re-pin of per/cap alone gets the
+  // same sentence config writes (the UI renders `demandGrowth.text` under the synergy line).
+  const growth = normalizeGrowth(def.demandGrowth);
+  if (growth && !growth.text) def.demandGrowth = { ...growth, text: strainText(growth, def.name) };
   return def;
 }
 
@@ -246,6 +253,25 @@ export function normalizeGrowth(g) {
   if (!(isFiniteNum(g.per) && g.per > 0)) return null;
   if (!(isFiniteNum(g.cap) && g.cap >= 1)) return null;
   return { per: g.per, cap: g.cap, text: typeof g.text === 'string' ? g.text : '' };
+}
+
+// The percentage a rule's card line quotes: per 1,000 citizens for a population or
+// employed source (100,000 → 1 %, 5,000 → 20 %), per unit for a building count or a
+// strain rule (40 → 2.5 %, 8 → 12.5 %). NaN for a malformed rule. The test derives every
+// `text` from this so a line can never again say '+1% per 100,000' for a +100 % rule. Pure.
+export function ruleRatePct(rule) {
+  const per = rule?.per;
+  if (!(isFiniteNum(per) && per > 0)) return NaN;
+  const unit = rule.source === 'pop' || rule.source === 'employed' ? 1000 : 1;
+  return +((100 * unit) / per).toPrecision(6);
+}
+
+// Card line for a strain rule that carries none (a config re-pin of per/cap only): the same
+// shape config's own line uses, quoting the rule's rate and cap. Pure.
+export function strainText(rule, name) {
+  const g = normalizeGrowth(rule);
+  if (!g) return '';
+  return `Grid strain: draw +${ruleRatePct(g).toLocaleString('en-US')}% per ${name || 'unit'} owned (up to ×${g.cap.toLocaleString('en-US')})`;
 }
 
 // The number a synergy source currently reads: population, employed citizens, or an owned

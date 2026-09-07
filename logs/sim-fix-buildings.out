@@ -1,0 +1,13 @@
+[sim] PASS (contract PASS) 6h game in 8515ms (25367 t/s) money=5.60e+12 income=1.94e+12/s pop=1268616 prestiges=23 legacy=13129 (spent 8155) issues=0 errors=0
+[sim] cycles(min): 40.9 12.1 10.6 4.2 5.7 7.5 9.7 12.9 14.6 15.8 19.4 15.0 9.4 5.1 6.9 9.3 12.1 15.3 20.6 27.4 23.7 30.2 21.0
+[sim] profile=default reach=50% bigRatio=18% (next-step 8%) underPower=6.5% minRatio=0.60 happyDips=22/23 emptyLate=0
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-fix-buildings.json
+sim exit 0
+[sim] PASS (contract FAIL) 12h game in 17250ms (25043 t/s) money=4.69e+15 income=1.73e+15/s pop=17885940 prestiges=34 legacy=532586 (spent 127476) issues=3 errors=0
+[sim] cycles(min): 40.9 12.1 10.6 4.2 5.7 7.5 9.7 12.9 14.6 15.8 19.4 15.0 9.4 5.1 6.9 9.3 12.1 15.3 20.6 27.4 23.7 30.2 21.0 25.3 31.4 31.6 41.7 24.2 33.1 42.4 20.0 25.5 30.1 42.1
+[sim] profile=default reach=55% bigRatio=27% (next-step 7%) underPower=3.2% minRatio=0.60 happyDips=22/34 emptyLate=1
+  - [cadence] t=0 cycle 33 (42.07 min) > 1.35× cycle 32 (30.07 min)
+  - [variety] t=0 1/29 cycles after the 5th introduced nothing new (first: cycle 33)
+  - [cadence] t=0 last cycle 42.07 min > 40 min
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-fix-buildings-12h.json
+sim12 exit 0

@@ -1,0 +1,812 @@
+{
+  "profile": "default",
+  "sets": [
+    "happiness.unemploymentPenalty=0.3"
+  ],
+  "foundings": 32,
+  "firstFoundMin": 41.6,
+  "cycles": [
+    41.6,
+    12.2,
+    10.97,
+    6.9,
+    6.17,
+    8.17,
+    10.73,
+    13.8,
+    14.8,
+    17.1,
+    17.93,
+    15.57,
+    9.67,
+    5.57,
+    7.47,
+    10.07,
+    13.13,
+    16.57,
+    22.23,
+    29.67,
+    26.6,
+    33.77,
+    23.4,
+    27.43,
+    33.9,
+    33.97,
+    44.9,
+    49.53,
+    35.83,
+    45.8,
+    21.47,
+    23.13
+  ],
+  "lastCycle": 23.13,
+  "maxRatio": {
+    "i": 15,
+    "ratio": 1.348
+  },
+  "ratioFails": [],
+  "emptyLate": [],
+  "reachShare": 0.532,
+  "noReachShare": 0.073,
+  "underShare": 0.0361,
+  "underHours": [
+    36.4,
+    5.2,
+    0.6,
+    0.8,
+    0.2,
+    0.1,
+    0,
+    0.1,
+    0.1,
+    0,
+    0,
+    0
+  ],
+  "minRatio": 0.6,
+  "dips": 22,
+  "midDips": 3,
+  "legacy": 270632,
+  "legacySpent": 127476,
+  "maxMoney": 27673413873480116,
+  "never": {
+    "buildings": [],
+    "upgrades": []
+  },
+  "errors": 0,
+  "perCycle": [
+    {
+      "n": 0,
+      "minutes": 41.6,
+      "legacy": 5,
+      "minHappy": 0.46,
+      "minHappyMid": 0.775,
+      "under": 0.438,
+      "newItems": [
+        "house",
+        "windmill",
+        "welcome-sign",
+        "shop",
+        "zoning-reform",
+        "neon-signage",
+        "grant-writing",
+        "park",
+        "tax-software",
+        "smart-grid",
+        "turbine-blades",
+        "apartment",
+        "community-events",
+        "franchising",
+        "factory",
+        "green-belts",
+        "coal",
+        "assembly-lines",
+        "office",
+        "farmers-market",
+        "tower",
+        "grid-substations",
+        "high-density",
+        "school",
+        "express-transit",
+        "coal-scrubbers",
+        "night-shift",
+        "refinery",
+        "bulk-permits",
+        "mall",
+        "solar",
+        "container-port",
+        "tourism-board",
+        "open-plan-offices",
+        "hospital",
+        "regional-airport",
+        "arcology",
+        "prefab-construction",
+        "modern-curriculum",
+        "maintenance-contracts",
+        "welcome-center",
+        "techpark",
+        "nuclear",
+        "solar-tracking",
+        "skyway-frames",
+        "catalytic-crackers",
+        "financial",
+        "anchor-tenants",
+        "digital-city-hall",
+        "fusion",
+        "stadium"
+      ],
+      "earned": 297701742.3726711,
+      "endIncome": 1244498.4474400666,
+      "spree": 271.2446974516573,
+      "spreeMin": 3.5,
+      "plateau": 3786345.188175547,
+      "plateauMin": 40
+    },
+    {
+      "n": 1,
+      "minutes": 12.2,
+      "legacy": 10,
+      "minHappy": 0.46,
+      "minHappyMid": 0.7,
+      "under": 0.208,
+      "newItems": [
+        "charter-homestead",
+        "legacy-archive",
+        "founders-blueprints",
+        "veteran-planners",
+        "dynasty-ledger",
+        "preventive-care"
+      ],
+      "earned": 940605687.83114,
+      "endIncome": 9504875.14165191,
+      "spree": 1801,
+      "spreeMin": 0,
+      "plateau": 19024304.861997142,
+      "plateauMin": 12.2
+    },
+    {
+      "n": 2,
+      "minutes": 10.97,
+      "legacy": 15,
+      "minHappy": 0.46,
+      "minHappyMid": 0.864,
+      "under": 0.17,
+      "newItems": [
+        "breeder-reactors"
+      ],
+      "earned": 1600378298.0712192,
+      "endIncome": 11638611.01578018,
+      "spree": 5759.617172949573,
+      "spreeMin": 3.9,
+      "plateau": 23442068.169652957,
+      "plateauMin": 10.9
+    },
+    {
+      "n": 3,
+      "minutes": 6.9,
+      "legacy": 21,
+      "minHappy": 0.46,
+      "minHappyMid": 1.126,
+      "under": 0.145,
+      "newItems": [
+        "charter-mint",
+        "institutional-memory"
+      ],
+      "earned": 2840617627.8819227,
+      "endIncome": 22851407.322820935,
+      "spree": 676193.4714354369,
+      "spreeMin": 4,
+      "plateau": 45902692.36359235,
+      "plateauMin": 6.7
+    },
+    {
+      "n": 4,
+      "minutes": 6.17,
+      "legacy": 30,
+      "minHappy": 0.61,
+      "minHappyMid": 1.244,
+      "under": 0.065,
+      "newItems": [
+        "city-archives"
+      ],
+      "earned": 6042527484.374363,
+      "endIncome": 26563110.83395727,
+      "spree": 50340573.04369506,
+      "spreeMin": 4,
+      "plateau": 55688196.70323084,
+      "plateauMin": 6.2
+    },
+    {
+      "n": 5,
+      "minutes": 8.17,
+      "legacy": 42,
+      "minHappy": 0.61,
+      "minHappyMid": 1.287,
+      "under": 0.041,
+      "newItems": [
+        "championship-season"
+      ],
+      "earned": 11621999978.439491,
+      "endIncome": 37521210.744256206,
+      "spree": 61294163.86092077,
+      "spreeMin": 4,
+      "plateau": 102795210.19376978,
+      "plateauMin": 8
+    },
+    {
+      "n": 6,
+      "minutes": 10.73,
+      "legacy": 59,
+      "minHappy": 0.61,
+      "minHappyMid": 1.585,
+      "under": 0.006,
+      "newItems": [
+        "charter-grid"
+      ],
+      "earned": 23499321623.743416,
+      "endIncome": 50871982.540683925,
+      "spree": 80517468.76963468,
+      "spreeMin": 3.9,
+      "plateau": 213259852.91439062,
+      "plateauMin": 10.2
+    },
+    {
+      "n": 7,
+      "minutes": 13.8,
+      "legacy": 83,
+      "minHappy": 0.86,
+      "minHappyMid": 1.1,
+      "under": 0.024,
+      "newItems": [
+        "robotic-assembly"
+      ],
+      "earned": 47413370843.60495,
+      "endIncome": 88754957.17359532,
+      "spree": 115640648.12620421,
+      "spreeMin": 4,
+      "plateau": 397385257.1789876,
+      "plateauMin": 13.3
+    },
+    {
+      "n": 8,
+      "minutes": 14.8,
+      "legacy": 117,
+      "minHappy": 0.86,
+      "minHappyMid": 1.683,
+      "under": 0.011,
+      "newItems": [
+        "charter-guild"
+      ],
+      "earned": 96310543240.85042,
+      "endIncome": 147091098.58521515,
+      "spree": 194099148.10002407,
+      "spreeMin": 3.4,
+      "plateau": 882655175.5217259,
+      "plateauMin": 14.7
+    },
+    {
+      "n": 9,
+      "minutes": 17.1,
+      "legacy": 164,
+      "minHappy": 0.86,
+      "minHappyMid": 1.669,
+      "under": 0.004,
+      "newItems": [
+        "ai-governance"
+      ],
+      "earned": 190276087296.76605,
+      "endIncome": 406499994.2172686,
+      "spree": 251058868.14510092,
+      "spreeMin": 3.2,
+      "plateau": 1709020207.813354,
+      "plateauMin": 16.7
+    },
+    {
+      "n": 10,
+      "minutes": 17.93,
+      "legacy": 230,
+      "minHappy": 0.86,
+      "minHappyMid": 1.804,
+      "under": 0.006,
+      "newItems": [
+        "dyson-swarm"
+      ],
+      "earned": 380449063445.1931,
+      "endIncome": 543206057.226938,
+      "spree": 522910687.2455583,
+      "spreeMin": 1.2,
+      "plateau": 3315064667.844749,
+      "plateauMin": 17.8
+    },
+    {
+      "n": 11,
+      "minutes": 15.57,
+      "legacy": 322,
+      "minHappy": 0.86,
+      "minHappyMid": 1.785,
+      "under": 0.004,
+      "newItems": [
+        "charter-merchant"
+      ],
+      "earned": 755599315324.8107,
+      "endIncome": 929522947.6751928,
+      "spree": 5567584549.027357,
+      "spreeMin": 1.3,
+      "plateau": 6051815018.883374,
+      "plateauMin": 14.5
+    },
+    {
+      "n": 12,
+      "minutes": 9.67,
+      "legacy": 451,
+      "minHappy": 0.86,
+      "minHappyMid": 1.772,
+      "under": 0.01,
+      "newItems": [
+        "planetary-charter"
+      ],
+      "earned": 1506550911616.4622,
+      "endIncome": 3274348620.784918,
+      "spree": 23070596317.105843,
+      "spreeMin": 1.6,
+      "plateau": 13648101185.863268,
+      "plateauMin": 9.3
+    },
+    {
+      "n": 13,
+      "minutes": 5.57,
+      "legacy": 632,
+      "minHappy": 0.86,
+      "minHappyMid": 1.762,
+      "under": 0.018,
+      "newItems": [
+        "quantum-exchange"
+      ],
+      "earned": 3026913792395.9272,
+      "endIncome": 12546625779.76164,
+      "spree": 125426771856.94777,
+      "spreeMin": 1.9,
+      "plateau": 26463886640.623375,
+      "plateauMin": 5.5
+    },
+    {
+      "n": 14,
+      "minutes": 7.47,
+      "legacy": 885,
+      "minHappy": 0.86,
+      "minHappyMid": 1.73,
+      "under": 0.013,
+      "newItems": [
+        "charter-settlers"
+      ],
+      "earned": 5991936842868.374,
+      "endIncome": 16770406912.240866,
+      "spree": 303808156976.46204,
+      "spreeMin": 1.9,
+      "plateau": 49196889790.230415,
+      "plateauMin": 7.2
+    },
+    {
+      "n": 15,
+      "minutes": 10.07,
+      "legacy": 1239,
+      "minHappy": 0.86,
+      "minHappyMid": 1.72,
+      "under": 0.007,
+      "newItems": [
+        "megastructures"
+      ],
+      "earned": 11965108246110.627,
+      "endIncome": 26040074950.9694,
+      "spree": 424386446600.6966,
+      "spreeMin": 1.7,
+      "plateau": 108433942488.71098,
+      "plateauMin": 10
+    },
+    {
+      "n": 16,
+      "minutes": 13.13,
+      "legacy": 1736,
+      "minHappy": 0.86,
+      "minHappyMid": 1.7,
+      "under": 0.005,
+      "newItems": [
+        "orbital-solar"
+      ],
+      "earned": 23838734809857.37,
+      "endIncome": 36637374691.80923,
+      "spree": 491735169273.45557,
+      "spreeMin": 2,
+      "plateau": 182028320438.73447,
+      "plateauMin": 13
+    },
+    {
+      "n": 17,
+      "minutes": 16.57,
+      "legacy": 2432,
+      "minHappy": 0.86,
+      "minHappyMid": 1.96,
+      "under": 0.004,
+      "newItems": [
+        "charter-masons"
+      ],
+      "earned": 47634648874949.85,
+      "endIncome": 55901182096.730095,
+      "spree": 699478256247.5631,
+      "spreeMin": 2.1,
+      "plateau": 359736409634.70514,
+      "plateauMin": 16.3
+    },
+    {
+      "n": 18,
+      "minutes": 22.23,
+      "legacy": 3405,
+      "minHappy": 0.86,
+      "minHappyMid": 1.945,
+      "under": 0.003,
+      "newItems": [
+        "arcology-gardens"
+      ],
+      "earned": 94814152158110.95,
+      "endIncome": 80879179583.16522,
+      "spree": 1143441361324.7437,
+      "spreeMin": 1.9,
+      "plateau": 723913255013.7643,
+      "plateauMin": 20.3
+    },
+    {
+      "n": 19,
+      "minutes": 29.67,
+      "legacy": 4767,
+      "minHappy": 0.86,
+      "minHappyMid": 1.931,
+      "under": 0.002,
+      "newItems": [
+        "charter-civic"
+      ],
+      "earned": 188891374683874.72,
+      "endIncome": 127560318237.88145,
+      "spree": 1537065866907.4365,
+      "spreeMin": 2.3,
+      "plateau": 1335332234234.6135,
+      "plateauMin": 26.3
+    },
+    {
+      "n": 20,
+      "minutes": 26.6,
+      "legacy": 6674,
+      "minHappy": 0.86,
+      "minHappyMid": 1.918,
+      "under": 0.003,
+      "newItems": [
+        "algorithmic-trading"
+      ],
+      "earned": 376532668635654.06,
+      "endIncome": 276506806628.96606,
+      "spree": 2439966895975.905,
+      "spreeMin": 2,
+      "plateau": 2911717679827.9736,
+      "plateauMin": 26.3
+    },
+    {
+      "n": 21,
+      "minutes": 33.77,
+      "legacy": 9344,
+      "minHappy": 0.86,
+      "minHappyMid": 2.213,
+      "under": 0.002,
+      "newItems": [
+        "standing-orders"
+      ],
+      "earned": 750046268868282.1,
+      "endIncome": 418720308418.90283,
+      "spree": 5091145876444.164,
+      "spreeMin": 2.2,
+      "plateau": 5188730051089.535,
+      "plateauMin": 33.7
+    },
+    {
+      "n": 22,
+      "minutes": 23.4,
+      "legacy": 13084,
+      "minHappy": 1.227,
+      "minHappyMid": 2.205,
+      "under": 0,
+      "newItems": [
+        "charter-treasury"
+      ],
+      "earned": 1496184610354861.2,
+      "endIncome": 1331125006339.836,
+      "spree": 43706321534931.49,
+      "spreeMin": 2.7,
+      "plateau": 11618016857771.86,
+      "plateauMin": 23.2
+    },
+    {
+      "n": 23,
+      "minutes": 27.43,
+      "legacy": 18319,
+      "minHappy": 1.227,
+      "minHappyMid": 2.194,
+      "under": 0,
+      "newItems": [
+        "mass-driver-port"
+      ],
+      "earned": 2980552933402707.5,
+      "endIncome": 2141304447995.302,
+      "spree": 56341446705103.23,
+      "spreeMin": 2.4,
+      "plateau": 23138537897545.402,
+      "plateauMin": 27.4
+    },
+    {
+      "n": 24,
+      "minutes": 33.9,
+      "legacy": 25647,
+      "minHappy": 1.227,
+      "minHappyMid": 2.185,
+      "under": 0,
+      "newItems": [
+        "ringworld-district"
+      ],
+      "earned": 5938595290268426,
+      "endIncome": 3325214896871.102,
+      "spree": 64821122470859.26,
+      "spreeMin": 2.8,
+      "plateau": 43098919542910.61,
+      "plateauMin": 32.7
+    },
+    {
+      "n": 25,
+      "minutes": 33.97,
+      "legacy": 35910,
+      "minHappy": 1.157,
+      "minHappyMid": 2.177,
+      "under": 0.001,
+      "newItems": [
+        "charter-skyline"
+      ],
+      "earned": 11839522269901066,
+      "endIncome": 7604897918663.004,
+      "spree": 183548490419781.12,
+      "spreeMin": 3.1,
+      "plateau": 92246464862784.42,
+      "plateauMin": 33.9
+    },
+    {
+      "n": 26,
+      "minutes": 44.9,
+      "legacy": 50280,
+      "minHappy": 1.157,
+      "minHappyMid": 2.169,
+      "under": 0.001,
+      "newItems": [
+        "stellar-engine"
+      ],
+      "earned": 23598409948880824,
+      "endIncome": 10459176571499.838,
+      "spree": 255399778652032.7,
+      "spreeMin": 2.8,
+      "plateau": 169567193432227.34,
+      "plateauMin": 44
+    },
+    {
+      "n": 27,
+      "minutes": 49.53,
+      "legacy": 70396,
+      "minHappy": 1.157,
+      "minHappyMid": 2.161,
+      "under": 0.001,
+      "newItems": [
+        "superconductor-grid"
+      ],
+      "earned": 47025087777889384,
+      "endIncome": 17950599579436.574,
+      "spree": 361444260668865.25,
+      "spreeMin": 2.9,
+      "plateau": 326349505602007.1,
+      "plateauMin": 48.7
+    },
+    {
+      "n": 28,
+      "minutes": 35.83,
+      "legacy": 98570,
+      "minHappy": 1.157,
+      "minHappyMid": 2.152,
+      "under": 0,
+      "newItems": [
+        "charter-energy",
+        "galactic-charter"
+      ],
+      "earned": 93755617353749870,
+      "endIncome": 49918153925483.17,
+      "spree": 467219195075664.8,
+      "spreeMin": 3.2,
+      "plateau": 708840185940285.5,
+      "plateauMin": 35.8
+    },
+    {
+      "n": 29,
+      "minutes": 45.8,
+      "legacy": 138015,
+      "minHappy": 1.157,
+      "minHappyMid": 2.144,
+      "under": 0,
+      "newItems": [
+        "orbital-shipyard"
+      ],
+      "earned": 186860813438368300,
+      "endIncome": 85615241387368.56,
+      "spree": 1190813600147532.5,
+      "spreeMin": 3.2,
+      "plateau": 1280710498832551,
+      "plateauMin": 44.1
+    },
+    {
+      "n": 30,
+      "minutes": 21.47,
+      "legacy": 193229,
+      "minHappy": 1.158,
+      "minHappyMid": 2.135,
+      "under": 0,
+      "newItems": [
+        "charter-imperial"
+      ],
+      "earned": 372328596295843100,
+      "endIncome": 357764390013862.06,
+      "spree": 20308224275964904,
+      "spreeMin": 3.9,
+      "plateau": 19835986412438924,
+      "plateauMin": 4
+    },
+    {
+      "n": 31,
+      "minutes": 23.13,
+      "legacy": 270632,
+      "minHappy": 1.408,
+      "minHappyMid": 2.377,
+      "under": 0,
+      "newItems": [
+        "exchange-ring"
+      ],
+      "earned": 743121120877414500,
+      "endIncome": 641542977408033.4,
+      "spree": 27155812601962310,
+      "spreeMin": 3.5,
+      "plateau": 8895497274433036,
+      "plateauMin": 4.1
+    }
+  ],
+  "rungBuys": [
+    {
+      "id": "legacy-archive",
+      "city": 1,
+      "runMin": 0
+    },
+    {
+      "id": "founders-blueprints",
+      "city": 1,
+      "runMin": 5.1
+    },
+    {
+      "id": "veteran-planners",
+      "city": 1,
+      "runMin": 6.8
+    },
+    {
+      "id": "dynasty-ledger",
+      "city": 1,
+      "runMin": 8.2
+    },
+    {
+      "id": "preventive-care",
+      "city": 1,
+      "runMin": 10.6
+    },
+    {
+      "id": "breeder-reactors",
+      "city": 2,
+      "runMin": 9.6
+    },
+    {
+      "id": "institutional-memory",
+      "city": 3,
+      "runMin": 5
+    },
+    {
+      "id": "city-archives",
+      "city": 4,
+      "runMin": 6
+    },
+    {
+      "id": "championship-season",
+      "city": 5,
+      "runMin": 7.4
+    },
+    {
+      "id": "robotic-assembly",
+      "city": 7,
+      "runMin": 10.4
+    },
+    {
+      "id": "ai-governance",
+      "city": 9,
+      "runMin": 14.4
+    },
+    {
+      "id": "dyson-swarm",
+      "city": 10,
+      "runMin": 13.4
+    },
+    {
+      "id": "planetary-charter",
+      "city": 12,
+      "runMin": 1.2
+    },
+    {
+      "id": "quantum-exchange",
+      "city": 13,
+      "runMin": 1.4
+    },
+    {
+      "id": "megastructures",
+      "city": 15,
+      "runMin": 1.7
+    },
+    {
+      "id": "orbital-solar",
+      "city": 16,
+      "runMin": 2
+    },
+    {
+      "id": "arcology-gardens",
+      "city": 18,
+      "runMin": 1.9
+    },
+    {
+      "id": "algorithmic-trading",
+      "city": 20,
+      "runMin": 2
+    },
+    {
+      "id": "standing-orders",
+      "city": 21,
+      "runMin": 2.2
+    },
+    {
+      "id": "mass-driver-port",
+      "city": 23,
+      "runMin": 2.4
+    },
+    {
+      "id": "ringworld-district",
+      "city": 24,
+      "runMin": 2.8
+    },
+    {
+      "id": "stellar-engine",
+      "city": 26,
+      "runMin": 2.8
+    },
+    {
+      "id": "superconductor-grid",
+      "city": 27,
+      "runMin": 2.9
+    },
+    {
+      "id": "galactic-charter",
+      "city": 28,
+      "runMin": 3.2
+    },
+    {
+      "id": "orbital-shipyard",
+      "city": 29,
+      "runMin": 3.2
+    },
+    {
+      "id": "exchange-ring",
+      "city": 31,
+      "runMin": 3.5
+    }
+  ]
+}

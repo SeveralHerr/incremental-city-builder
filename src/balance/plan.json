@@ -1,0 +1,21 @@
+[
+  { "id": "city-archives", "city": 4, "mode": "mid" },
+  { "id": "championship-season", "city": 5, "mode": "mid" },
+  { "id": "robotic-assembly", "city": 7, "mode": "mid" },
+  { "id": "ai-governance", "city": 9, "mode": "mid" },
+  { "id": "dyson-swarm", "city": 10, "mode": "mid" },
+  { "id": "planetary-charter", "city": 12, "mode": "spree" },
+  { "id": "quantum-exchange", "city": 13, "mode": "spree" },
+  { "id": "megastructures", "city": 15, "mode": "spree" },
+  { "id": "orbital-solar", "city": 16, "mode": "spree" },
+  { "id": "arcology-gardens", "city": 18, "mode": "spree" },
+  { "id": "algorithmic-trading", "city": 20, "mode": "spree" },
+  { "id": "standing-orders", "city": 21, "mode": "spree" },
+  { "id": "mass-driver-port", "city": 23, "mode": "spree" },
+  { "id": "ringworld-district", "city": 24, "mode": "spree" },
+  { "id": "stellar-engine", "city": 26, "mode": "spree" },
+  { "id": "superconductor-grid", "city": 27, "mode": "spree" },
+  { "id": "galactic-charter", "city": 28, "mode": "spree" },
+  { "id": "orbital-shipyard", "city": 29, "mode": "spree" },
+  { "id": "exchange-ring", "city": 31, "mode": "spree" }
+]

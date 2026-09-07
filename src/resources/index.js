@@ -94,22 +94,22 @@ export function formatResource(id, value) {
 // missing config or a missing key. Keep them equal to config.js — resources.test.mjs fails
 // on drift (`node --test src/resources/`).
 //
-// pollutionCap / pollutionCurve make the pollution penalty saturate at 1.0 happiness (below
-// civicCap 1.25, so a fully civic city always nets positive) with unit slope at zero
+// pollutionCap / pollutionCurve make the pollution penalty saturate at 1.1 happiness (below
+// civicCap 1.12, so a fully civic city always nets positive) with unit slope at zero
 // (curve == cap). Without them the linear, uncapped penalty pins a late-game industrial city
 // at the 0.25 floor for hours. They are defaulted here too, so the saturation stays on even
 // if a balance pass drops the keys; set pollutionCap to 0 in config.js for the linear form.
 export const DEFAULTS = Object.freeze({
   economy: Object.freeze({ taxPerPop: 0.08, wage: 0.35 }),
-  pop: Object.freeze({ growthRate: 0.08, shrinkRate: 0.2, baseInflow: 0.5 }),
+  pop: Object.freeze({ growthRate: 0.09, shrinkRate: 0.2, baseInflow: 0.5 }),
   power: Object.freeze({ brownoutFloor: 0.6 }),
   happiness: Object.freeze({
-    civicCap: 1.25,
+    civicCap: 1.12,
     civicScale: 1.5,
     pollutionScale: 0.35,
     pollutionCap: 1.1,
     pollutionCurve: 1.0,
-    unemploymentPenalty: 0.4,
+    unemploymentPenalty: 0.35,
     overcrowdPenalty: 0.5,
     brownoutPenalty: 0.6,
     min: 0.25,

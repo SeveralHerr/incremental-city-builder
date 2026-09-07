@@ -271,10 +271,10 @@ test('power ladder: fusion pays only with a reactor fleet, then beats nuclear on
   for (let i = 1; i < gens.length; i++) assert.ok(gens[i] >= gens[i - 1] * 5, `power step ${i} ≥ 5×`);
 });
 
-test('the six signature synergies and the four tier-4 strains are registered; the live handler is idempotent', () => {
-  assert.deepEqual(activeSynergies().map((s) => s.id).sort(), ['financial', 'fusion', 'mall', 'refinery', 'solar', 'techpark']);
+test('the nine signature synergies and the four tier-4 strains are registered; the live handler is idempotent', () => {
+  assert.deepEqual(activeSynergies().map((s) => s.id).sort(), ['financial', 'fusion', 'house', 'mall', 'refinery', 'shop', 'solar', 'stadium', 'techpark']);
   assert.deepEqual(activeGrowth().map((s) => s.id).sort(), ['arcology', 'financial', 'stadium', 'techpark']);
-  assert.equal(activeRules().length, 10);
+  assert.equal(activeRules().length, 13);
   assert.equal(SYNERGY_HANDLER, LIVE_HANDLER, 'former handler name still resolves');
   assert.ok(registry.tickHandlers.some((h) => h.name === LIVE_HANDLER), 'tick handler registered');
   assert.equal(registry.tickHandlers.filter((h) => h.name === LIVE_HANDLER).length, 1, 'registered once across two inits');
@@ -301,7 +301,7 @@ test('the six signature synergies and the four tier-4 strains are registered; th
   assert.equal(mall.income, mallBase, 'mirrored into the def');
   assert.equal(liveStat('arcology', 'powerUse'), arcBase);
 
-  const big = cityState(10000, { factory: 100, school: 30, arcology: 41, financial: 5 });
+  const big = cityState(10000, { factory: 100, school: 30, arcology: 41, financial: 5, apartment: 25, office: 50 });
   applyLiveStats(big, { employed: 10000 });
   applySynergies(big, { employed: 10000 }); // twice (and via the former name): must not compound
   assert.equal(liveStat('mall', 'income'), mallBase * 3);
@@ -310,6 +310,9 @@ test('the six signature synergies and the four tier-4 strains are registered; th
   assert.equal(fin.income, finBase * 1.5);
   assert.equal(liveStat('refinery', 'income'), baseStat('refinery', 'income') * 2);
   assert.equal(liveStat('techpark', 'income'), baseStat('techpark', 'income') * 1.75);
+  assert.equal(liveStat('house', 'housing'), baseStat('house', 'housing') * 2, '25 apartment blocks: cottages ×2');
+  assert.equal(liveStat('shop', 'income'), baseStat('shop', 'income') * 3, '50 offices: the shop caps at ×3');
+  assert.equal(liveStat('stadium', 'jobs'), baseStat('stadium', 'jobs') * 1.5, '10k citizens: stadium hires ×1.5');
   assert.equal(liveStat('arcology', 'powerUse'), arcBase * 1.5, '41 arcologies: strain at the cap');
   assert.equal(arc.powerUse, arcBase * 1.5);
   assert.equal(liveStat('financial', 'powerUse'), baseStat('financial', 'powerUse') * 1.1, '5 districts: 1 + 4/40');
@@ -318,8 +321,8 @@ test('the six signature synergies and the four tier-4 strains are registered; th
   assert.equal(baseStat('mall', 'income'), mallBase);
   assert.equal(baseStat('arcology', 'powerUse'), arcBase);
   // Unscaled stats read straight from the def; unknown ids are undefined.
-  assert.equal(liveStat('house', 'housing'), registry.buildings.get('house').housing);
-  assert.equal(baseStat('house', 'housing'), registry.buildings.get('house').housing);
+  assert.equal(liveStat('tower', 'housing'), registry.buildings.get('tower').housing);
+  assert.equal(baseStat('tower', 'housing'), registry.buildings.get('tower').housing);
   assert.equal(liveStat('nope', 'income'), undefined);
   assert.deepEqual(liveStats('nope'), {});
 
@@ -327,6 +330,30 @@ test('the six signature synergies and the four tier-4 strains are registered; th
   assert.equal(mall.income, mallBase);
   assert.equal(fin.income, finBase);
   assert.equal(arc.powerUse, arcBase);
+});
+
+test('a scaled field on the registered def is a view of the live store, not a second copy', () => {
+  const mall = registry.buildings.get('mall');
+  const mallBase = baseStat('mall', 'income');
+  const desc = Object.getOwnPropertyDescriptor(mall, 'income');
+  assert.ok(desc && typeof desc.get === 'function' && desc.enumerable, 'income is an enumerable accessor');
+  assert.equal(Object.getOwnPropertyDescriptor(registry.buildings.get('tower'), 'housing').value, registry.buildings.get('tower').housing, 'an unscaled field stays a plain value');
+  // Spreading the def (api.buildings does this for the bot and the UI) captures the live value.
+  applyLiveStats(cityState(5000), { employed: 0 });
+  assert.equal({ ...mall }.income, mallBase * 2);
+  assert.equal(JSON.parse(JSON.stringify({ income: mall.income })).income, mallBase * 2);
+  // Writing the field re-pins the base instead of being overwritten on the next tick.
+  mall.income = mallBase * 10;
+  assert.equal(baseStat('mall', 'income'), mallBase * 10);
+  assert.equal(mall.income, mallBase * 10, 'reads the new base until the next evaluation');
+  applyLiveStats(cityState(5000), { employed: 0 });
+  assert.equal(mall.income, mallBase * 20, 'next tick: new base × factor');
+  mall.income = NaN; // garbage is ignored
+  assert.equal(baseStat('mall', 'income'), mallBase * 10);
+  mall.income = mallBase;
+  applyLiveStats(cityState(0), { employed: 0 });
+  assert.equal(mall.income, mallBase);
+  assert.equal(baseStat('mall', 'income'), mallBase);
 });
 
 test('no tier-4 building is strictly dominated by a cheaper one on income per dollar (wages included)', () => {
@@ -424,5 +451,25 @@ test('cadence probe: the first city founds, raises no errors, and every building
 
 test('cadence probe: no fault at all (config-owned gates and costs included)', { todo: probe.report && probe.report.problems.length > 0 ? 'config.buildings pins the fields these faults need: ' + probe.report.problems.map((p) => p.msg).join(' | ') : undefined }, () => {
   assert.ok(probe.report, 'probe produced JSON');
+  for (const p of probe.report.problems) assert.ok(Array.isArray(p.fields) && p.fields.length && p.msg.includes('fix: '), 'every fault names the field that fixes it');
   assert.deepEqual(probe.report.problems.map((p) => `[${p.owner}] ${p.msg}`), [], 'cadence.mjs exits 0');
+});
+
+test('catalogue.mjs prints the shipped catalogue with every config override flagged', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const r = spawnSync(process.execPath, [path.join(here, 'catalogue.mjs'), '--json'], { encoding: 'utf-8', timeout: 60000 });
+  assert.equal(r.status, 0, `exit 0 (stderr: ${r.stderr.slice(0, 300)})`);
+  const rows = JSON.parse(r.stdout);
+  assert.equal(rows.length, 20);
+  const overrides = config.buildings || {};
+  for (const row of rows) {
+    const o = overrides[row.id] || {};
+    for (const f of ['baseCost', 'housing', 'income', 'powerUse', 'powerGen', 'upkeep']) {
+      if (Number.isFinite(o[f]) && o[f] !== data(row.id)[f]) assert.ok(row.overridden.includes(f), `${row.id}.${f} flagged as overridden`);
+      assert.equal(row[f], registry.buildings.get(row.id)[f] === undefined ? undefined : baseStat(row.id, f), `${row.id}.${f} is the shipped base`);
+    }
+    if (typeof o.unlock === 'function') assert.ok(row.overridden.includes('unlock') || row.gate === row.defaultGate, `${row.id} gate attribution`);
+  }
+  const shipped = rows.find((r) => r.id === 'stadium');
+  assert.ok(shipped.synergy && shipped.demandGrowth, 'rule texts ride along');
 });

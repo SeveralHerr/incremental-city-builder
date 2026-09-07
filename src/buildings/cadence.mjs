@@ -13,6 +13,9 @@
 // owns (a gate in data.js, a base cost not overridden) can fix it, `config` when every
 // field involved is pinned by `config.buildings[id]` — the buildings module cannot move
 // those, and buildings.test.mjs holds this folder to the buildings-owned faults only.
+// Every fault also ends in `fix: <field>` naming the exact field(s) that can move it
+// (`config.buildings.nuclear.unlock`, `data.js solar.unlock`, …), so the owning folder
+// can act on the line without re-deriving who pins what.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -95,27 +98,35 @@ const endS = founded ? state.stats.playtime : sec();
 const list = [...rows.values()].sort((a, b) => (a.unlockS ?? Infinity) - (b.unlockS ?? Infinity));
 const min = (s) => (s / 60).toFixed(1);
 const m = (s) => (s === null ? '   —  ' : min(s).padStart(6));
-// { owner, msg }: owner is 'buildings' when a field this folder owns can fix the fault.
+// { owner, msg, fields }: owner is 'buildings' when a field this folder owns can fix the
+// fault; `fields` names where the fix lives (`config.buildings.<id>.<field>` for a pinned
+// field, `data.js <id>.<field>` otherwise) so the owning folder can act on the line as is.
 const problems = [];
+const where = (r, field) => {
+  const owner = field === 'gate' ? r.gateOwner : r.costOwner;
+  const name = field === 'gate' ? 'unlock' : field;
+  return owner === 'config' ? `config.buildings.${r.id}.${name}` : `data.js ${r.id}.${name}`;
+};
+const push = (owner, msg, fields) => problems.push({ owner, msg: `${msg} — fix: ${fields.join(' / ')}`, fields });
 const opened = list.filter((r) => r.unlockS !== null);
 for (let i = 1; i < opened.length; i++) {
   const a = opened[i - 1], b = opened[i];
   if (a.unlockS >= RULES_FROM_S && b.unlockS - a.unlockS < SPACING_S) {
     const owner = a.gateOwner === 'buildings' || b.gateOwner === 'buildings' ? 'buildings' : 'config';
-    problems.push({ owner, msg: `${a.id} and ${b.id} open ${(b.unlockS - a.unlockS).toFixed(0)} s apart (${min(a.unlockS)} min)` });
+    push(owner, `${a.id} and ${b.id} open ${(b.unlockS - a.unlockS).toFixed(0)} s apart (${min(a.unlockS)} min, limit ${SPACING_S} s)`, [where(a, 'gate'), where(b, 'gate')]);
   }
   if (a.unlockS >= RULES_FROM_S && b.unlockS - a.unlockS > GAP_S) {
-    problems.push({ owner: b.gateOwner, msg: `nothing new for ${min(b.unlockS - a.unlockS)} min between ${a.id} (${min(a.unlockS)}) and ${b.id} (${min(b.unlockS)})` });
+    push(b.gateOwner, `nothing new for ${min(b.unlockS - a.unlockS)} min between ${a.id} (${min(a.unlockS)}) and ${b.id} (${min(b.unlockS)}), limit ${GAP_S / 60}`, [where(b, 'gate')]);
   }
 }
 for (const r of list) {
   const lagMax = r.tier >= 4 ? LAG_T4_S : LAG_S;
   if (r.unlockS !== null && r.unlockS >= RULES_FROM_S && r.buyS !== null && r.buyS - r.unlockS > lagMax) {
     const owner = r.gateOwner === 'buildings' || r.costOwner === 'buildings' ? 'buildings' : 'config';
-    problems.push({ owner, msg: `${r.id} glows unaffordable for ${min(r.buyS - r.unlockS)} min (open ${min(r.unlockS)} → bought ${min(r.buyS)}, limit ${lagMax / 60})` });
+    push(owner, `${r.id} glows unaffordable for ${min(r.buyS - r.unlockS)} min (open ${min(r.unlockS)} → bought ${min(r.buyS)}, limit ${lagMax / 60})`, [where(r, 'gate'), where(r, 'baseCost')]);
   }
   if (r.unlockS !== null && r.buyS === null) {
-    problems.push({ owner: r.costOwner, msg: `${r.id} opens at ${min(r.unlockS)} min but is never bought in the first city` });
+    push(r.costOwner, `${r.id} opens at ${min(r.unlockS)} min but is never bought in the first city`, [where(r, 'baseCost')]);
   }
 }
 if (founded && opened.length) {
@@ -124,7 +135,7 @@ if (founded && opened.length) {
   if (tail > GAP_S) {
     // The next locked card (lowest population gate still closed) is the one that would fill the tail.
     const next = list.filter((r) => r.unlockS === null && Number.isFinite(registry.buildings.get(r.id)?.unlockAt?.pop)).sort((a, b) => registry.buildings.get(a.id).unlockAt.pop - registry.buildings.get(b.id).unlockAt.pop)[0];
-    problems.push({ owner: next ? next.gateOwner : 'buildings', msg: `nothing new for the last ${min(tail)} min of the first city (${last.id} at ${min(last.unlockS)}, founding at ${min(endS)}, peak pop ${Math.round(peakPop).toLocaleString('en-US')}${next ? `; next locked card ${next.id} at ${next.gate}` : ''})` });
+    push(next ? next.gateOwner : 'buildings', `nothing new for the last ${min(tail)} min of the first city (${last.id} at ${min(last.unlockS)}, founding at ${min(endS)}, peak pop ${Math.round(peakPop).toLocaleString('en-US')}${next ? `; next locked card ${next.id} at ${next.gate}` : ''})`, next ? [where(next, 'gate')] : ['data.js fusion.unlock']);
   }
 }
 

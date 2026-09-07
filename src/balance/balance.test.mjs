@@ -7,12 +7,16 @@
 // tools/economy-sim.mjs, not asserted here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { config, costGrowthFor } from './config.js';
 import { init } from './index.js';
 import { prestigeTuning, economyTuning, milestoneTuning, LEGACY_POWER_MAX } from '../simulation/tuning.js';
 import { UPGRADES, CHARTER_GATE, FRONTIER_GATE } from '../upgrades/data.js';
 import { BUILDINGS } from '../buildings/data.js';
 
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const upgradeById = new Map(UPGRADES.map((d) => [d.id, d]));
 const buildingById = new Map(BUILDINGS.map((d) => [d.id, d]));
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -148,7 +152,8 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
   // The placement table (config.js, upgrades block) in city order: every money rung is
   // dearer than the one placed in the city before it, so the bot meets them in this order.
   const cityOrder = [
-    'breeder-reactors', // city 2
+    'breeder-reactors', // city 1 (second city)
+    'institutional-memory', // 3
     'city-archives', // 4
     'championship-season', // 5
     'robotic-assembly', // 7
@@ -164,17 +169,20 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
     'mass-driver-port', // 23
     'ringworld-district', // 24
     'stellar-engine', // 26
-    'galactic-charter', // 27
-    'superconductor-grid', // 29
-    'orbital-shipyard', // 31
-    'exchange-ring', // 32
+    'superconductor-grid', // 27
+    'galactic-charter', // 28 (with the Energy Charter)
+    'orbital-shipyard', // 29
+    'exchange-ring', // 31
   ];
   for (let i = 1; i < cityOrder.length; i++) assert.ok(price(cityOrder[i]) > price(cityOrder[i - 1]), `${cityOrder[i]} is placed after ${cityOrder[i - 1]}`);
   // The four replay accelerators are priced for the first two minutes of a 5–10 point
   // replay ($1,800–3,300 of seed cash, see prestige.startMoneyPerLegacy), in ladder order.
   assert.ok(price('legacy-archive') < price('founders-blueprints') && price('founders-blueprints') < price('veteran-planners') && price('veteran-planners') < price('dynasty-ledger'));
   assert.ok(price('dynasty-ledger') <= 50000, 'the Dynasty Ledger lands inside the first minutes of the second city');
-  assert.ok(price('institutional-memory') > price('dynasty-ledger') && price('institutional-memory') < price('breeder-reactors'));
+  // Institutional Memory is priced above the second city's plateau so it lands in the third
+  // city (with the Mint Charter) and its founding re-grant reaches the fourth: that is what
+  // keeps the fourth city from reading ×1.4 over the third (see config.js, Legacy rungs).
+  assert.ok(price('institutional-memory') > price('breeder-reactors') && price('institutional-memory') < price('city-archives'));
   // Seed cash scales with legacy so a 5-point replay can buy its way past the cottage
   // minute (5 points → $1,800), but stays irrelevant late (1e5 points → $3e7 against a
   // spree of 1e14+).
@@ -199,3 +207,50 @@ test('the core money ladder stays monotone from the first shop-priced rung to th
   assert.ok(config.upgrades['zoning-reform'].cost > config.buildings.shop.baseCost, 'the first $50 goes to the corner shop, not the reform');
   assert.ok(config.economy.startMoney >= config.buildings.shop.baseCost, 'seed cash covers the first shop');
 });
+
+// ---- measured cadence: the sim's own numbers, held to the contract's letter (no slack) ----
+//
+// tools/economy-sim.mjs allows each cycle 1.35× the previous *plus 30 s* and only checks
+// from the 6th founding; docs/DESIGN.md says "each cycle ≤ 1.35× the previous". This
+// pins the shipped 12 h logs to the literal contract from the 5th founding on, so a retune
+// that passes the sim by a second of slack still fails here. Logs are produced by
+// `node tools/economy-sim.mjs --ticks 432000 [--saver] --out logs/<name>.json`; a log that
+// is missing is skipped (the sim is not run from the test), a log from a shorter session
+// is ignored, and both profiles are held to the magnitude ceilings.
+const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-fix-balance-12h.json', 'logs/sim-fix-balance-saver.json'];
+const RATIO_MAX = 1.35;
+const RATIO_FROM = 4; // cycles[i] / cycles[i - 1] from the 5th founding (i = 4) on
+function readLog(rel) {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+for (const rel of SIM_LOGS) {
+  const log = readLog(rel);
+  const usable = log && Number.isFinite(log.gameHours) && log.gameHours >= 12 && log.metrics && Array.isArray(log.metrics.cycles);
+  test(`measured 12 h session (${rel}): magnitudes under the ceilings, zero errors`, { skip: usable ? false : `${rel} not present or shorter than 12 h` }, () => {
+    assert.equal(log.errors.length, 0, 'zero errors');
+    assert.ok(log.final.maxMoney <= 1e18, `money peak ${log.final.maxMoney.toExponential(2)} <= 1e18`);
+    assert.ok(log.final.legacy <= 1e6, `legacy ${log.final.legacy} <= 1e6`);
+    assert.equal(log.issues.filter((i) => ['overflow', 'stall', 'magnitude'].includes(i.kind)).length, 0, 'no hard issues');
+  });
+  test(`measured 12 h session (${rel}): cadence and variety to the letter of the contract`, { skip: !usable ? `${rel} not present or shorter than 12 h` : log.profile !== 'default' ? 'only the default profile is held to the cadence numbers' : false }, () => {
+    const cycles = log.metrics.cycles;
+    assert.ok(cycles.length >= 18 && cycles.length <= 35, `${cycles.length} foundings in 18–35`);
+    assert.ok(cycles[0] >= 30 && cycles[0] <= 45, `first founding ${cycles[0]} min in 30–45`);
+    const floor = Math.min(...cycles.slice(3, 10));
+    assert.ok(floor >= 4 && floor <= 8, `floor ${floor} min (foundings 4–10) in 4–8`);
+    assert.ok(cycles[cycles.length - 1] <= 40, `last cycle ${cycles[cycles.length - 1]} min <= 40`);
+    const over = [];
+    for (let i = RATIO_FROM; i < cycles.length; i++) if (cycles[i] > cycles[i - 1] * RATIO_MAX) over.push(`${i}: ${cycles[i - 1]} -> ${cycles[i]} (x${(cycles[i] / cycles[i - 1]).toFixed(3)})`);
+    assert.deepEqual(over, [], `every cycle from the 5th founding <= ${RATIO_MAX}x the previous, no slack`);
+    assert.deepEqual(log.metrics.emptyLateCycles, [], 'every city after the 5th introduces something new');
+    assert.deepEqual(log.metrics.neverPurchased, { buildings: [], upgrades: [] }, 'every building and upgrade bought');
+    assert.ok(log.metrics.reachShare >= 0.3, `reach ${log.metrics.reachShare} >= 0.3`);
+    assert.ok(log.metrics.underPowerShare >= 0.03 && log.metrics.underPowerShare <= 0.2, `under-power ${log.metrics.underPowerShare} in 3–20%`);
+    assert.ok(log.metrics.minPowerRatio >= 0.6, 'power floor >= 0.6');
+    assert.ok(log.metrics.happinessDipCities >= cycles.length * 0.5, `happiness dips ${log.metrics.happinessDipCities}/${cycles.length}`);
+  });
+}

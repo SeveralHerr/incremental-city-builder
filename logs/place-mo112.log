@@ -1,0 +1,6 @@
+[place] base: 30 foundings, cycles 41.4 12.6 10.9 6.9 6.3 8.2 10.8 14.0 15.0 17.0 17.7 15.7 9.8 5.6 7.6 10.4 13.6 16.9 23.7 31.9 28.1 35.8 24.8 28.9 37.9 37.9 50.1 55.3 66.3 51.1
+[place] megastructures @ 3.98e+11 (window 3.10e+11–5.12e+11) → city 15 at 1.7 min; cycles 41.4 12.6 10.9 6.9 6.3 8.2 10.8 14.0 15.0 17.0 17.7 15.7 9.8 5.6 7.6 10.2 13.3 16.1 22.5 30.1 27.0 34.3 23.7 27.8 34.4 34.4 45.5 50.2 36.3 46.4 21.8 23.4
+[place] orbital-solar @ 4.44e+11 (window 3.99e+11–4.93e+11) → city 16 at 1.9 min; cycles 41.4 12.6 10.9 6.9 6.3 8.2 10.8 14.0 15.0 17.0 17.7 15.7 9.8 5.6 7.6 10.2 13.3 16.8 22.6 30.1 27.0 34.3 23.7 27.8 34.4 34.4 45.5 50.3 36.4 46.4 21.8 23.4
+[place] result: megastructures=3.98e+11 orbital-solar=4.44e+11
+[place] sets: --set upgrades.megastructures.cost=398000000000 --set upgrades.orbital-solar.cost=444000000000
+[place] final: foundings=32 maxRatio=1.346@18 fails=none emptyLate=[] legacy=271309 money=2.75e+16

@@ -1,6 +1,8 @@
 // buildings module — registers the 20 Metropolis structures with core.
 // DOM-free (runs in Node for the economy sim). Never throws from init.
-// Files: data.js (catalogue + rationale), cadence.mjs (first-city unlock/first-buy probe,
+// Files: data.js (catalogue), README.md (the rationale behind the ladder, the signature
+// mechanics and the unlock spacing), catalogue.mjs (prints the *shipped* catalogue,
+// `node src/buildings/catalogue.mjs`), cadence.mjs (first-city unlock/first-buy probe,
 // `node src/buildings/cadence.mjs`), buildings.test.mjs (`node --test src/buildings/`).
 //
 // Balance integration: `src/balance/config.js` owns every tuning number. It is loaded
@@ -13,15 +15,22 @@
 //   synergy       { stat, source, per, cap, text }  stat = base × min(cap, 1 + source / per)
 //   demandGrowth  { per, cap, text }                powerUse = base × min(cap, 1 + (count − 1) / per)
 // The `buildings:live` tick handler runs at priority −10, before the simulation's fold,
-// and evaluates every rule once per tick. The base is the value resolved at registration
-// (data + config override), pinned in `bases` the first time a rule is collected, so a
-// repeated init or a second call in one tick never compounds a factor. The live value is
-// read through `liveStat(id, stat)` / `liveStats(id)` (the accessor this module owns) and
-// is *also* written into the registered definition's field, because resources.computeDerived,
-// the bot's scoring and the build card read `registry.buildings.get(id)[stat]` directly —
-// that write is the compatibility seam, not the contract: anything new should read the
-// accessor, and anything that must not move (sell refund maths, a test pinning a base)
-// should read `baseStat(id, stat)`.
+// and evaluates every rule once per tick into the `live` store. The base is the value
+// resolved at registration (data + config override), pinned in `bases` the first time a
+// rule is collected, so a repeated init or a second call in one tick never compounds a
+// factor. The contract is the accessor pair this module owns: `liveStat(id, stat)` /
+// `liveStats(id)` is the per-unit value the simulation is using right now, `baseStat`
+// the value that never moves (sell-refund maths, a tooltip that shows the sticker, a
+// test pinning a base). Both are exported and attached to `game.buildings`.
+//
+// Compatibility seam: resources.computeDerived, the bot's scoring and the build card read
+// `registry.buildings.get(id)[stat]` directly. Rather than writing a second copy of the
+// value into the definition every tick, the scaled field of a registered definition is
+// turned into an accessor property when its rule is collected: reading it returns
+// `liveStat`, so those consumers see exactly what the simulation uses and the def can
+// never drift from the store; assigning to it re-pins the base (what a tool tweaking a
+// def live expects) instead of being silently overwritten on the next tick. Anything new
+// should read the accessor functions, not the field.
 //
 // One-tick lag, by design: the handler reads `derived` as the previous tick left it (the
 // simulation recomputes it after us), so a rule sourced from `employed` is one tick behind
@@ -187,7 +196,36 @@ function pin(id, stat, def) {
   const base = bases.has(key) ? bases.get(key) : def[stat];
   if (!isFiniteNum(base)) return undefined;
   bases.set(key, base);
+  expose(id, stat, def);
   return base;
+}
+
+// Turn `def[stat]` into a view of the live store (see the header's "Compatibility seam").
+// Idempotent: a field that is already an accessor is left alone. A definition that is
+// frozen or otherwise refuses the property keeps its plain field and the handler falls
+// back to writing the value into it, so a locked-down registry still sees live numbers.
+const plainMirror = new Set(); // id:stat pairs where the accessor could not be installed
+function expose(id, stat, def) {
+  const key = id + ':' + stat;
+  const desc = Object.getOwnPropertyDescriptor(def, stat);
+  if (desc && typeof desc.get === 'function') return;
+  try {
+    Object.defineProperty(def, stat, {
+      enumerable: true,
+      configurable: true,
+      get: () => liveStat(id, stat),
+      set: (v) => {
+        if (!isFiniteNum(v)) return;
+        bases.set(key, v);
+        for (const r of rules) if (r.id === id && r.stat === stat) r.base = v;
+        const slot = live.get(id);
+        if (slot) delete slot[stat]; // reads return the new base until the next tick
+      },
+    });
+    plainMirror.delete(key);
+  } catch {
+    plainMirror.add(key);
+  }
 }
 
 function collectRules() {
@@ -222,19 +260,24 @@ function ruleFactor(r, state, derived) {
   return synergyFactor(r.rule, state, derived);
 }
 
-// Evaluate every rule: store the live value and mirror it into the registered definition
-// (see the header for why). Idempotent: the value is always base × factor, so repeated
-// calls never compound.
+// Evaluate every rule into the live store. The registered definition's field is an
+// accessor over that store (see the header), so nothing is written to the def here.
+// Idempotent: the value is always base × factor, so repeated calls never compound.
 export function applyLiveStats(state, derived) {
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
-    const def = registry.buildings.get(r.id);
-    if (!def) continue;
+    if (!registry.buildings.has(r.id)) continue;
     const v = r.base * ruleFactor(r, state, derived);
     let slot = live.get(r.id);
     if (!slot) live.set(r.id, (slot = {}));
     slot[r.stat] = v;
-    def[r.stat] = v;
+    if (plainMirror.has(r.id + ':' + r.stat)) {
+      try {
+        registry.buildings.get(r.id)[r.stat] = v;
+      } catch {
+        /* frozen def: the accessor functions still carry the value */
+      }
+    }
   }
 }
 export const applySynergies = applyLiveStats; // former name
@@ -248,11 +291,15 @@ export function baseStat(id, stat) {
   return def ? def[stat] : undefined;
 }
 
-// The per-unit value the simulation is using right now: the last evaluated rule value, or
-// the definition's field when nothing scales it. Undefined for an unknown building.
+// The per-unit value the simulation is using right now: the last evaluated rule value,
+// the pinned base before the first tick has evaluated a rule, or the definition's field
+// when nothing scales it. Undefined for an unknown building. (The pinned-base step is
+// what keeps the def's accessor from reading itself.)
 export function liveStat(id, stat) {
   const slot = live.get(id);
   if (slot && stat in slot) return slot[stat];
+  const key = id + ':' + stat;
+  if (bases.has(key)) return bases.get(key);
   const def = registry.buildings.get(id);
   return def ? def[stat] : undefined;
 }
@@ -305,7 +352,7 @@ export async function init(game) {
     if (rules.length) registerTickHandler(LIVE_HANDLER, applyLiveStats, LIVE_PRIORITY);
     if (game && typeof game === 'object') {
       const count = BUILDINGS.filter((b) => registry.buildings.has(b.id)).length;
-      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), liveStat, baseStat, liveStats };
+      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), rules: activeRules(), liveStat, baseStat, liveStats };
     }
   } catch (e) {
     reportError('buildings:init', e);

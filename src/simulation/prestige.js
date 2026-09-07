@@ -25,26 +25,34 @@
 // target in sight.
 //
 // Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out
-// logs/sim-fix-simulation-12h.json`, 2026-09-07 tree, shipped knobs: threshold $9.24M,
-// exponent 0.488, k 0.01, p 0.6, firstBonus 0.23, minGainShare 0.4): the Legacy panel opens
-// at $924k earned (~12 min), the Found button arms at $9.24M (~19 min), the bot holds out
-// for 5 points and founds at 39.7 min; cycles then run 15.7 → 16.8 → 5.1 → 6.5 → 7.7 →
-// 10.3 → 13.2 → 16.0 → 20.4 → 27.7 … a 25–48 minute plateau from the 12th founding (48 min
-// at most, the 19th), 33 min last — 28 foundings in 12 h, legacy 70,420 (50,988 spent on
-// charter perks), money peak 4.4e14, income 3.2e13/s at the end; every cycle ratio ≤ 1.36
-// (c10, inside the tool's slack; the founding ladder in milestones.js took c7 / c9 from
-// ×1.40 / ×1.38 to ×1.28 / ×1.28), zero overflow/stall/magnitude issues, 0 errors. That
-// tree had the upgrades and buildings ladders mid-retune (four rungs above 1e15 unbought,
-// three empty cycles from the 21st founding): re-measure before quoting the tail.
+// logs/sim-fix-simulation-12h.json`, 2026-09-07 10:00, shipped knobs: threshold $11M,
+// exponent 0.488, k 0.01, p 0.548, firstBonus 0.18, startMoneyPerLegacy 1, minGainShare
+// 0.4): the Legacy panel opens at $1.1M earned (~12 min), the Found button arms at $11M
+// (~20 min), the bot holds out for 5 points and founds at 43.2 min; the seed cash of a
+// bank then makes the replays quick — 10.7 → 9.5 → 4.2 → 5.7 → 7.4 → 10.1 → 14.0 → 16.5 →
+// 21.4 → 27.9 … a 17–39 minute plateau from the 11th founding (39.3 min at most, the
+// 18th), the 31st city founded with 14 min to spare — 31 foundings in 12 h, legacy
+// 193,426 (127,476 spent on charter perks, the Imperial Charter signed in the 31st city),
+// money peak 3.2e16, income 8.7e14/s at the end, zero overflow/stall/magnitude issues, 0
+// errors, contract PASS. The same tree with the saver profile (`--saver`): 34 foundings,
+// legacy 531,027, money peak 5.6e15 — inside the 1e6 / 1e18 contract. Cycle ratios: every
+// city from the 9th on is ≤ 1.32 the previous one with no slack (the tool allows +0.5
+// min); the 7th and 8th cities read 1.36 / 1.39 on this tree because the 8th opens by
+// spending its seed cash on an upgrade at t = 0 (44 citizens at minute one against 13k in
+// the 7th) — the seed-cash knob and the rung prices are balance's, and the same tree with
+// startMoneyPerLegacy 0.05 read 1.29 / 1.27 there. Re-measure after a balance pass.
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
 // means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
-// while the bonus grows only ×1.4^0.6 = ×1.22 per founding, so a city with nothing new is
-// ~×1.35 longer than the one before it and the late ladder (one rung or perk per city,
-// placed by balance) is what keeps the plateau flat. Sweep (same tree, minGainShare 0.35 / 0.3 / 0.25): 34 / 39 / 48
-// foundings, max cycle ratio 1.33 / 1.34 / 1.30 with no slack, purchase-tension share
-// 25 / 26 / 25 % against the 24 % shipped — the prestige knobs set the cadence, not the
-// tension (that reading is the rung prices in config.upgrades against the plateau income,
-// see docs/DESIGN.md). Re-measure before quoting.
+// while the bonus grows only ×1.4^0.57 = ×1.21 per founding, so a city with nothing new
+// is ~×1.35 longer than the one before it. Two things keep the plateau flat: the late
+// ladder (one rung or perk per city, placed by balance) and the founding / legacy tiers in
+// milestones.js, which land a +5% income rung exactly in the cities that were ×1.37–1.40
+// the previous one (Seasoned Council in the 7th, the Millennium Bank in the 17th,
+// Founders' Row in the 25th) with the same 5% taken from the city before, so every ratio
+// falls under 1.35 and no later city is faster than it was. A same-tree sweep of
+// minGainShare (0.35 / 0.3 / 0.25 → 34 / 39 / 48 foundings, max ratio 1.33 / 1.34 / 1.30)
+// showed the prestige knobs set the cadence and not the purchase tension (that reading
+// is the rung prices in config.upgrades against the plateau income, see docs/DESIGN.md).
 import { config } from '../balance/config.js';
 import { resetState, addLog } from '../core/state.js';
 import { emit } from '../core/events.js';
@@ -185,8 +193,12 @@ export function prestigeUnlockAt(state, cfg = config) {
 //   unlockAt, nextAt           this run's totalEarned at which founding arms / the next point
 //   mult, multAfter            the real income multiplier now / after founding
 //   lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt
+//   nextIn, unlockIn           seconds of the given gross income until nextAt / unlockAt
+//                              (0 once reached, Infinity with no income or no target), so a
+//                              plateau city with no rung in reach still shows a waiting
+//                              target: "next legacy point in 4 min"
 // Every field is closed-form and refreshed every tick; nothing here allocates.
-export function prestigeStatus(state, out, cfg = config) {
+export function prestigeStatus(state, out, cfg = config, incomePerSec = 0) {
   const legacy = legacyOf(state);
   const spent = spentOf(state);
   const gain = prestigeGain(state, cfg);
@@ -200,6 +212,9 @@ export function prestigeStatus(state, out, cfg = config) {
   out.unlockAt = runEarningsForGain(state, need, cfg);
   out.nextAt = runEarningsForGain(state, gain + 1, cfg);
   out.lifetimeEarned = lifetimeEarnedOf(state);
+  const earned = totalEarnedOf(state);
+  out.nextIn = secondsUntil(out.nextAt, earned, incomePerSec);
+  out.unlockIn = out.can ? 0 : secondsUntil(out.unlockAt, earned, incomePerSec);
   out.mult = legacyIncomeMult(legacy, cfg);
   out.multAfter = legacyIncomeMult(legacy + gain, cfg);
   out.startMoneyAfter = startMoneyFor(legacy + gain, cfg);
@@ -207,6 +222,15 @@ export function prestigeStatus(state, out, cfg = config) {
   out.nextTierName = tier ? tier.name : '';
   out.nextTierAt = tier ? tier.target : 0;
   return out;
+}
+
+// Seconds until this run's earnings reach `target` at `perSec`: 0 once there, Infinity when
+// nothing is coming in or the target is out of reach.
+function secondsUntil(target, earned, perSec) {
+  if (!(target > earned)) return 0;
+  if (!(perSec > 0) || !Number.isFinite(target)) return Infinity;
+  const s = (target - earned) / perSec;
+  return Number.isFinite(s) ? s : Infinity;
 }
 
 function fmtPct(mult) {
@@ -259,7 +283,7 @@ export function performPrestige(state, cfg = config, onReset) {
   const multBefore = legacyIncomeMult(before, cfg);
   const multAfter = legacyIncomeMult(legacy, cfg);
   addLog(foundingLine(gain, legacy, multBefore, multAfter, state.res.money), 'prestige');
-  emit('prestige', { gain, legacy, spent, available: legacy - spent, mult: multAfter });
+  emit('prestige', { gain, legacy, spent, available: legacy > spent ? legacy - spent : 0, mult: multAfter });
   return true;
 }
 

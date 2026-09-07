@@ -6,10 +6,10 @@
 // Node fallback / skippedMs handling.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { state, derived, errors, loadState, resetState, sanitize } from './state.js';
+import { state, derived, errors, loadState, resetState, sanitize, createInitialState } from './state.js';
 import { registry, registerBuilding, registerUpgrade, registerTickHandler } from './registry.js';
-import { buildingCost, maxAffordable, buy, sell } from './api.js';
-import { fmt, fmtMoney, fmtRate, fmtInt } from './format.js';
+import { buildingCost, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
+import { fmt, fmtMoney, fmtRate, fmtInt, fmtPct } from './format.js';
 import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from './safe.js';
 import { on, off, emit, isListenerDisabled, listenerCount } from './events.js';
 import { loop, step, start, stop, TICK_MS } from './loop.js';
@@ -82,6 +82,61 @@ test('sell refunds exactly sellRefund (0.5) of the price paid and clamps to owne
   assert.equal(sell('nope', 1), false);
 });
 
+test('sell rejects non-numeric / non-positive quantities without touching state', () => {
+  state.buildings.tb = 3;
+  state.res.money = 892.8;
+  for (const bad of [NaN, 'lots', 'abc', -1, 0, null, {}, [], Infinity * 0]) {
+    assert.equal(sell('tb', bad), false, `n=${String(bad)}`);
+    assert.equal(state.buildings.tb, 3, `count after n=${String(bad)}`);
+    assert.equal(state.res.money, 892.8, `money after n=${String(bad)}`);
+  }
+  assert.ok(Number.isFinite(state.res.money));
+  // Numeric strings are accepted (Number('2') === 2), like buy().
+  assert.equal(sell('tb', '2'), true);
+  assert.equal(state.buildings.tb, 1);
+  assert.equal(sell('tb', Infinity), true); // clamps to owned
+  assert.equal(state.buildings.tb, 0);
+  state.buildings.tb = 4;
+  assert.equal(sell('tb', 'max'), true); // same keyword buy() takes
+  assert.equal(state.buildings.tb, 0);
+  assert.equal(sell('tb', 'max'), false);
+  assert.ok(Number.isFinite(state.res.money));
+});
+
+test('sell refund is capped at sellRefund of the undiscounted price when the cost mult exceeds 1', () => {
+  const savedMult = derived.costMult;
+  const savedMods = derived.mods;
+  try {
+    state.buildings.tb = 5;
+    derived.mods = null;
+    for (const mult of [1, 1.5, 4]) {
+      derived.costMult = mult;
+      const r = sellRefund(TB, 5, 2);
+      derived.costMult = 1;
+      assert.ok(Math.abs(r - 0.5 * buildingCost(TB, 3, 2)) < 1e-9, `mult=${mult}: ${r}`);
+    }
+    // A discount lowers the refund with the current price (50% of the replacement cost).
+    derived.costMult = 0.8;
+    const discounted = sellRefund(TB, 5, 2);
+    assert.ok(Math.abs(discounted - 0.5 * buildingCost(TB, 3, 2)) < 1e-9);
+    derived.costMult = 1;
+    assert.ok(discounted < 0.5 * buildingCost(TB, 3, 2));
+    // Per-building mod above 1 is clamped the same way.
+    derived.mods = { byBuilding: { tb: { cost: 3 } } };
+    assert.ok(Math.abs(sellRefund(TB, 5, 1) - (0.5 * buildingCost(TB, 4, 1)) / 3) < 1e-9);
+    derived.mods = null;
+    // And the public path uses it.
+    state.res.money = 0;
+    derived.costMult = 2;
+    assert.equal(sell('tb', 1), true);
+    derived.costMult = 1;
+    assert.ok(state.res.money <= 0.5 * buildingCost(TB, 4, 1) + 1e-9);
+  } finally {
+    derived.costMult = savedMult;
+    derived.mods = savedMods;
+  }
+});
+
 // ---------------------------------------------------------------- formatting
 test('fmt floors to the displayed precision on both sides of the 1000 boundary', () => {
   const table = [
@@ -126,6 +181,28 @@ test('fmt floors to the displayed precision on both sides of the 1000 boundary',
   assert.equal(fmtRate(-3), '-3/s');
   assert.equal(fmtInt(1234567.9), '1.23M');
   assert.equal(fmtInt(-12.7), '-12');
+});
+
+test('fmtPct floors like fmt and never prints -0%', () => {
+  const table = [
+    [0, '0%'],
+    [0.999, '99%'],
+    [0.9999, '99%'],
+    [1, '100%'],
+    [0.05, '5%'],
+    [0.29, '29%'],
+    [0.07, '7%'],
+    [-0.001, '0%'],
+    [-0.256, '-25%'],
+    [2.5, '250%'],
+    [NaN, '—'],
+    [Infinity, '—'],
+  ];
+  for (const [x, want] of table) assert.equal(fmtPct(x), want, `fmtPct(${x})`);
+  assert.equal(fmtPct(0.12345, 1), '12.3%');
+  assert.equal(fmtPct(0.999, 2), '99.90%');
+  assert.equal(fmtPct(-0.00001, 2), '0.00%');
+  assert.equal(fmtPct(0.5, 'x'), '50%');
 });
 
 test('displayed money never exceeds real money and displayed cost never undercuts real cost', () => {
@@ -175,13 +252,27 @@ test('loadState survives hostile input', () => {
   assert.equal(state.tick, 0);
   assert.equal(state.time, 0);
   assert.equal(state.version, 1);
-  // bounded recursion: nested depth clipped, nothing thrown
-  let d = 0;
-  for (let o = state.deep; o && o.n; o = o.n) d++;
-  assert.ok(d <= 17, `depth ${d}`);
+  // unknown top-level key `deep` is dropped (closed schema); nothing thrown on the 1000-deep object
+  assert.equal(state.deep, undefined);
+  // bounded recursion inside a known section: nested depth clipped, nothing thrown
+  loadState({ buildings: { deep: (() => { const o = {}; let c = o; for (let i = 0; i < 1000; i++) c = c.n = {}; return o; })() } });
+  assert.equal(state.buildings.deep, 0); // an object is not a count: sanitized to 0
+
   loadState(null);
   loadState([1, 2, 3]);
   assert.equal(state.res.money, 0);
+});
+
+test('loadState schema is closed: unknown top-level keys from a foreign save are dropped', () => {
+  loadState({ res: { money: 5, gems: 3 }, pwn: { evil: true }, oldSection: [1, 2], deep: { n: {} }, buildings: { tb: 1 } });
+  assert.equal(state.pwn, undefined);
+  assert.equal(state.oldSection, undefined);
+  assert.equal(state.deep, undefined);
+  assert.equal(state.res.money, 5);
+  assert.equal(state.res.gems, 3); // nested resource keys stay open (content adds resources)
+  assert.equal(state.buildings.tb, 1);
+  assert.deepEqual(Object.keys(state).sort(), Object.keys(createInitialState()).sort());
+  assert.equal('pwn' in JSON.parse(JSON.stringify(state)), false);
 });
 
 test('resetState keeps lifetime counters and zeroes per-run ones', () => {
@@ -343,6 +434,17 @@ test('registered callbacks are guarded and the game keeps ticking around them', 
     for (const m of ['upgrade:bad-up:effect', 'building:bad-b:unlock', 'tick:core-test-bad']) {
       assert.equal(errors.filter((e) => e.module === m).length, 2, m);
     }
+    // api exposes the disabled guard as `broken` so a paid-for-but-inert upgrade is visible.
+    state.upgrades['bad-up'] = true;
+    const upRow = upgrades().find((u) => u.id === 'bad-up');
+    assert.equal(upRow.owned, true);
+    assert.equal(upRow.broken, true);
+    assert.equal(upgrades().filter((u) => u.broken).length, 1);
+    const bRow = buildings().find((b) => b.id === 'bad-b');
+    assert.equal(bRow.unlocked, false);
+    assert.equal(bRow.broken, true);
+    assert.equal(buildings().find((b) => b.id === 'tb').broken, false);
+    delete state.upgrades['bad-up'];
   } finally {
     registry.tickHandlers = registry.tickHandlers.filter((h) => !h.name.startsWith('core-test'));
     c.restore();
@@ -393,4 +495,84 @@ test('step() advances exactly n ticks; Node fallback start/stop clears its inter
   await new Promise((r) => setTimeout(r, TICK_MS * 3));
   assert.equal(state.tick, after); // interval really cleared: nothing ticks after stop()
   // (a leaked interval would also keep this test process alive)
+});
+
+
+test('browser frame accumulator: drift-free, catch-up capped, skippedMs parked/capped/drained', () => {
+  let cb = null;
+  let cancelled = 0;
+  const g = globalThis;
+  g.requestAnimationFrame = (fn) => {
+    cb = fn;
+    return 1;
+  };
+  g.cancelAnimationFrame = () => cancelled++;
+  try {
+    loop.skippedMs = 0;
+    loop.skippedAt = 0;
+    start();
+    assert.equal(loop.running, true);
+    let t = 5000;
+    const frameAt = (ts) => {
+      const before = state.tick;
+      cb(ts);
+      return state.tick - before;
+    };
+    assert.equal(frameAt(t), 0); // first frame only anchors lastFrame
+    // 60 frames at 60 fps = exactly one second = exactly 10 ticks, accumulator back at ~0.
+    let ticks = 0;
+    for (let i = 0; i < 60; i++) ticks += frameAt((t += 1000 / 60));
+    assert.equal(ticks, 10);
+    assert.ok(Math.abs(loop.accumulator) < 1e-6, `accumulator ${loop.accumulator}`);
+    // A 250 ms hitch is 2 ticks with 50 ms carried.
+    assert.equal(frameAt((t += 250)), 2);
+    assert.ok(Math.abs(loop.accumulator - 50) < 1e-6);
+    assert.equal(frameAt((t += 50)), 1);
+    assert.ok(Math.abs(loop.accumulator) < 1e-6);
+    // Exactly the cap: 5 s = 50 ticks, nothing parked.
+    assert.equal(frameAt((t += 5000)), 50);
+    assert.equal(loop.skippedMs, 0);
+    // 10 minutes in the background: 50 ticks now, 595 000 ms parked for save/offline.
+    assert.equal(frameAt((t += 600000)), 50);
+    assert.equal(loop.skippedMs, 595000);
+    assert.equal(loop.skippedAt, t);
+    assert.equal(loop.accumulator, 0);
+    // Inside the 3 s grace nothing drains (save is expected to claim it).
+    assert.equal(frameAt((t += 16)), 0);
+    assert.equal(loop.skippedMs, 595000);
+    assert.equal(frameAt((t += 2900)), 29);
+    assert.equal(loop.skippedMs, 595000);
+    // Past the grace it drains in MAX_CATCHUP-sized batches: 50 per frame including live ticks.
+    assert.equal(frameAt((t += 100)), 50); // 1 live + 49 drained
+    assert.equal(loop.skippedMs, 595000 - 49 * TICK_MS);
+    assert.equal(frameAt((t += 16)), 50); // 0 live + 50 drained
+    assert.equal(loop.skippedMs, 595000 - 99 * TICK_MS);
+    // A consumer claiming it stops the drain.
+    loop.skippedMs = 0;
+    assert.equal(frameAt((t += 16)), 0);
+    assert.equal(frameAt((t += 84)), 1);
+    // A two-day absence parks at most one day.
+    assert.equal(frameAt((t += 2 * 86400e3)), 50);
+    assert.equal(loop.skippedMs, 86400e3);
+    loop.skippedMs = 0;
+    // Backwards clock: no ticks and no negative accumulator; the next real frame is normal.
+    assert.equal(frameAt((t -= 5000)), 0);
+    assert.ok(loop.accumulator >= 0);
+    assert.equal(frameAt((t += 100)), 1);
+    // speed scales elapsed time.
+    loop.speed = 2;
+    assert.equal(frameAt((t += 100)), 2);
+    loop.speed = 1;
+    stop();
+    assert.equal(loop.running, false);
+    assert.equal(cancelled, 1);
+    const after = state.tick;
+    cb(t + 1000); // a stray callback after stop() must do nothing
+    assert.equal(state.tick, after);
+  } finally {
+    loop.speed = 1;
+    loop.skippedMs = 0;
+    delete g.requestAnimationFrame;
+    delete g.cancelAnimationFrame;
+  }
 });

@@ -94,9 +94,15 @@ after 3 consecutive failures or 10 failures within 500 calls, game continues.
 ## Public api (`src/core/api.js`, also `window.__game.api`)
 
 ```js
-api.buildings()   → [{ id, name, count, cost, affordable, unlocked, ...def }]
-api.upgrades()    → [{ id, name, cost, owned, affordable, unlocked, ...def }]
-api.buy(id, n=1)  → boolean       api.sell(id, n=1) → boolean
+api.buildings()   → [{ id, name, count, cost, affordable, unlocked, broken, ...def }]
+api.upgrades()    → [{ id, name, cost, owned, affordable, unlocked, broken, ...def }]
+                    // broken: the def's unlock/effect threw repeatedly and safe.js disabled it —
+                    // an owned+broken upgrade is paid for but inert; UI should badge it.
+api.buy(id, n=1)  → boolean       api.sell(id, n=1) → boolean   // n: integer or 'max';
+                    // NaN/non-numeric n → false, state untouched. Sell refunds sellRefund (0.5)
+                    // of the current replacement cost with the cost multiplier clamped to ≤ 1
+                    // (a discount lowers the refund; a markup can never exceed the price paid).
+api.sellRefund(def, count?, n?) → number
 api.buyUpgrade(id) → boolean
 api.canPrestige() → boolean       api.prestigeGain() → number   api.prestige() → boolean
 api.step(n)       → run n ticks synchronously (verify/bot)

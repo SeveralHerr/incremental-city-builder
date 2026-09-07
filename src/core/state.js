@@ -76,11 +76,20 @@ function mergeInto(dst, src, depth = 0) {
 }
 
 // Replace state contents with `obj` (missing fields get defaults). Keeps identity.
+// The schema is closed: only the top-level keys createInitialState() defines are taken from
+// `obj`, so a removed section or a foreign key in an old/hand-edited save is dropped instead of
+// riding along in every autosave forever.
 export function loadState(obj) {
   const fresh = createInitialState();
   for (const k of Object.keys(state)) delete state[k];
   Object.assign(state, fresh);
-  if (obj && typeof obj === 'object') mergeInto(state, obj);
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    const known = {};
+    for (const k of Object.keys(fresh)) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) known[k] = obj[k];
+    }
+    mergeInto(state, known);
+  }
   sanitize();
   return state;
 }

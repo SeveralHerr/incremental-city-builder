@@ -1,11 +1,11 @@
 // Building catalogue — the 20 structures of Metropolis, five categories, four tiers.
 // Pure data, DOM-free. The values below are the module's *defaults* (docs/DESIGN.md's
-// table); `src/balance/config.js` → `config.buildings[id]` overrides any field per building
-// and index.js merges it before `registerBuilding`. Fifteen buildings are overridden there
-// (base costs, tier-4 power draw and population gates, windmill output and growth), so do
-// not quote a number from this file as the shipped value — print the resolved catalogue
-// instead:
-//   node -e "import('./src/boot.js').then(async m=>{await m.boot();for(const [id,d] of m.game.registry.buildings)console.log(id,d.baseCost,d.unlockAt)})"
+// table, corrected where the table contradicts itself); `src/balance/config.js` →
+// `config.buildings[id]` overrides any field per building and index.js merges it before
+// `registerBuilding`. Fifteen buildings are overridden there (base costs, tier-4 power
+// draw and population gates, windmill output and growth), so do not quote a number from
+// this file as the shipped value — print the resolved catalogue instead:
+//   node -e "import('./src/boot.js').then(async m=>{await m.boot();for(const [id,d] of m.game.registry.buildings)console.log(id,d.baseCost,d.powerUse,d.unlockAt)})"
 // (buildings.test.mjs checks the resolved defs, never this comment.)
 //
 // Per-unit fields: housing (citizens), jobs, income ($/s), powerGen / powerUse (MW),
@@ -19,26 +19,39 @@
 //   the city has to find them work, which is where the money is.
 // - Power. Each generator is sized to cover a handful of same-tier consumers and the steps
 //   between tiers are ~5-15x, so no plant makes the one below it pointless the moment it
-//   unlocks. Tier-4 consumers are power-hungry on purpose (config triples the catalogue's
-//   draw): one nuclear plant carries one or two of them, so the Power tab keeps asking for
-//   money through the late game instead of going dark after one reactor.
+//   unlocks. Per-unit draw is a *rate the card can explain*: a tier-4 consumer draws no
+//   more than ~4x the tier-3 intensity of its column per citizen or job (arcology 0.8
+//   MW/citizen against the tower's 0.25; tech campus 1.2 MW/job against the refinery's
+//   0.6; financial district 0.75 against the mall's 0.2). Late-game power tension comes
+//   from `demandGrowth` instead of a per-unit cliff: every further tier-4 unit adds 2.5%
+//   to the draw of all of them (grid strain, ×1.5 at 21 units), mirroring cost growth, so
+//   a tier-4 fleet asks for half again the reactors its stickers add up to and the Power
+//   tab keeps asking for money without any single card contradicting the tier below it.
+//   The strain is deliberately a felt tax rather than the headline: with the shipped
+//   config draws (3–4× these stickers) a +5%/×2 strain put the first city at the brownout
+//   floor from minute 28 to its founding; +2.5%/×1.5 costs it about a minute. Nuclear
+//   carries a real running cost (upkeep) — that is the bill fusion is there to replace.
 // - Air quality. Polluters are mild per unit (factory, coal, refinery) and clean tech pushes
 //   the other way (solar, nuclear, tech campus, fusion), so a late city can scrub its own
 //   smog by choosing its power mix; config caps the total penalty (happiness.pollutionCap)
 //   the same way civic saturates.
+// - Happiness on a non-civic card is either felt or absent. The arcology carries 0.10 (two
+//   parks' worth: a sealed block with its own gardens and clinics) because at its price a
+//   0.02 would show on the card as a benefit no player could ever measure; the mall carries
+//   none for the same reason.
 // - Unlock spacing. Population gates are placed just below the population the greedy bot
 //   has when the price frontier reaches each building, so a freshly unlocked card is
 //   affordable within a few minutes rather than glowing unaffordably for a quarter hour,
-//   and after the opening minutes no two cards open within a minute of each other.
-//   `node src/buildings/cadence.mjs` measures this (first-city open / first-buy per
-//   building, exit 1 on a collision or a > 5 min glow). Measured on the 2026-09-07 tree:
-//   tower 8.7 min · school 10.7 · refinery 14.9 · mall 16.4 · solar 17.7 · arcology 19.5 ·
-//   hospital 21.5 · tech campus + nuclear 27.1 · financial 29.0 · stadium 34.0 (bought
-//   38.5, founding 39.9), lag 2–4 min except the arcology (7.5) and financial (5.4).
-//   The three remaining faults are config-owned: config.buildings pins techpark and
-//   nuclear to the same 8,000 gate (this file's default puts nuclear at 10,000) and sets
-//   the arcology/financial base costs; moving nuclear to ~6,000 and trimming those two
-//   costs (or raising their gates) in config closes them — nothing in this folder can.
+//   and after the opening minutes no two cards open within 90 s of each other, no card of
+//   tier 4 waits more than 4 min to be bought (5 for the rest), and no 7 min pass with
+//   nothing new — including the tail before the first founding, which is what the fusion
+//   reactor's first-city gate (35,000 citizens, a trophy the city can reach and even buy
+//   in its last minutes; `legacy >= 1` stays the normal route) is for. The numbers are not
+//   copied here: run `node src/buildings/cadence.mjs` — it prints open / first-buy per
+//   building, names the owner of each fault (`buildings` when a field in this file can fix
+//   it, `config` when config.buildings pins every field involved) and must exit 0.
+//   buildings.test.mjs spawns the probe and fails on any buildings-owned fault; the
+//   config-owned ones are reported as a todo so they cannot hide either.
 //   The windmill gates on live power demand, so the first cottage is always followed by
 //   one dark tick. Measured (12 h sim): opening the windmill from the start drops the
 //   "happiness dips below 1.0" count from 19 to 8 of 32 cities, under the ≥ 50% contract
@@ -50,19 +63,25 @@
 // city instead of being a bigger copy of the tier below. The rule is data:
 // `{ stat, source, per, cap, text }` means `stat = base × min(cap, 1 + source / per)`, where
 // source is 'pop', 'employed' or 'building:<id>' (an owned count). index.js evaluates it in
-// a tick handler that runs just before the simulation, writing the live value into the
-// registered definition, so the sim, the bot and the build card all see the same number.
+// a tick handler that runs just before the simulation and exposes the result through
+// `liveStat(id, stat)` (mirrored into the registered definition for the sim, the bot and
+// the build card, which read the def directly).
 //   mall       income grows with population (retail follows the crowd; up to ×3 at 10k)
 //   refinery   income grows with the factories it supplies (up to ×2 at 50 factories)
 //   techpark   income grows with schools (a hiring line; up to ×1.75 at 15 schools)
 //   financial  income grows with employment (trades on the payroll; up to ×2.5 at 30k)
 //   solar      output grows with city parks (open land to tilt panels on; ×1.5 at 25)
-//   fusion     output grows with nuclear plants (research spillover; ×2 at 10)
+//   fusion     output grows with nuclear plants (research spillover; ×3 at 20)
 // The two power hooks give the Power tab a second axis: a green city's solar farms out-
-// produce their sticker, and a reactor fleet makes fusion match nuclear's $/MW instead of
-// being a trophy — so the late grid is a choice, not a $/MW sort. The strengths are
-// pinned by the power contract: ×2 solar (at 40 or 25 parks) puts the 12 h under-power
-// share at 2.8% against the ≥ 3% floor; ×1.5 at 25 parks reads 3.1% (3.9% with no hook).
+// produce their sticker, and a reactor fleet is what makes fusion pay — at its sticker a
+// reactor is no better per MW than a nuclear plant, at ×2 (10 plants) it matches, at ×3
+// it is the cheapest MW in the game and carries a fraction of the fleet's upkeep — so the
+// late grid is a decision (build the fleet, then replace its bills), not a $/MW sort.
+// The solar strength is pinned by the power contract: ×2 (at 40 or 25 parks) puts the
+// 12 h under-power share at 2.8% against the ≥ 3% floor; ×1.5 at 25 parks reads 3.1%.
+// Grid strain (`demandGrowth`, tier-4 consumers): `{ per, cap, text }` means
+// `powerUse = base × min(cap, 1 + (count − 1) / per)` — the first unit draws its sticker,
+// each further one adds 1/per to every unit's draw. Same handler, same accessor.
 // Static two-axis identities: the arcology also employs 500 (a sealed, self-contained
 // block), the stadium pays and cheers, the tech campus hires and cleans the air.
 
@@ -130,14 +149,14 @@ export const BUILDINGS = [
     baseCost: 1.2e6,
     housing: 2500,
     jobs: 500, // self-contained: the block staffs its own shops, clinics and corridors
-    powerUse: 2500,
-    happiness: 0.02,
-    // Default 6,000 sits a clear step above the hospital (4,800); config ships 4,000 with
-    // a lower base cost and housing. If that override is ever lifted, 5,000 would open the
-    // arcology 4% (≈ 40 s) behind the hospital.
-    unlock: pop(6000),
-    unlockAt: { pop: 6000 },
-    unlockHint: 'Reach 6,000 citizens',
+    powerUse: 2000, // 0.8 MW per citizen, ~3x the tower's 0.25
+    demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Arcology owned (up to ×1.5)' },
+    happiness: 0.1, // gardens, clinics and corridors of its own: two parks' worth, felt on the card
+    // Default 6,500 sits a clear step (≥ 15%) above the hospital (5,400); config ships
+    // 4,000 with a lower base cost and housing.
+    unlock: pop(6500),
+    unlockAt: { pop: 6500 },
+    unlockHint: 'Reach 6,500 citizens',
   },
 
   // ----------------------------------------------------------------- commercial
@@ -187,10 +206,11 @@ export const BUILDINGS = [
     income: 40,
     synergy: { stat: 'income', source: 'pop', per: 5000, cap: 3, text: 'Income +20% per 1,000 citizens (up to ×3)' },
     powerUse: 60,
-    happiness: 0.01,
-    unlock: pop(3000),
-    unlockAt: { pop: 3000 },
-    unlockHint: 'Reach 3,000 citizens',
+    // 2,800: the refinery opens at 2,200 and the solar farm at 3,600; the first city
+    // passes the three about two minutes apart (probe: `node src/buildings/cadence.mjs`).
+    unlock: pop(2800),
+    unlockAt: { pop: 2800 },
+    unlockHint: 'Reach 2,800 citizens',
   },
   {
     id: 'financial',
@@ -203,7 +223,8 @@ export const BUILDINGS = [
     jobs: 4000,
     income: 2000,
     synergy: { stat: 'income', source: 'employed', per: 20000, cap: 2.5, text: 'Income +5% per 1,000 employed citizens (up to ×2.5)' },
-    powerUse: 4000,
+    powerUse: 3000, // 0.75 MW per job, ~4x the mall's 0.2
+    demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per District owned (up to ×1.5)' },
     unlock: pop(12000),
     unlockAt: { pop: 12000 },
     unlockHint: 'Reach 12,000 citizens',
@@ -239,9 +260,11 @@ export const BUILDINGS = [
     synergy: { stat: 'income', source: 'building:factory', per: 50, cap: 2, text: 'Income +2% per Factory (up to ×2)' },
     powerUse: 120,
     happiness: -0.03,
-    unlock: pop(2500),
-    unlockAt: { pop: 2500 },
-    unlockHint: 'Reach 2,500 citizens',
+    // 2,200: 90 s+ ahead of the mall (2,800) in the first city; at 2,500 the two opened
+    // a minute apart.
+    unlock: pop(2200),
+    unlockAt: { pop: 2200 },
+    unlockHint: 'Reach 2,200 citizens',
   },
   {
     id: 'techpark',
@@ -254,7 +277,8 @@ export const BUILDINGS = [
     jobs: 2500,
     income: 1000,
     synergy: { stat: 'income', source: 'building:school', per: 20, cap: 1.75, text: 'Income +5% per School (up to ×1.75)' },
-    powerUse: 4500,
+    powerUse: 3000, // 1.2 MW per job, 2x the refinery's 0.6
+    demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Campus owned (up to ×1.5)' },
     happiness: 0.05,
     unlock: pop(8000),
     unlockAt: { pop: 8000 },
@@ -302,11 +326,9 @@ export const BUILDINGS = [
     // Panels want open land: every city park lifts the farm's output.
     synergy: { stat: 'powerGen', source: 'building:park', per: 50, cap: 1.5, text: 'Output +2% per City Park (up to ×1.5)' },
     happiness: 0.03,
-    // 3,600: between the mall (3,000) and the arcology (config: 4,000). The first city
-    // passes 3,000 at ~16.4 min and 4,000 at ~19.5, so the farm opens ~17.7 min — 1.3 min
-    // after the mall and 1.8 before the arcology — instead of 12 s behind the mall (3,200)
-    // or 50 s (3,500); 3,800 landed 40 s before the arcology. Measured with
-    // `node src/buildings/cadence.mjs`.
+    // 3,600: between the mall (2,800) and the arcology (config: 4,000), about two minutes
+    // after the one and two before the other in the first city; the population jumps in
+    // tower sprees around 3,000, so a gate there (3,200–3,300) lands seconds behind the mall.
     unlock: pop(3600),
     unlockAt: { pop: 3600 },
     unlockHint: 'Reach 3,600 citizens',
@@ -322,7 +344,9 @@ export const BUILDINGS = [
     jobs: 100,
     powerGen: 12000,
     happiness: 0.02,
-    upkeep: 120,
+    // $300/s per plant: a ten-reactor fleet bills $3,000/s, the running cost a fusion
+    // reactor at ×2–×3 replaces for a third of the money.
+    upkeep: 300,
     unlock: pop(10000),
     unlockAt: { pop: 10000 },
     unlockHint: 'Reach 10,000 citizens',
@@ -334,18 +358,21 @@ export const BUILDINGS = [
     desc: 'A star in a bottle. The grid will never want for power again.',
     category: 'power',
     tier: 4,
-    baseCost: 5e8,
+    // $15M for 60,000 MW: $250/MW at the sticker against nuclear's $167, $83 at ×3 — the
+    // fleet is the price of admission (config ships $4M: $67 → $22). The design table's
+    // $5e8 was three times nuclear's $/MW with no way back.
+    baseCost: 1.5e7,
     jobs: 200,
     powerGen: 60000,
     // Research spillover: a reactor fleet's engineers make the star burn hotter.
-    synergy: { stat: 'powerGen', source: 'building:nuclear', per: 10, cap: 2, text: 'Output +10% per Nuclear Plant (up to ×2)' },
+    synergy: { stat: 'powerGen', source: 'building:nuclear', per: 10, cap: 3, text: 'Output +10% per Nuclear Plant (up to ×3)' },
     happiness: 0.05,
-    upkeep: 6000,
-    unlock: (state) => (state?.res?.pop ?? 0) >= 100000 || (state?.prestige?.legacy ?? 0) >= 1,
-    // Either condition opens it; `pop` gives the locked card a progress bar in a first city,
-    // `legacy` is the usual route (any founding).
-    unlockAt: { pop: 100000, legacy: 1 },
-    unlockHint: 'Found a new city (or reach 100,000 citizens)',
+    // $3,000/s: at the sticker that is twice nuclear's bill per MW, at ×3 two thirds of it —
+    // the reactor replaces the fleet's running cost only once the fleet exists (config: 1,500).
+    upkeep: 3000,
+    unlock: (state) => (state?.res?.pop ?? 0) >= 35000 || (state?.prestige?.legacy ?? 0) >= 1,
+    unlockAt: { pop: 35000, legacy: 1 },
+    unlockHint: 'Found a new city (or reach 35,000 citizens)',
   },
 
   // ---------------------------------------------------------------------- civic
@@ -391,9 +418,11 @@ export const BUILDINGS = [
     jobs: 200,
     powerUse: 50,
     happiness: 0.12,
-    unlock: pop(4800),
-    unlockAt: { pop: 4800 },
-    unlockHint: 'Reach 4,800 citizens',
+    // 5,400: the arcology (config: 4,000) and the tech campus (8,000) bracket it; the first
+    // city opens the three ~3.5 min apart. At 4,800 it landed 54 s behind the arcology.
+    unlock: pop(5400),
+    unlockAt: { pop: 5400 },
+    unlockHint: 'Reach 5,400 citizens',
   },
   {
     id: 'stadium',
@@ -406,7 +435,8 @@ export const BUILDINGS = [
     costGrowth: 1.2,
     jobs: 500,
     income: 2000,
-    powerUse: 1500,
+    powerUse: 1000, // floodlights and screens: a small town's draw, not a district's
+    demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Stadium owned (up to ×1.5)' },
     happiness: 0.25,
     unlock: pop(20000),
     unlockAt: { pop: 20000 },

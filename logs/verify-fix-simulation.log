@@ -1,2 +1,2 @@
-[verify] PASS ticks=6000 money=2281 pop=465 income=567.74/s tick avg=0.010ms p99=0.10ms fps=60.3 errors=0
+[verify] PASS ticks=6000 money=999 pop=399 income=496.17/s tick avg=0.009ms p99=0.10ms fps=60.3 errors=0
 [verify] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\fix-simulation.json

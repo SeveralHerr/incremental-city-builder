@@ -75,7 +75,10 @@ export function fmtInt(n) {
 
 export function fmtPct(x, digits = 0) {
   if (!Number.isFinite(x)) return '—';
-  return (x * 100).toFixed(digits) + '%';
+  digits = Number.isInteger(digits) && digits >= 0 ? Math.min(digits, 20) : 0;
+  const neg = x < 0;
+  // Floor rule like fmt(): 0.999 -> "99%", never "100%"; -0.001 -> "0%", never "-0%".
+  return signed(neg, floorFixed(Math.abs(x) * 100, digits)) + '%';
 }
 
 export function fmtTime(sec) {

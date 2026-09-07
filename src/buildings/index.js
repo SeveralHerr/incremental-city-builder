@@ -9,12 +9,19 @@
 // the whole buildings module down with it. Overrides in `config.buildings[id]` are
 // spread over each definition before `registerBuilding`.
 //
-// Signature mechanics: a definition may carry `synergy: { stat, source, per, cap }` (see
-// data.js). The `buildings:synergy` tick handler runs at priority −10, before the
-// simulation's fold, and writes `base × factor` into the registered definition's stat,
-// so computeDerived, the bot's scoring and the build card all read one live number. The
-// base is the value resolved at registration (data + config override), so a balance
-// override of the stat still scales the way the rule says.
+// Live stats. Two data-driven rules scale a per-unit stat with the city (see data.js):
+//   synergy       { stat, source, per, cap, text }  stat = base × min(cap, 1 + source / per)
+//   demandGrowth  { per, cap, text }                powerUse = base × min(cap, 1 + (count − 1) / per)
+// The `buildings:live` tick handler runs at priority −10, before the simulation's fold,
+// and evaluates every rule once per tick. The base is the value resolved at registration
+// (data + config override), pinned in `bases` the first time a rule is collected, so a
+// repeated init or a second call in one tick never compounds a factor. The live value is
+// read through `liveStat(id, stat)` / `liveStats(id)` (the accessor this module owns) and
+// is *also* written into the registered definition's field, because resources.computeDerived,
+// the bot's scoring and the build card read `registry.buildings.get(id)[stat]` directly —
+// that write is the compatibility seam, not the contract: anything new should read the
+// accessor, and anything that must not move (sell refund maths, a test pinning a base)
+// should read `baseStat(id, stat)`.
 //
 // One-tick lag, by design: the handler reads `derived` as the previous tick left it (the
 // simulation recomputes it after us), so a rule sourced from `employed` is one tick behind
@@ -31,10 +38,14 @@ export { BUILDINGS, CATEGORIES };
 const DEFAULT_TIER_GROWTH = { 1: 1.15, 2: 1.14, 3: 1.13, 4: 1.12 };
 const NUMERIC_FIELDS = ['baseCost', 'costGrowth', 'housing', 'jobs', 'powerUse', 'powerGen', 'income', 'upkeep', 'happiness', 'sellRefund', 'tier'];
 const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
-// Stats a synergy may scale. Cost is deliberately excluded (cost mods belong to the mods bag).
+// Stats a synergy may scale. Cost is deliberately excluded (cost mods belong to the mods
+// bag) and so is powerUse (that is demandGrowth's stat; one rule per stat keeps the live
+// value a single product).
 const SYNERGY_STATS = new Set(['income', 'housing', 'jobs', 'powerGen', 'happiness']);
-export const SYNERGY_HANDLER = 'buildings:synergy';
-const SYNERGY_PRIORITY = -10; // before simulation's 'simulate' (0)
+const GROWTH_STAT = 'powerUse';
+export const LIVE_HANDLER = 'buildings:live';
+export const SYNERGY_HANDLER = LIVE_HANDLER; // former name, kept for callers that pinned it
+const LIVE_PRIORITY = -10; // before simulation's 'simulate' (0)
 
 const isFiniteNum = (v) => typeof v === 'number' && Number.isFinite(v);
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -82,6 +93,10 @@ function applyOverride(def, override) {
       if (v === null || normalizeSynergy(v)) out.synergy = v;
       continue;
     }
+    if (k === 'demandGrowth') {
+      if (v === null || normalizeGrowth(v)) out.demandGrowth = v;
+      continue;
+    }
     out[k] = v;
   }
   return out;
@@ -99,7 +114,7 @@ export function resolveBuilding(base, balance) {
   return def;
 }
 
-// ---- synergies ---------------------------------------------------------------------
+// ---- rules ---------------------------------------------------------------------------
 
 // Validated copy of a synergy rule, or null when it is malformed. Pure.
 export function normalizeSynergy(s) {
@@ -110,6 +125,14 @@ export function normalizeSynergy(s) {
   if (typeof s.source !== 'string') return null;
   if (s.source !== 'pop' && s.source !== 'employed' && !/^building:[a-z0-9_-]+$/i.test(s.source)) return null;
   return { stat: s.stat, source: s.source, per: s.per, cap: s.cap, text: typeof s.text === 'string' ? s.text : '' };
+}
+
+// Validated copy of a demandGrowth rule, or null. Pure.
+export function normalizeGrowth(g) {
+  if (!isObj(g)) return null;
+  if (!(isFiniteNum(g.per) && g.per > 0)) return null;
+  if (!(isFiniteNum(g.cap) && g.cap >= 1)) return null;
+  return { per: g.per, cap: g.cap, text: typeof g.text === 'string' ? g.text : '' };
 }
 
 // The number a synergy source currently reads: population, employed citizens, or an owned
@@ -131,7 +154,7 @@ export function synergySource(source, state, derived) {
   return isFiniteNum(v) && v > 0 ? v : 0;
 }
 
-// Multiplier for a rule: min(cap, 1 + source / per), never below 1. Pure.
+// Multiplier for a synergy rule: min(cap, 1 + source / per), never below 1. Pure.
 export function synergyFactor(rule, state, derived) {
   const s = normalizeSynergy(rule);
   if (!s) return 1;
@@ -139,44 +162,115 @@ export function synergyFactor(rule, state, derived) {
   return f > s.cap ? s.cap : f >= 1 ? f : 1;
 }
 
-// Active rules: { id, stat, base, rule } for every registered building with a valid synergy.
-const synergies = [];
-// Base value per id, pinned the first time a rule is collected so a repeated init (or a
-// collect after a tick has already scaled the def) never compounds the factor.
-const synergyBases = new Map();
+// Multiplier for a demandGrowth rule at `count` owned units: min(cap, 1 + (count − 1) / per).
+// The first unit draws its sticker; every further unit adds 1/per to *every* unit's draw,
+// so total draw grows quadratically until the cap. Never below 1. Pure.
+export function growthFactor(rule, count) {
+  const g = normalizeGrowth(rule);
+  if (!g) return 1;
+  const n = isFiniteNum(count) && count > 1 ? count - 1 : 0;
+  const f = 1 + n / g.per;
+  return f > g.cap ? g.cap : f;
+}
 
-function collectSynergies() {
-  synergies.length = 0;
+// Active rules: { id, stat, base, kind, rule } for every registered building with a valid
+// synergy or demandGrowth.
+const rules = [];
+// Base value per id:stat, pinned the first time a rule is collected so a repeated init (or a
+// collect after a tick has already scaled the def) never compounds the factor.
+const bases = new Map();
+// Live value per id: { [stat]: value }. The accessor's backing store.
+const live = new Map();
+
+function pin(id, stat, def) {
+  const key = id + ':' + stat;
+  const base = bases.has(key) ? bases.get(key) : def[stat];
+  if (!isFiniteNum(base)) return undefined;
+  bases.set(key, base);
+  return base;
+}
+
+function collectRules() {
+  rules.length = 0;
   for (const id of registry.buildingOrder) {
     const def = registry.buildings.get(id);
-    if (!def || def.synergy === undefined || def.synergy === null) continue;
-    const rule = normalizeSynergy(def.synergy);
-    if (!rule) {
-      reportError('buildings:' + id, new Error('malformed synergy rule ignored'));
-      continue;
+    if (!def) continue;
+    if (def.synergy !== undefined && def.synergy !== null) {
+      const rule = normalizeSynergy(def.synergy);
+      if (!rule) reportError('buildings:' + id, new Error('malformed synergy rule ignored'));
+      else {
+        const base = pin(id, rule.stat, def);
+        if (base !== undefined) rules.push({ id, stat: rule.stat, base, kind: 'synergy', rule });
+      }
     }
-    const key = id + ':' + rule.stat;
-    const base = synergyBases.has(key) ? synergyBases.get(key) : def[rule.stat];
-    if (!isFiniteNum(base)) continue;
-    synergyBases.set(key, base);
-    synergies.push({ id, stat: rule.stat, base, rule });
+    if (def.demandGrowth !== undefined && def.demandGrowth !== null) {
+      const rule = normalizeGrowth(def.demandGrowth);
+      if (!rule) reportError('buildings:' + id, new Error('malformed demandGrowth rule ignored'));
+      else {
+        const base = pin(id, GROWTH_STAT, def);
+        if (base !== undefined) rules.push({ id, stat: GROWTH_STAT, base, kind: 'growth', rule });
+      }
+    }
   }
 }
 
-// Write each synergy's live value into its registered definition. Idempotent: the value is
-// always base × factor, so repeated calls never compound.
-export function applySynergies(state, derived) {
-  for (let i = 0; i < synergies.length; i++) {
-    const s = synergies[i];
-    const def = registry.buildings.get(s.id);
-    if (!def) continue;
-    def[s.stat] = s.base * synergyFactor(s.rule, state, derived);
+function ruleFactor(r, state, derived) {
+  if (r.kind === 'growth') {
+    const count = state?.buildings?.[r.id];
+    return growthFactor(r.rule, isFiniteNum(count) ? count : 0);
   }
+  return synergyFactor(r.rule, state, derived);
+}
+
+// Evaluate every rule: store the live value and mirror it into the registered definition
+// (see the header for why). Idempotent: the value is always base × factor, so repeated
+// calls never compound.
+export function applyLiveStats(state, derived) {
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i];
+    const def = registry.buildings.get(r.id);
+    if (!def) continue;
+    const v = r.base * ruleFactor(r, state, derived);
+    let slot = live.get(r.id);
+    if (!slot) live.set(r.id, (slot = {}));
+    slot[r.stat] = v;
+    def[r.stat] = v;
+  }
+}
+export const applySynergies = applyLiveStats; // former name
+
+// The value a rule pinned for `stat` at registration (data + config), or the definition's
+// field when nothing scales it. Undefined for an unknown building.
+export function baseStat(id, stat) {
+  const key = id + ':' + stat;
+  if (bases.has(key)) return bases.get(key);
+  const def = registry.buildings.get(id);
+  return def ? def[stat] : undefined;
+}
+
+// The per-unit value the simulation is using right now: the last evaluated rule value, or
+// the definition's field when nothing scales it. Undefined for an unknown building.
+export function liveStat(id, stat) {
+  const slot = live.get(id);
+  if (slot && stat in slot) return slot[stat];
+  const def = registry.buildings.get(id);
+  return def ? def[stat] : undefined;
+}
+
+// Every scaled stat of a building as { stat: value } (a fresh object), or {} when none.
+export function liveStats(id) {
+  return { ...(live.get(id) || {}) };
 }
 
 // Registered rules (read-only view for tools and tests).
+export function activeRules() {
+  return rules.map((r) => ({ id: r.id, stat: r.stat, base: r.base, kind: r.kind, ...r.rule }));
+}
 export function activeSynergies() {
-  return synergies.map((s) => ({ id: s.id, stat: s.stat, base: s.base, ...s.rule }));
+  return activeRules().filter((r) => r.kind === 'synergy');
+}
+export function activeGrowth() {
+  return activeRules().filter((r) => r.kind === 'growth');
 }
 
 // ---- init ---------------------------------------------------------------------------
@@ -207,11 +301,11 @@ export async function init(game) {
         reportError('buildings:' + base.id, e);
       }
     }
-    collectSynergies();
-    if (synergies.length) registerTickHandler(SYNERGY_HANDLER, applySynergies, SYNERGY_PRIORITY);
+    collectRules();
+    if (rules.length) registerTickHandler(LIVE_HANDLER, applyLiveStats, LIVE_PRIORITY);
     if (game && typeof game === 'object') {
       const count = BUILDINGS.filter((b) => registry.buildings.has(b.id)).length;
-      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies() };
+      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), liveStat, baseStat, liveStats };
     }
   } catch (e) {
     reportError('buildings:init', e);

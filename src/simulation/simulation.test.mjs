@@ -34,7 +34,7 @@ import {
   prestigeConfig,
 } from './prestige.js';
 import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
-import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, prestigeSnapshot } from './index.js';
+import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, tapMeter, prestigeSnapshot } from './index.js';
 import { createMods } from '../core/mods.js';
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${msg}: ${a} != ${b}`);
@@ -337,7 +337,7 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   const cfg = withPrestige({ firstBonus: 0.5 });
   const s = fakeState({ legacy: 3, spent: 1, totalEarned: 55e6, lifetimeEarned: 64e6 });
   const out = prestigeStatus(s, {}, cfg);
-  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextTierAt', 'nextTierName', 'spent', 'startMoneyAfter', 'unlockAt']);
+  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextIn', 'nextTierAt', 'nextTierName', 'spent', 'startMoneyAfter', 'unlockAt', 'unlockIn']);
   assert.equal(out.legacy, 3);
   assert.equal(out.spent, 1);
   assert.equal(out.available, 2);
@@ -352,6 +352,18 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   near(out.startMoneyAfter, startMoneyFor(8, cfg), 'seed cash after founding');
   assert.equal(out.nextTierName, 'Old Hands');
   assert.equal(out.nextTierAt, 5);
+  // Waiting targets: no income given → Infinity; founding is armed → 0; at $1,000/s the
+  // next point is (nextAt − totalEarned) / 1000 seconds away.
+  assert.equal(out.nextIn, Infinity);
+  assert.equal(out.unlockIn, 0);
+  const timed = prestigeStatus(s, {}, cfg, 1000);
+  near(timed.nextIn, (timed.nextAt - 55e6) / 1000, 'seconds to the next point');
+  assert.equal(timed.unlockIn, 0, 'armed: nothing to wait for');
+  const early = prestigeStatus(fakeState({ legacy: 3, spent: 1, totalEarned: 1e6, lifetimeEarned: 10e6 }), {}, cfg, 1000);
+  assert.equal(early.can, false);
+  near(early.unlockIn, (early.unlockAt - 1e6) / 1000, 'seconds until founding arms');
+  assert.ok(early.nextIn > 0 && early.nextIn <= early.unlockIn, 'the next point comes no later than the gate');
+  assert.equal(prestigeStatus(s, {}, cfg, NaN).nextIn, Infinity, 'a NaN income reads as no income');
   // Stale values are overwritten (no "keep the previous targets" mode any more).
   const keep = { nextAt: 123, unlockAt: 45 };
   prestigeStatus(s, keep, cfg);
@@ -465,7 +477,7 @@ test('performPrestige refuses below minGain and leaves the state untouched', () 
 
 // --- milestones -----------------------------------------------------------------
 
-test('legacy tiers: 5 → 1,000,000 points, ×1.5–4 apart (×2.5+ except around the Century Bank), each with a reward', () => {
+test('legacy tiers: 5 → 1,000,000 points, ×1.5–4 apart (×2.5+ except around the Century and Millennium Banks), each with a reward', () => {
   assert.equal(LEGACY_MILESTONES[0].target, 5);
   assert.equal(LEGACY_MILESTONES[LEGACY_MILESTONES.length - 1].target, 1e6);
   assert.ok(LEGACY_MILESTONES.length >= 10);
@@ -474,7 +486,7 @@ test('legacy tiers: 5 → 1,000,000 points, ×1.5–4 apart (×2.5+ except aroun
     if (prev > 0) {
       const ratio = m.target / prev;
       assert.ok(ratio >= 1.5 && ratio <= 4, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
-      if (m.id !== 'legacy-100' && m.id !== 'legacy-150') assert.ok(ratio >= 2.5, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
+      if (!['legacy-100', 'legacy-150', 'legacy-1000', 'legacy-1500'].includes(m.id)) assert.ok(ratio >= 2.5, `${m.id}: ×${ratio.toFixed(2)} after ${prev}`);
     }
     assert.equal(typeof m.reward, 'function', `${m.id} rewards`);
     assert.ok(m.rewardText, `${m.id} names its reward`);
@@ -485,30 +497,44 @@ test('legacy tiers: 5 → 1,000,000 points, ×1.5–4 apart (×2.5+ except aroun
   assert.equal(nextLegacyMilestone(83).id, 'legacy-100', 'the 9th founding of the shipped bot sequence (83 → 117) crosses the Century Bank');
   assert.equal(nextLegacyMilestone(100).id, 'legacy-150');
   assert.equal(nextLegacyMilestone(499).id, 'legacy-500');
-  assert.equal(nextLegacyMilestone(500).id, 'legacy-1500');
+  assert.equal(nextLegacyMilestone(500).id, 'legacy-1000');
+  assert.equal(nextLegacyMilestone(1000).id, 'legacy-1500');
+  assert.equal(nextLegacyMilestone(885).id, 'legacy-1000', 'the 16th founding of the shipped bot sequence (885 → 1,239) crosses the Millennium Bank');
   assert.equal(nextLegacyMilestone(42000).id, 'legacy-50k');
   assert.equal(nextLegacyMilestone(1e6), null);
   assert.equal(nextLegacyMilestone(NaN).id, 'legacy-5');
 });
 
-test('founding ladder: 1 · 5 · 7 · 10 · 25 · 50 cities, every rung past the first rewarded, and the income budget balance placed the late ladder against', () => {
+test('founding ladder: 1 · 5 · 6 · 7 · 10 · 25 · 50 cities, every rung past the first rewarded, and the income budget balance placed the late ladder against', () => {
   const ladder = MILESTONES.filter((m) => m.metric === 'prestiges');
-  assert.deepEqual(ladder.map((m) => m.target), [1, 5, 7, 10, 25, 50]);
+  assert.deepEqual(ladder.map((m) => m.target), [1, 5, 6, 7, 10, 25, 50]);
   for (const m of ladder) {
     assert.equal(m.check({ stats: { prestiges: m.target } }), true);
     assert.equal(m.check({ stats: { prestiges: m.target - 1 } }), false);
     if (m.target > 1) assert.equal(typeof m.reward, 'function', `${m.id} rewards`);
   }
-  // Seven Skylines and the Century Bank pay income; Founding Dynasty pays growth, so the
-  // permanent income multiplier a 10-city, 164-point mayor folds from the founding ladder
-  // and the legacy tiers stays ×1.27 — the figure the late rung/perk placement in
-  // src/balance/config.js is measured against (see the ladder comment in milestones.js).
+  // Serial Founder, Seasoned Council, Seven Skylines and the Century Bank pay income;
+  // Founding Dynasty pays growth, so the permanent income multiplier a 10-city, 164-point
+  // mayor folds from the founding ladder and the legacy tiers stays ×1.27 — the figure the
+  // late rung/perk placement in src/balance/config.js is measured against (see the ladder
+  // comment in milestones.js). The three +5% landings that flatten the 7th, 17th and 25th
+  // cities are each paid for by the city before, so the product past each one is unchanged.
   const s = createInitialState();
   s.stats.prestiges = 10;
   s.prestige.legacy = 164;
   for (const m of MILESTONES) if ((m.metric === 'prestiges' || m.metric === 'legacy') && m.check(s)) s.unlocks[m.key] = true;
   const mods = applyMilestoneMods(createMods(), s);
-  near(mods.income, 1.1 * 1.1 * 1.05, 'founding + legacy income budget by the 10th city');
+  near(mods.income, 1.05 * 1.05 * 1.1 * 1.05, 'founding + legacy income budget by the 10th city');
+  assert.equal(s.unlocks['m:prestige-6'], true);
+  // The trades past the 10th city: Millennium Bank + Trillion Club, Founders' Row + Quadrillionaire.
+  const late = createInitialState();
+  late.unlocks['m:legacy-1000'] = late.unlocks['m:money-1t'] = true;
+  near(applyMilestoneMods(createMods(), late).income, 1.05 * 1.05, 'Millennium Bank + Trillion Club = the ×1.1 the Trillion Club was');
+  const row = createInitialState();
+  row.unlocks['m:legacy-15k'] = row.unlocks['m:money-1qa'] = true;
+  const rowMods = applyMilestoneMods(createMods(), row);
+  near(rowMods.income, 1.05 * 1.15, "Founders' Row + Quadrillionaire = the ×1.2 the Quadrillionaire was");
+  near(rowMods.cost, 0.9, "Founders' Row keeps its cost cut");
   near(mods.growth, 1.25, 'Founding Dynasty pays in growth');
   assert.equal(mods.happiness, 0.15, 'only Civic Memory touches happiness by then (the dip contract)');
   assert.equal(s.unlocks['m:prestige-7'], true);
@@ -637,7 +663,7 @@ test('a replay re-latches old tiers silently but announces the ones this foundin
   for (const id of ['prestige-1', 'prestige-5', 'legacy-5', 'legacy-15', 'legacy-50']) assert.equal(state.unlocks['m:' + id], true, `${id} latched`);
   assert.deepEqual(seen, ['prestige-5', 'legacy-50']);
   const logged = state.log.filter((l) => l.kind === 'milestone').map((l) => l.msg);
-  assert.deepEqual(logged, ['Milestone: Serial Founder (+10% income)', 'Milestone: Civic Memory (+0.15 happiness)']);
+  assert.deepEqual(logged, ['Milestone: Serial Founder (+5% income)', 'Milestone: Civic Memory (+0.15 happiness)']);
   // The very first founding announces New Foundations.
   loadState({ stats: { prestiges: 1 }, prestige: { legacy: 5, lifetimeEarned: 1e8 }, res: { money: 500, pop: 0 } });
   markFounding(0);
@@ -717,6 +743,63 @@ test('tap pays gross output (floor $1), counts toward totalEarned and lifetime, 
   loadState({});
 });
 
+test('the tap meter: a burst of taps adds at most tapRefill seconds of output per second, however fast', () => {
+  ensureTestBuildings();
+  const tapMs = MILESTONES.filter((m) => m.metric === 'clicks');
+  const unlocks = {};
+  for (const m of tapMs) unlocks[m.key] = true;
+  loadState({ res: { money: 0, pop: 0 }, buildings: { 't-shop': 3, 't-mill': 1 }, stats: { clicks: 5000 }, unlocks });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  derived.grossIncome = 1000; // a city with real output (the $1 floor is noise at this size)
+  const gross = derived.grossIncome;
+  const value = tapSecondsFor(derived);
+  const refill = economyTuning(config).tapRefill;
+  near(value, 5 * economyTuning(config).tapSeconds, 'the full ladder: five seconds per tap');
+  assert.ok(refill > 0 && refill < value);
+  const meter = tapMeter(state, derived);
+  near(meter.credit, value, 'a fresh meter holds one full tap');
+  assert.equal(meter.cap, value);
+  assert.equal(meter.refill, refill);
+  // Ten taps a second for three seconds, ticking the clock between them (simulate does not
+  // advance state.time; the loop does). Money earned by taps per second, passive excluded.
+  derived.income = 0; // isolate tap money
+  const perSecond = [];
+  for (let sec = 0; sec < 3; sec++) {
+    const before = state.res.money;
+    for (let i = 0; i < 10; i++) {
+      tap(state, derived);
+      state.time += 0.1;
+    }
+    perSecond.push((state.res.money - before) / gross);
+  }
+  // First second: the stored tap plus the refill; every later second: the refill alone,
+  // i.e. ×refill (×2) the passive income — an autoclicker cannot beat that.
+  assert.ok(perSecond[0] <= value + refill + 1e-9, `first second ${perSecond[0]} ≤ ${value + refill}`);
+  assert.ok(perSecond[0] >= value, 'the first tap after a pause pays the ladder in full');
+  for (let sec = 1; sec < 3; sec++) {
+    assert.ok(perSecond[sec] <= refill + 1e-9, `second ${sec}: ${perSecond[sec]} s of output ≤ refill ${refill}`);
+    assert.ok(perSecond[sec] >= refill - 1e-9, 'and the refill is paid out in full');
+  }
+  assert.equal(state.stats.clicks, 5030, 'every tap counts, paid or not');
+  near(tapMeter(state, derived).credit, refill * 0.1, 'only the last tenth of a second has refilled');
+  near(tap(state, derived), gross * refill * 0.1, 'which the next tap drains');
+  // A drained meter still pays the $1 floor, and a pause refills it to the cap, no further.
+  assert.equal(tap(state, derived), 1, 'floor $1 on a drained meter');
+  state.time += 60;
+  near(tapMeter(state, derived).credit, value, 'a minute later the meter is full, not overflowing');
+  near(tap(state, derived), gross * value, 'and the next tap pays the full five seconds');
+  // Load / founding start with a full meter, and a broken clock never breaks the meter.
+  loadState({ res: { money: 0, pop: 0 }, buildings: { 't-shop': 3, 't-mill': 1 }, stats: { clicks: 5000 }, unlocks });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  derived.grossIncome = 1000;
+  near(tap(state, derived), gross * value, 'full after a load');
+  state.time = NaN;
+  assert.ok(Number.isFinite(tap(state, derived)) && Number.isFinite(state.res.money), 'NaN time is harmless');
+  loadState({});
+});
+
 test('the tap ladder: lifetime taps scale mods.tap from 1 s of income to 5 s, and carry over silently', () => {
   ensureTestBuildings();
   const tapMs = MILESTONES.filter((m) => m.metric === 'clicks');
@@ -739,6 +822,7 @@ test('the tap ladder: lifetime taps scale mods.tap from 1 s of income to 5 s, an
   assert.equal(state.unlocks['m:taps-25'], true, 'latched on the tick after the 25th tap');
   assert.match(state.log[state.log.length - 1].msg, /Hands-On Mayor \(Taps pay 2 s of income\)/);
   near(tapSecondsFor(derived), 2 * economyTuning(config).tapSeconds, 'two seconds per tap');
+  state.time += 1; // the meter refills (2 s of output per second) to the new two-second cap
   near(tap(state, derived), derived.grossIncome * 2 * economyTuning(config).tapSeconds, 'the 26th tap pays double');
   assert.ok(derived.grossIncome > 0);
   // A replay re-latches the ladder without announcing it (taps are a lifetime count).

@@ -138,22 +138,47 @@ test('frontier ladder: eight rungs, config-owned, ascending in canonical order, 
   assert.equal(FRONTIER_GATE, 0.25);
 });
 
-test('pace ladder and money-priced Legacy rungs are placed here, one price per rung, in ascending city order', () => {
+test('pace ladder and money-priced Legacy rungs are placed here, one price per rung, in city order', () => {
   // Pace rungs open once the city has earned 100× the price (or holds it): every one is
   // config-priced so the placement table in config.js is the shipped one.
   const pace = UPGRADES.filter((d) => d.pace).map((d) => d.id);
   assert.ok(pace.length >= 9, 'nine pace rungs');
   for (const id of pace) assert.ok(isNum(config.upgrades[id]?.cost), `${id} priced in config`);
-  // The two Legacy rungs used as late content sit above every first-city price and below
-  // the frontier rung of the city after them (City Archives before the Grid Charter city,
-  // Standing Orders before the Orbital Solar city).
   const price = (id) => config.upgrades[id].cost;
-  assert.ok(price('city-archives') > price('breeder-reactors') && price('city-archives') < price('championship-season'));
-  assert.ok(price('standing-orders') > price('ai-governance') && price('standing-orders') < price('orbital-solar'));
-  // Planetary Charter is priced under the 14th city's replay spree (see config.js) and
-  // the Galactic Charter just above the Stellar Engine so both land at the Energy city.
-  assert.ok(price('planetary-charter') < price('dyson-swarm'));
-  assert.ok(price('galactic-charter') > price('stellar-engine') && price('galactic-charter') < price('orbital-shipyard'));
+  // The placement table (config.js, upgrades block) in city order: every money rung is
+  // dearer than the one placed in the city before it, so the bot meets them in this order.
+  const cityOrder = [
+    'breeder-reactors', // city 2
+    'city-archives', // 4
+    'championship-season', // 5
+    'robotic-assembly', // 7
+    'ai-governance', // 9
+    'dyson-swarm', // 10
+    'planetary-charter', // 12
+    'quantum-exchange', // 13
+    'megastructures', // 15
+    'orbital-solar', // 16
+    'arcology-gardens', // 18
+    'algorithmic-trading', // 20
+    'standing-orders', // 21
+    'mass-driver-port', // 23
+    'ringworld-district', // 24
+    'stellar-engine', // 26
+    'galactic-charter', // 27
+    'superconductor-grid', // 29
+    'orbital-shipyard', // 31
+    'exchange-ring', // 32
+  ];
+  for (let i = 1; i < cityOrder.length; i++) assert.ok(price(cityOrder[i]) > price(cityOrder[i - 1]), `${cityOrder[i]} is placed after ${cityOrder[i - 1]}`);
+  // The four replay accelerators are priced for the first two minutes of a 5–10 point
+  // replay ($1,800–3,300 of seed cash, see prestige.startMoneyPerLegacy), in ladder order.
+  assert.ok(price('legacy-archive') < price('founders-blueprints') && price('founders-blueprints') < price('veteran-planners') && price('veteran-planners') < price('dynasty-ledger'));
+  assert.ok(price('dynasty-ledger') <= 50000, 'the Dynasty Ledger lands inside the first minutes of the second city');
+  assert.ok(price('institutional-memory') > price('dynasty-ledger') && price('institutional-memory') < price('breeder-reactors'));
+  // Seed cash scales with legacy so a 5-point replay can buy its way past the cottage
+  // minute (5 points → $1,800), but stays irrelevant late (1e5 points → $3e7 against a
+  // spree of 1e14+).
+  assert.equal(config.prestige.startMoneyPerLegacy, 1);
 });
 
 test('tier-4 draw keeps late demand ahead of supply (under-power share >= 3% needs more than the x3 catalogue draw)', () => {

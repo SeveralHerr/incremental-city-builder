@@ -17,7 +17,7 @@
 //   legacyPower          p in the bonus above; clamped to [0.25, LEGACY_POWER_MAX] (0.6). The
 //                        bonus is always a root of the linear term: no soft cap, no tail, and
 //                        p ≤ 0.6 keeps a million-point bank at ×251 for the shipped k = 0.01
-//                        (×309 with the 23% first bonus; ×577 / ×750 at k = 0.04, firstBonus 0.3).
+//                        (×326 with a 30% first bonus; the shipped p = 0.548, firstBonus 0.18 is ×156 / ×184).
 //   firstBonus           one-off multiplier (1 + firstBonus) once any legacy is banked
 //   startMoneyPerLegacy  seed cash = economy.startMoney · (1 + startMoneyPerLegacy · legacy)
 //   minGain              founding is allowed only once at least this many points are on offer
@@ -26,8 +26,10 @@
 //                        a worthless reset. The resolved requirement is
 //                        max(minGain, ceil(legacy · minGainShare)) — derived.extra.prestige.minGain.
 //   prestigePanelShare   the Legacy panel opens once this run has earned threshold × share
-//                        (0.1: $924k at the $9.24M threshold); a mayor with a bank keeps it open.
-// config.economy: startMoney, tapSeconds (a tap pays max($1, grossIncome · tapSeconds · mods.tap)).
+//                        (0.1: $1.1M at the $11M threshold); a mayor with a bank keeps it open.
+// config.economy: startMoney, tapSeconds (a tap pays max($1, grossIncome · tapSeconds · mods.tap)
+// out of a meter that refills at tapRefill seconds of output per second — the ceiling on
+// sustained tap income; balance may set config.economy.tapRefill, else TAP_REFILL applies).
 // config.milestones: popIncomeBonus.
 //
 // Legacy comes from lifetime earnings only (docs/DESIGN.md, "Late game contract", principle
@@ -47,12 +49,12 @@ export const LEGACY_POWER_MAX = 0.6;
 // retunes, this block moves with it.
 export const DEFAULTS = Object.freeze({
   prestige: Object.freeze({
-    threshold: 9.24e6,
+    threshold: 1.1e7,
     exponent: 0.488,
     incomePerLegacy: 0.01,
-    legacyPower: 0.6,
-    firstBonus: 0.23,
-    startMoneyPerLegacy: 0.05,
+    legacyPower: 0.548,
+    firstBonus: 0.18,
+    startMoneyPerLegacy: 1,
     minGain: 1,
     minGainShare: 0.4,
     prestigePanelShare: 0.1,
@@ -61,8 +63,14 @@ export const DEFAULTS = Object.freeze({
   milestones: Object.freeze({ popIncomeBonus: 0.02 }),
 });
 
+// Sustained tap ceiling: the tap meter refills this many seconds of gross output per game
+// second, so a hand (or an autoclicker) at any speed adds at most ×TAP_REFILL the passive
+// income, whatever the tap ladder says one tap is worth. Not mirrored in config (balance
+// has not adopted the knob); config.economy.tapRefill overrides it when present.
+export const TAP_REFILL = 2;
+
 const PRESTIGE_KEYS = Object.keys(DEFAULTS.prestige);
-const ECONOMY_KEYS = Object.keys(DEFAULTS.economy);
+const ECONOMY_KEYS = Object.keys(DEFAULTS.economy).concat('tapRefill');
 const MILESTONE_KEYS = Object.keys(DEFAULTS.milestones);
 
 function finite(v, fallback) {
@@ -131,6 +139,7 @@ export function economyTuning(cfg = config) {
   return remember(economyMemo, e, {
     startMoney: Math.max(0, finite(e.startMoney, D.startMoney)),
     tapSeconds: Math.max(0, finite(e.tapSeconds, D.tapSeconds)),
+    tapRefill: Math.max(0, finite(e.tapRefill, TAP_REFILL)),
   });
 }
 

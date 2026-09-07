@@ -184,11 +184,32 @@ test('synergyFactor: 1 + source/per, capped, never below 1, garbage-safe', () =>
   assert.equal(synergyFactor({ stat: 'income', source: 'nope', per: 1, cap: 2 }, cityState(9), {}), 1, 'malformed rule is neutral');
   assert.equal(synergySource('building:school', cityState(0, { school: 7 }), {}), 7);
   assert.equal(synergySource('pop', null, null), 0);
+  // `employed` falls back to min(pop, jobs) before the first simulate() has filled it in.
+  assert.equal(synergySource('employed', cityState(500), { jobs: 300 }), 300, 'unset employed → min(pop, jobs)');
+  assert.equal(synergySource('employed', cityState(100), { jobs: 300 }), 100);
+  assert.equal(synergySource('employed', cityState(500), {}), 0, 'no jobs either → 0');
+  assert.equal(synergySource('employed', cityState(500), { employed: 42, jobs: 300 }), 42, 'live value wins');
 });
 
-test('the four signature synergies are registered and applySynergies is idempotent', () => {
+test('power synergies scale output and keep the ladder ordered', () => {
+  const solar = registry.buildings.get('solar');
+  const fusion = registry.buildings.get('fusion');
+  const nuclear = registry.buildings.get('nuclear');
+  assert.equal(synergyFactor(solar.synergy, cityState(0, { park: 25 }), {}), 1.5, 'solar caps at 25 parks');
+  assert.equal(synergyFactor(fusion.synergy, cityState(0, { nuclear: 10 }), {}), 2, 'fusion caps at 10 reactors');
+  const sBase = activeSynergies().find((s) => s.id === 'solar').base;
+  const fBase = activeSynergies().find((s) => s.id === 'fusion').base;
+  // Even fully boosted, solar stays below nuclear per unit and fusion above it.
+  assert.ok(sBase * 1.5 < nuclear.powerGen, 'boosted solar < nuclear');
+  assert.ok(fBase > nuclear.powerGen, 'fusion > nuclear');
+  // Fully boosted fusion is no cheaper per MW than nuclear by more than 25%: a choice, not a sort.
+  const perMW = (d, f = 1) => d.baseCost / (d.powerGen * f);
+  assert.ok(perMW(fusion, 2) >= perMW(nuclear) * 0.75, `fusion ×2 ${perMW(fusion, 2).toFixed(1)} $/MW vs nuclear ${perMW(nuclear).toFixed(1)}`);
+});
+
+test('the six signature synergies are registered and applySynergies is idempotent', () => {
   const active = activeSynergies();
-  assert.deepEqual(active.map((s) => s.id).sort(), ['financial', 'mall', 'refinery', 'techpark']);
+  assert.deepEqual(active.map((s) => s.id).sort(), ['financial', 'fusion', 'mall', 'refinery', 'solar', 'techpark']);
   assert.ok(registry.tickHandlers.some((h) => h.name === SYNERGY_HANDLER), 'tick handler registered');
   const sim = registry.tickHandlers.find((h) => h.name === 'simulate');
   const mine = registry.tickHandlers.find((h) => h.name === SYNERGY_HANDLER);

@@ -6,6 +6,8 @@ import { emit } from './events.js';
 export const TICK_MS = 100;
 export const DT = TICK_MS / 1000;
 const MAX_CATCHUP = 50; // ticks per frame; more than this => offline progress path
+const MAX_SKIPPED_MS = 24 * 3600 * 1000; // parked time is capped at a day
+const SKIP_GRACE_MS = 3000; // unclaimed skippedMs older than this is drained by the loop itself
 const RING = 600;
 
 export const loop = {
@@ -22,6 +24,7 @@ export const loop = {
     lastFps: 0,
   },
   skippedMs: 0, // time we refused to catch up (handed to save/offline)
+  skippedAt: 0, // frame timestamp when skippedMs last went from 0 to > 0
 };
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -60,6 +63,7 @@ export function tickStats() {
 }
 
 let rafId = 0;
+let intervalId = 0;
 let fpsWindowStart = 0;
 let fpsFrames = 0;
 
@@ -73,14 +77,22 @@ function frame(t) {
   loop.accumulator += elapsed;
   let ticks = Math.floor(loop.accumulator / TICK_MS);
   if (ticks > MAX_CATCHUP) {
-    loop.skippedMs += (ticks - MAX_CATCHUP) * TICK_MS;
+    if (!loop.skippedMs) loop.skippedAt = t;
+    loop.skippedMs = Math.min(MAX_SKIPPED_MS, loop.skippedMs + (ticks - MAX_CATCHUP) * TICK_MS);
     ticks = MAX_CATCHUP;
     loop.accumulator = ticks * TICK_MS;
   }
-  if (ticks > 0) {
-    loop.accumulator -= ticks * TICK_MS;
-    step(ticks);
+  // Normally `save` claims skippedMs on the next frame (quiet catch-up / offline path). If no
+  // consumer has claimed it within the grace window (save module failed to load), drain it
+  // ourselves in MAX_CATCHUP-sized batches so it never grows unbounded.
+  loop.accumulator -= ticks * TICK_MS;
+  if (loop.skippedMs > 0 && ticks < MAX_CATCHUP && t - loop.skippedAt >= SKIP_GRACE_MS) {
+    const extra = Math.min(MAX_CATCHUP - ticks, Math.floor(loop.skippedMs / TICK_MS));
+    loop.skippedMs -= extra * TICK_MS;
+    if (loop.skippedMs < TICK_MS) loop.skippedMs = 0;
+    ticks += extra;
   }
+  if (ticks > 0) step(ticks);
   loop.stats.frames++;
   fpsFrames++;
   if (t - fpsWindowStart >= 1000) {
@@ -100,8 +112,8 @@ export function start() {
     rafId = requestAnimationFrame(frame);
   } else {
     // Node fallback (not used by tools, but keeps start() safe).
-    const iv = setInterval(() => {
-      if (!loop.running) return clearInterval(iv);
+    intervalId = setInterval(() => {
+      if (!loop.running) return stop();
       step(1);
     }, TICK_MS);
   }
@@ -111,4 +123,6 @@ export function stop() {
   loop.running = false;
   if (rafId && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(rafId);
   rafId = 0;
+  if (intervalId) clearInterval(intervalId);
+  intervalId = 0;
 }

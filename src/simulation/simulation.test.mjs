@@ -34,7 +34,7 @@ import {
   prestigeConfig,
 } from './prestige.js';
 import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
-import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, prestigeSnapshot } from './index.js';
+import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, prestigeSnapshot } from './index.js';
 import { createMods } from '../core/mods.js';
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) <= eps * Math.max(1, Math.abs(b)), `${msg}: ${a} != ${b}`);
@@ -93,6 +93,18 @@ test('the shipped config resolves knob for knob (no hand-mirrored numbers in thi
   const cfg = prestigeConfig(config);
   assert.equal(cfg.startMoney, config.economy.startMoney);
   assert.equal(cfg.threshold, p.threshold);
+});
+
+test('DEFAULTS mirrors src/balance/config.js knob for knob (a missing section runs the shipped economy)', () => {
+  assert.deepEqual(DEFAULTS.prestige, config.prestige, 'DEFAULTS.prestige drifted from config.prestige');
+  for (const section of ['economy', 'milestones']) {
+    for (const key of Object.keys(DEFAULTS[section])) {
+      assert.equal(DEFAULTS[section][key], config[section][key], `DEFAULTS.${section}.${key} drifted from config`);
+    }
+  }
+  // …and the resolver returns those very numbers when the config is absent.
+  const p = prestigeTuning(null);
+  for (const k of Object.keys(config.prestige)) assert.equal(p[k], config.prestige[k], `fallback ${k}`);
 });
 
 test('tuning falls back to DEFAULTS for a missing or malformed config and clamps every knob', () => {
@@ -673,6 +685,67 @@ test('tap pays gross output (floor $1), counts toward totalEarned and lifetime, 
   derived.grossIncome = 0;
   assert.equal(tap(state, derived), 1, 'floor $1');
   assert.equal(state.stats.clicks, 2);
+  loadState({});
+});
+
+test('the tap ladder: lifetime taps scale mods.tap from 1 s of income to 5 s, and carry over silently', () => {
+  ensureTestBuildings();
+  const tapMs = MILESTONES.filter((m) => m.metric === 'clicks');
+  assert.deepEqual(tapMs.map((m) => [m.id, m.target]), [['taps-25', 25], ['taps-250', 250], ['taps-1000', 1000]]);
+  const s = createInitialState();
+  near(foldMods(s).tap, 1, 'no ladder: one second per tap');
+  for (const m of tapMs) s.unlocks[m.key] = true;
+  near(applyMilestoneMods(createMods(), s).tap * 1, 5, 'all three rungs: five seconds per tap');
+  assert.ok(foldMods({ ...s, upgrades: {}, prestige: s.prestige }).tap === 5);
+  // Live: 24 taps pay 1 s, the 25th latches Hands-On Mayor and the 26th pays 2 s.
+  loadState({ res: { money: 0, pop: 0 }, buildings: { 't-shop': 3, 't-mill': 1 } });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  const gross = derived.grossIncome;
+  assert.ok(gross > 1, 'the shops pay');
+  state.stats.clicks = 24;
+  const g1 = tap(state, derived);
+  near(g1, gross * economyTuning(config).tapSeconds, 'one second of output at 24 taps');
+  simulate(state, derived, 0.1);
+  assert.equal(state.unlocks['m:taps-25'], true, 'latched on the tick after the 25th tap');
+  assert.match(state.log[state.log.length - 1].msg, /Hands-On Mayor \(Taps pay 2 s of income\)/);
+  near(tapSecondsFor(derived), 2 * economyTuning(config).tapSeconds, 'two seconds per tap');
+  near(tap(state, derived), derived.grossIncome * 2 * economyTuning(config).tapSeconds, 'the 26th tap pays double');
+  assert.ok(derived.grossIncome > 0);
+  // A replay re-latches the ladder without announcing it (taps are a lifetime count).
+  loadState({ res: { money: 500, pop: 0 }, stats: { prestiges: 3, clicks: 300 }, prestige: { legacy: 30, lifetimeEarned: 1e9 } });
+  markFounding(30);
+  const seen = [];
+  const onMs = (m) => seen.push(m.id);
+  on('milestone', onMs);
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  assert.equal(state.unlocks['m:taps-25'], true);
+  assert.equal(state.unlocks['m:taps-250'], true);
+  assert.equal(seen.includes('taps-25') || seen.includes('taps-250'), false, 'old tap rungs are not news');
+  near(derived.mods.tap, 3, 'two rungs: three seconds per tap');
+  // A malformed multiplier never poisons the tap.
+  derived.mods.tap = NaN;
+  near(tapSecondsFor(derived), economyTuning(config).tapSeconds, 'NaN falls back to ×1');
+  loadState({});
+  markFounding(0);
+});
+
+test('the prestige snapshot is refreshed before the goals are checked, so Founding Charter latches on the tick it arms', () => {
+  const p = prestigeTuning(config);
+  const at = earningsForLegacy(p.minGain, config);
+  loadState({ res: { money: 0, pop: 0 }, stats: { totalEarned: at * 0.999 }, prestige: { lifetimeEarned: at * 0.999 } });
+  recompute(state, derived);
+  simulate(state, derived, 0.1);
+  assert.equal(state.unlocks['m:founding-charter'], undefined, 'not yet');
+  // Earn the last dollar outside the tick (a tap, an import): the very next tick latches it,
+  // instead of one tick later off a stale snapshot.
+  state.stats.totalEarned = at;
+  state.prestige.lifetimeEarned = at;
+  simulate(state, derived, 0.1);
+  assert.equal(prestigeSnapshot(derived).can, true);
+  assert.equal(state.unlocks['m:founding-charter'], true, 'latched on the same tick');
   loadState({});
 });
 

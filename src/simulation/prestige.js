@@ -17,24 +17,30 @@
 // lowers it, and a founding keeps `spent` along with the rest of state.prestige.
 //
 // The payoff is a root of the linear term (legacyPower ≤ 0.6, no soft cap, no tail): the
-// marginal point keeps its relative worth, and a million-point bank at k = 0.04, p = 0.5 is
-// ×200 — bounded by construction, so twelve-hour money stays inside a double's comfortable
-// range (principle 4: money ≤ 1e18, legacy ≤ 1e6). The one-off first bonus makes the very
-// first founding a jump a player can feel; the legacy tiers in milestones.js (5 … 1M points,
-// ×2.5–3.3 apart) give every later founding a target in sight.
+// marginal point keeps its relative worth, and a million-point bank at the shipped k = 0.01,
+// p = 0.6 is ×251 (×309 with the first bonus) — bounded by construction, so twelve-hour
+// money stays inside a double's comfortable range (principle 4: money ≤ 1e18, legacy ≤ 1e6).
+// The one-off first bonus makes the very first founding a jump a player can feel; the
+// legacy tiers in milestones.js (5 … 1M points, ×2.5–3.3 apart) give every later founding a
+// target in sight.
 //
-// Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out logs/sim-simulation.json`,
-// 2026-09-04 tree: charter perks landed, balance not yet retuned for earnings-only legacy):
-// the Legacy panel opens at $300k (~14 min), the Found button arms at $3M (~23 min), the
-// first founding lands at 40.1 min with 5 points; cycles then run 14.5 → 15.5 → 5.2 → 5.9 →
-// 7.7 → 9.1 → 10.1 → 14.5 → 20 → 26 → 36 → 43 → 61 → 87 → 108 → 125 min — 17 foundings in
-// 12 h, legacy 380 (306 spent on perks), money peak 3.9e11, income 1.4e10/s, zero
-// overflow/stall/magnitude issues. The lengthening is arithmetic, not a bug: the bot resets
-// for +25% legacy, which at exponent 0.35 means every run must out-earn the whole past
-// ×1.25^(1/0.35) = ×1.9, while the bonus grows ×1.25^0.5 = ×1.12 per founding and the money
-// ladder tops out. A sweep of the knobs is in the module report (exponent 0.4–0.5 and
-// legacyPower 0.6 shorten the mid game; the cadence target is balance's to hit with
-// `config.prestige` and the earnings-gated dollar ladder). Re-measure before quoting.
+// Measured (greedy bot, `node tools/economy-sim.mjs --ticks 432000`, logs/sim-gauntlet.json,
+// 2026-09-05 tree, shipped knobs: threshold $9.24M, exponent 0.488, k 0.01, p 0.6,
+// firstBonus 0.23, minGainShare 0.4): the Legacy panel opens at $924k earned (~12 min), the
+// Found button arms at $9.24M (~19 min), the bot holds out for 5 points and founds at
+// 41.5 min; cycles then run 16.3 → 17.6 → 5.4 → 6.6 → 7.3 → 9.7 → 13.6 → 16.5 → 22 … a
+// 15–45 minute plateau from the 12th founding (44.5 min at most, the 19th), 9.4 min last —
+// 31 foundings in 12 h, legacy 193,474 (127,476 spent on all twelve charter perks), money
+// peak 8.4e16, income 1.2e15/s at the end; zero overflow/stall/magnitude issues, 0 errors.
+// Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
+// means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
+// while the bonus grows only ×1.4^0.6 = ×1.22 per founding, so a city with nothing new is
+// ~×1.35 longer than the one before it and the late ladder (one rung or perk per city,
+// placed by balance) is what keeps the plateau flat. Sweep (same tree, minGainShare 0.35 / 0.3 / 0.25): 34 / 39 / 48
+// foundings, max cycle ratio 1.33 / 1.34 / 1.30 with no slack, purchase-tension share
+// 25 / 26 / 25 % against the 24 % shipped — the prestige knobs set the cadence, not the
+// tension (that reading is the rung prices in config.upgrades against the plateau income,
+// see docs/DESIGN.md). Re-measure before quoting.
 import { config } from '../balance/config.js';
 import { resetState, addLog } from '../core/state.js';
 import { emit } from '../core/events.js';

@@ -9,7 +9,8 @@
 // The ids below are a contract: the upgrades module reads them in its unlock rules
 // (pop-100, pop-1k, pop-10k, pop-100k, money-1k, money-100k, money-1m, money-1b, brownout,
 // first-upgrade, buildings-100, prestige-1). `metric` + `target` (and `progress`) feed the
-// UI's progress bars. Listed in roughly the order a growing city reaches them, because the
+// UI's progress bars. Metrics: pop, totalEarned, buildings, upgrades, brownout, founding,
+// prestiges, legacy, clicks (lifetime taps — the tap ladder scales mods.tap). Listed in roughly the order a growing city reaches them, because the
 // UI shows the first few unreached entries as "next".
 import { registry } from '../core/registry.js';
 import { buildingMod } from '../core/mods.js';
@@ -42,6 +43,7 @@ const popOf = (s) => (s && s.res && Number.isFinite(s.res.pop) ? s.res.pop : 0);
 const earnedOf = (s) => (s && s.stats && Number.isFinite(s.stats.totalEarned) ? s.stats.totalEarned : 0);
 const builtOf = (s) => (s && s.stats && Number.isFinite(s.stats.buildingsBuilt) ? s.stats.buildingsBuilt : 0);
 const prestigesOf = (s) => (s && s.stats && Number.isFinite(s.stats.prestiges) ? s.stats.prestiges : 0);
+const clicksOf = (s) => (s && s.stats && Number.isFinite(s.stats.clicks) ? s.stats.clicks : 0);
 const legacyOf = (s) => (s && s.prestige && Number.isFinite(s.prestige.legacy) ? s.prestige.legacy : 0);
 
 // Allocation-free "owns at least one upgrade".
@@ -183,6 +185,31 @@ function prestigeMilestone(id, target, name, icon, desc, rewardText, reward) {
   };
 }
 
+// The tap ladder: lifetime taps (stats.clicks survives a founding) scale mods.tap, the
+// seconds of gross output one tap pays (index.js tap()). Three rungs take a tap from one
+// second of income to five — active play keeps a reason to exist past the first minute
+// without letting a clicker outrun the economy: a five-second tap at three taps a second
+// is ×15 income for as long as the hand holds out, and the money counts toward legacy like
+// any other. Like the legacy tiers these carry over silently at the start of a replay.
+function tapMilestone(id, target, name, icon, desc, mult, rewardText) {
+  return {
+    id,
+    name,
+    icon,
+    desc,
+    metric: 'clicks',
+    target,
+    check: (state) => clicksOf(state) >= target,
+    progress: (state) => clamp01(clicksOf(state) / target),
+    reward: (mods) => {
+      // The fold seeds mods.tap = 1; a bare core bag (an upgrades test, an older caller) has
+      // no tap field and must not turn into NaN.
+      mods.tap = (Number.isFinite(mods.tap) && mods.tap > 0 ? mods.tap : 1) * mult;
+    },
+    rewardText,
+  };
+}
+
 // Banked legacy tiers. Latched per run like every milestone, so a veteran mayor collects
 // them in the first second of a replay and they show as reached in the list.
 function legacyMilestone(id, target, name, icon, desc, rewardText, reward) {
@@ -217,6 +244,7 @@ export const MILESTONES = [
     rewardText: 'Unlocks Grant Writing',
   },
   popMilestone('pop-50', 50, 'Village Green', '🌿', 'Fifty citizens and a proper main street.'),
+  tapMilestone('taps-25', 25, 'Hands-On Mayor', '✋', 'Tap the city 25 times.', 2, 'Taps pay 2 s of income'),
   moneyMilestone('money-1k', 1e3, 'First Thousand', '💵', 'Earn $1,000 in total.', 'Unlocks Tax Software'),
   {
     id: 'brownout',
@@ -234,13 +262,14 @@ export const MILESTONES = [
   popMilestone('pop-500', 500, 'Town Charter', '📜', 'Five hundred citizens. The county sends a letter.'),
   buildMilestone('buildings-100', 100, 'Construction Boom', '🚧', 'Raise a hundred structures.', 'Unlocks Bulk Permits'),
   popMilestone('pop-1k', 1000, 'Thousand Lights', '🌃', 'A thousand windows glow after dark.'),
+  tapMilestone('taps-250', 250, 'Ribbon Cutter', '🎀', 'Tap the city 250 times.', 1.5, 'Taps pay 3 s of income'),
   moneyMilestone('money-100k', 1e5, 'Six Figures', '💰', 'Earn $100,000 in total.', 'The council starts talking legacy'),
   popMilestone('pop-5k', 5000, 'City Limits', '🛣️', 'Five thousand citizens and a ring road.'),
   moneyMilestone('money-1m', 1e6, 'Millionaire Mayor', '🏦', 'Earn $1,000,000 in total.', 'Unlocks Prefab Construction'),
   popMilestone('pop-10k', 10000, 'Ten Thousand Stories', '🏙️', 'Ten thousand citizens, each with somewhere to be.'),
   {
     // Founding arms once a reset would bank the required points (minGain for a fresh mayor:
-    // $3M at the shipped numbers, past the $1M milestone; a share of the bank for a veteran),
+    // $9.24M at the shipped numbers, past the $1M milestone; a share of the bank for a veteran),
     // so the goal that promises founding is the one that tracks the real gate. Per run, like
     // every milestone: a veteran collects it again once a replay has earned its way there.
     id: 'founding-charter',
@@ -264,6 +293,7 @@ export const MILESTONES = [
     progress: (state) => clamp01(prestigesOf(state)),
     rewardText: 'Unlocks Legacy upgrades and the Fusion Reactor',
   },
+  tapMilestone('taps-1000', 1000, 'Mayor of the People', '🤝', 'Tap the city 1,000 times.', 5 / 3, 'Taps pay 5 s of income'),
   popMilestone('pop-50k', 50000, 'Skyline Rising', '🌆', 'Fifty thousand citizens. Cranes on every block.'),
   popMilestone('pop-100k', 100000, 'Grand Metropolis', '🌇', 'A hundred thousand citizens and a subway map.'),
   moneyMilestone('money-1b', 1e9, 'Billion-Dollar Budget', '🏛️', 'Earn $1,000,000,000 in total.', 'Unlocks AI Governance'),

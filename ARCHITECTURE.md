@@ -86,8 +86,10 @@ registerTickHandler(name, fn /* (state, derived, dt) */, priority /* lower first
 registerAction(name, fn)                                    // exposed as api.<name>
 ```
 
-Every registered callback is wrapped by `safe.js`: try/catch, error logged to `errors[]`, the
-offending definition is disabled after 3 consecutive failures, game continues.
+Every registered callback (and every event listener) is wrapped by `safe.js`: try/catch, error
+logged to `errors[]` (repeats of one message bump `count` instead of pushing, so a noisy source
+never evicts other diagnostics from the 200-entry ring), the offending definition is disabled
+after 3 consecutive failures or 10 failures within 500 calls, game continues.
 
 ## Public api (`src/core/api.js`, also `window.__game.api`)
 
@@ -109,7 +111,8 @@ UI renders on its own rAF, reading `state`/`derived`; never inside tick handlers
 
 ## Events (`src/core/events.js`)
 
-`on(name, fn)`, `off`, `emit(name, payload)`. Listener errors are caught. Events:
+`on(name, fn)`, `off`, `emit(name, payload)`. Listeners are guarded like registry callbacks
+(errors caught, repeat throwers disabled). Events:
 `tick`, `buy`, `sell`, `upgrade`, `unlock`, `prestige`, `load`, `save`, `error`, `log`.
 
 ## Performance budget

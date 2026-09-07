@@ -4,15 +4,19 @@
 //   1. build a fresh mods bag and fold owned upgrades, latched milestones and prestige,
 //   2. computeDerived (resources) with the balance config,
 //   3. integrate money and population over dt, keep the stats honest,
-//   4. latch milestones and dashboard gates, keep the city log lively,
-//   5. refresh derived.extra.prestige (legacy, spent, available, gain, can, targets) for the
-//      dashboard.
+//   4. refresh derived.extra.prestige (legacy, spent, available, gain, can, targets) for the
+//      dashboard and for the goals that read it,
+//   5. latch milestones and dashboard gates, keep the city log lively.
 // Actions: canPrestige, prestigeGain, prestige, tap, setSetting. Events: milestone, unlock,
 // prestige, tap, setting, brownout ({ active, ratio } on both grid transitions). The
 // prestige rules live in prestige.js, the goals in milestones.js, every config knob read
 // here in tuning.js (resolved once and shared, so the tick allocates nothing but the mods
-// bag; measured 0.02–0.03 ms per tick averaged over a 12 h bot session, ~22k ticks/s in
-// the Node sim including the bot and the other modules' handlers).
+// bag; measured 0.008 ms average / 0.10 ms p99 per tick in the browser over a 12 h bot
+// session, ~48k ticks/s in the Node sim including the bot and the other modules' handlers).
+//
+// The mods bag carries two fields core's createMods does not: `inflow` (resources scales
+// baseInflow by it) and `tap` (seconds of output a tap pays, ×1 by default; the tap ladder
+// in milestones.js raises it and any upgrade may too). Both are re-sanitized after the fold.
 //
 // UI contract for the prestige card: read `prestigeSnapshot(derived)` (exported below; the
 // same object as derived.extra.prestige) — legacy, spent, available (legacy − spent, the
@@ -202,6 +206,7 @@ export function foldMods(state) {
   const mods = createMods();
   mods.demand = 1;
   mods.inflow = 1; // read by resources (baseInflow scaling); not part of core's bag yet
+  mods.tap = 1; // seconds of output per tap, ×; read by tap() (milestone tap ladder, upgrades)
   const order = registry.upgradeOrder;
   const owned = state.upgrades;
   for (let i = 0; i < order.length; i++) {
@@ -214,6 +219,7 @@ export function foldMods(state) {
   applyPrestigeMods(mods, state);
   sanitizeMods(mods);
   if (!Number.isFinite(mods.inflow) || mods.inflow < 0) mods.inflow = 1;
+  if (!Number.isFinite(mods.tap) || mods.tap < 0) mods.tap = 1;
   return mods;
 }
 
@@ -302,6 +308,7 @@ export function markFounding(before) {
 function justHappened(ms, state) {
   if (ms.metric === 'prestiges') return state.stats.prestiges === ms.target;
   if (ms.metric === 'legacy') return legacyBefore < ms.target;
+  if (ms.metric === 'clicks') return false; // taps are a lifetime count: a replay re-collects them
   return true;
 }
 
@@ -383,20 +390,30 @@ export function simulate(state, derived, dt) {
   derived.mods = mods;
   computeDerived(state, derived, mods, config);
   integrate(state, derived, dt);
+  // The snapshot is refreshed before the goals are checked, so the Founding Charter
+  // milestone (and every gate) reads this tick's figures, not the previous tick's.
+  prestigeStatus(state, ensurePrestigeExtra(derived), config);
   checkMilestones(state, derived);
   checkGates(state, derived);
   watchGrid(state, derived);
-  prestigeStatus(state, ensurePrestigeExtra(derived), config);
 }
 
 // --- actions -------------------------------------------------------------------
 
-// A tap pays tapSeconds of *gross* output (floor $1): a city running an upkeep deficit still
-// taps for what it produces. Tap money is earnings like any other: it counts toward
-// totalEarned (the money milestones) and lifetimeEarned (legacy).
+// Seconds of gross output one tap is worth: tapSeconds × mods.tap (the tap ladder in
+// milestones.js and any upgrade that scales mods.tap). Exported for the UI's hint text.
+export function tapSecondsFor(derived) {
+  const mods = derived && derived.mods;
+  const mult = mods && Number.isFinite(mods.tap) && mods.tap > 0 ? mods.tap : 1;
+  return economyTuning(config).tapSeconds * mult;
+}
+
+// A tap pays tapSecondsFor(derived) seconds of *gross* output (floor $1): a city running an
+// upkeep deficit still taps for what it produces. Tap money is earnings like any other: it
+// counts toward totalEarned (the money milestones) and lifetimeEarned (legacy).
 export function tap(state, derived) {
   const gross = Number.isFinite(derived.grossIncome) ? derived.grossIncome : 0;
-  const gain = Math.max(1, gross * economyTuning(config).tapSeconds);
+  const gain = Math.max(1, gross * tapSecondsFor(derived));
   state.res.money += gain;
   state.stats.totalEarned += gain;
   state.prestige.lifetimeEarned = (Number.isFinite(state.prestige.lifetimeEarned) ? state.prestige.lifetimeEarned : 0) + gain;

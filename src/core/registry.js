@@ -13,6 +13,8 @@ export const registry = {
 
 const REQUIRED_BUILDING = ['id', 'name', 'baseCost', 'costGrowth'];
 const REQUIRED_UPGRADE = ['id', 'name', 'cost', 'effect'];
+const CURRENCIES = ['money', 'legacy'];
+const BUILDING_CATEGORIES = ['residential', 'commercial', 'industrial', 'power', 'civic'];
 
 function validate(def, required, kind) {
   if (!def || typeof def !== 'object') throw new Error(`${kind}: def must be object`);
@@ -41,6 +43,20 @@ function validate(def, required, kind) {
   }
   if (def.unlock !== undefined && def.unlock !== null && typeof def.unlock !== 'function') {
     throw new Error(`${kind} ${def.id}: unlock must be a function`);
+  }
+  // Shape fields: a typo here (currency: 'Legacy', tier: '2') would silently misprice or
+  // mis-sort an item, so reject it loudly at registration.
+  if (def.currency !== undefined && !CURRENCIES.includes(def.currency)) {
+    throw new Error(`${kind} ${def.id}: currency must be one of ${CURRENCIES.join('|')}`);
+  }
+  if (def.tier !== undefined && !(Number.isInteger(def.tier) && def.tier >= 0)) {
+    throw new Error(`${kind} ${def.id}: tier must be a non-negative integer`);
+  }
+  if (def.category !== undefined && (typeof def.category !== 'string' || !def.category.trim())) {
+    throw new Error(`${kind} ${def.id}: category must be a non-empty string`);
+  }
+  if (kind === 'building' && !BUILDING_CATEGORIES.includes(def.category ?? 'residential')) {
+    throw new Error(`building ${def.id}: category must be one of ${BUILDING_CATEGORIES.join('|')}`);
   }
 }
 

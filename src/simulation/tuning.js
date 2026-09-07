@@ -16,18 +16,18 @@
 //   incomePerLegacy      k in the income bonus (1 + k·legacy) ^ legacyPower
 //   legacyPower          p in the bonus above; clamped to [0.25, LEGACY_POWER_MAX] (0.6). The
 //                        bonus is always a root of the linear term: no soft cap, no tail, and
-//                        p ≤ 0.6 keeps a million-point bank at ×577 for k = 0.04 (×750 with
-//                        the 30% first bonus; ×200 / ×260 at the shipped p = 0.5).
+//                        p ≤ 0.6 keeps a million-point bank at ×251 for the shipped k = 0.01
+//                        (×309 with the 23% first bonus; ×577 / ×750 at k = 0.04, firstBonus 0.3).
 //   firstBonus           one-off multiplier (1 + firstBonus) once any legacy is banked
 //   startMoneyPerLegacy  seed cash = economy.startMoney · (1 + startMoneyPerLegacy · legacy)
 //   minGain              founding is allowed only once at least this many points are on offer
-//   minGainShare         …and, once a bank exists, at least this share of it (0.05: a
-//                        1,000-point mayor needs 50 more), so the Found button never arms for
-//                        a fraction-of-a-percent reset. The resolved requirement is
+//   minGainShare         …and, once a bank exists, at least this share of it (0.4: a
+//                        1,000-point mayor needs 400 more), so the Found button never arms for
+//                        a worthless reset. The resolved requirement is
 //                        max(minGain, ceil(legacy · minGainShare)) — derived.extra.prestige.minGain.
 //   prestigePanelShare   the Legacy panel opens once this run has earned threshold × share
-//                        (0.1: $300k at a $3M threshold); a mayor with a bank keeps it open.
-// config.economy: startMoney, tapSeconds (a tap pays max($1, grossIncome · tapSeconds)).
+//                        (0.1: $924k at the $9.24M threshold); a mayor with a bank keeps it open.
+// config.economy: startMoney, tapSeconds (a tap pays max($1, grossIncome · tapSeconds · mods.tap)).
 // config.milestones: popIncomeBonus.
 //
 // Legacy comes from lifetime earnings only (docs/DESIGN.md, "Late game contract", principle
@@ -35,23 +35,26 @@
 // compoundCap, ripenSeconds, legacyDiscount) and the soft-cap knobs (legacyCap,
 // legacyCapTail, legacyCapTailPower) are gone; a config that still carries them is read
 // without them. Measured pacing with the shipped config: see the header of prestige.js and
-// logs/sim-simulation.json (node tools/economy-sim.mjs --ticks 432000).
+// logs/sim-gauntlet.json (node tools/economy-sim.mjs --ticks 432000).
 import { config } from '../balance/config.js';
 
 // Hard ceiling on the payoff power (contract principle 4: p ≤ 0.6, no soft-cap machinery).
 export const LEGACY_POWER_MAX = 0.6;
 
-// Fallbacks (balance owns the shipped numbers in config.prestige).
+// Fallbacks: a copy of the shipped numbers in src/balance/config.js, so a missing or
+// malformed config section runs the shipped economy rather than a different one.
+// simulation.test.mjs asserts every key here equals its config counterpart; when balance
+// retunes, this block moves with it.
 export const DEFAULTS = Object.freeze({
   prestige: Object.freeze({
-    threshold: 3e6,
-    exponent: 0.35,
-    incomePerLegacy: 0.04,
-    legacyPower: 0.5,
-    firstBonus: 0.3,
+    threshold: 9.24e6,
+    exponent: 0.488,
+    incomePerLegacy: 0.01,
+    legacyPower: 0.6,
+    firstBonus: 0.23,
     startMoneyPerLegacy: 0.05,
     minGain: 1,
-    minGainShare: 0.05,
+    minGainShare: 0.4,
     prestigePanelShare: 0.1,
   }),
   economy: Object.freeze({ startMoney: 300, tapSeconds: 1 }),

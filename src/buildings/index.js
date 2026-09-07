@@ -13,6 +13,12 @@
 // so computeDerived, the bot's scoring and the build card all read one live number. The
 // base is the value resolved at registration (data + config override), so a balance
 // override of the stat still scales the way the rule says.
+//
+// One-tick lag, by design: the handler reads `derived` as the previous tick left it (the
+// simulation recomputes it after us), so a rule sourced from `employed` is one tick behind
+// pop/jobs. On the very first tick after a load `derived.employed` is not set yet; the
+// source then falls back to min(pop, jobs) from the same bag (or 0), so the financial
+// district never flashes its base income for a frame after a reload.
 import { registerBuilding, registerTickHandler, registry } from '../core/registry.js';
 import { reportError } from '../core/safe.js';
 import { BUILDINGS, CATEGORIES } from './data.js';
@@ -109,7 +115,16 @@ export function normalizeSynergy(s) {
 export function synergySource(source, state, derived) {
   let v = 0;
   if (source === 'pop') v = state?.res?.pop;
-  else if (source === 'employed') v = derived?.employed;
+  else if (source === 'employed') {
+    v = derived?.employed;
+    // Before the first simulate() of a session `employed` is unset; derive it from what
+    // the bag does carry rather than reading the district at base for one frame.
+    if (!isFiniteNum(v)) {
+      const jobs = derived?.jobs;
+      const p = state?.res?.pop;
+      v = isFiniteNum(jobs) && isFiniteNum(p) ? Math.min(p, jobs) : 0;
+    }
+  }
   else if (typeof source === 'string' && source.startsWith('building:')) v = state?.buildings?.[source.slice(9)];
   return isFiniteNum(v) && v > 0 ? v : 0;
 }

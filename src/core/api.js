@@ -26,9 +26,12 @@ export function maxAffordable(def, money = state.res.money) {
   if (g === 1) return Math.floor(money / first);
   let n = Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
   n = Math.max(0, Math.min(n, 10000));
-  // The closed form can overshoot by one when money sits within float error of an exact
-  // n-purchase total; walk back so buy(id, 'max') never fails its own affordability check.
+  // The closed form can land one off in either direction when money sits within float error
+  // of an exact n-purchase total (log/pow round differently from the series sum): walk back so
+  // buy(id, 'max') never fails its own affordability check, and walk forward so an exact total
+  // buys every unit it pays for.
   while (n > 0 && buildingCost(def, count, n) > money) n--;
+  while (n < 10000 && buildingCost(def, count, n + 1) <= money) n++;
   return n;
 }
 

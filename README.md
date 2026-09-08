@@ -5,6 +5,25 @@ citizens to work, keep the lights on, keep them happy, then found a new city and
 legacy forward. Plain HTML, CSS and ES modules — no build step, no framework, no dependencies at
 runtime. The whole economy runs in Node as well as in the browser, which is how it is tuned.
 
+## Prompt (Fable 5.1 experiment)
+ # Goal
+  Build a SimCity-inspired incremental/idle game in plain HTML/CSS and ES modules from this empty folder. The bar is a premium idle game: sleek UI, satisfying progression, clear resource management (money, population, power), and visual dashboard expansion. Never messy programmer art.
+
+  # How to work
+  1. Architecture first. Write ARCHITECTURE.md: one folder per subsystem (resources, buildings, upgrades, tick-simulation, UI, save-system), a shared game state, public APIs, and a performance budget (steady 60fps UI, stable tick loop). Isolate modules so a broken upgrade never crashes the main game.
+  2. Build the verification loop. A headless-Chrome tool that loads the app, runs 10,000 simulated game ticks, and writes a JSON log (console errors, tick times, resource curves) plus a UI screenshot.
+  3. Fan out. Use multi-agent orchestration. One builder agent per module. Run in dependency waves: (1) core state, tick loop, UI shell; (2) buildings, upgrades, resource math; (3) game balance. An integrator agent handles core changes and fixes seams between modules.
+  4. Gauntlet every module. A critic agent checks UI screenshots, tick logs, and economy pacing, scoring 0–10 against top-tier incremental games (like Universal Paperclips or Cookie Clicker): 10 = flawless/addictive, 8.5 = great premium indie, 5 = programmer art/unbalanced. Pass = ≥8.5 with zero errors. Builders revise up to 4 times based on feedback.
+  5. Final gate. An economy critic runs an accelerated end-game simulation to guarantee mathematical progression doesn't stall, bottleneck, or overflow.
+  6. /loop until every critic passes. Persist scores and issues to docs/STATUS.json so each iteration resumes from the weakest module, not from scratch.
+
+  # Rules
+  - Never inflate scores. Report real numbers, failed rounds, and balance flaws.
+  - Never edit another module's folder. Core changes go through the integrator.
+  - Keep the dev server running and the app loadable at all times.
+  - Do not ask me questions. Make routine game-balance decisions yourself, state assumptions, keep going.
+  Start now.
+
 ## Run it
 
 ```sh

@@ -846,16 +846,23 @@ ul {
   }
 }
 
+/* Each flight crosses in the first 22% of its loop, then parks offscreen for the rest, so
+   planes are an occasional event rather than a constant orbit. --dur/--delay per flight. */
 .sk-plane {
-  animation: sk-plane 38s linear infinite;
+  animation: sk-plane var(--dur, 150s) linear infinite;
+  animation-delay: var(--delay, 0s);
 }
 
 @keyframes sk-plane {
-  from {
+  0% {
     transform: translate(-30px, 92px);
   }
-  to {
+  22% {
     transform: translate(520px, 34px);
+  }
+  22.01%,
+  100% {
+    transform: translate(-30px, 92px);
   }
 }
 

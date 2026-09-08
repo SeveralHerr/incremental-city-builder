@@ -10,7 +10,7 @@ import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { MAX_VISIBLE } from './toast.js';
-import { LANDMARKS } from './skyline.js';
+import { LANDMARKS, PLANE_FLIGHTS } from './skyline.js';
 import { UPGRADES } from '../upgrades/data.js';
 
 let passed = 0;
@@ -422,6 +422,18 @@ test('every skyline landmark is keyed by a real upgrade id', () => {
     assert.equal(typeof lm.draw, 'function', `${id}: draw`);
   }
   assert.ok(Object.keys(LANDMARKS).length >= 8);
+});
+
+// Airport planes are occasional: every flight parks offscreen for most of its loop, cycles are
+// distinct so the sky never settles into a pattern, and at least one flight heads west.
+test('airport flights are staggered, distinct and park between crossings', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sk-plane\s*\{[^}]*animation:\s*sk-plane var\(--dur, \d+s\) linear infinite;[^}]*animation-delay:\s*var\(--delay/);
+  assert.match(css, /@keyframes sk-plane\s*\{\s*0%[\s\S]*?22%[\s\S]*?22\.01%,\s*100%/);
+  assert.ok(PLANE_FLIGHTS.length >= 3);
+  assert.equal(new Set(PLANE_FLIGHTS.map((f) => f.dur)).size, PLANE_FLIGHTS.length);
+  assert.ok(PLANE_FLIGHTS.every((f) => f.dur >= 120 && f.delay >= 0 && f.scale > 0));
+  assert.ok(PLANE_FLIGHTS.some((f) => f.west));
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

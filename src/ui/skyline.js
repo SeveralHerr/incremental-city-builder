@@ -500,6 +500,14 @@ function plan(rows, colorOf) {
 // receives a light-weight context { g, lights, rnd, motion, rect, path, win, glow, fx }.
 // Keyed by upgrade id; `ui.test.mjs` asserts every key is a real upgrade so a rename can't
 // silently orphan a set piece.
+// Airport flights: cycle length, stagger, altitude offset, size, heading. Cycles are mutually
+// prime-ish so pairings drift and the sky never settles into a pattern.
+export const PLANE_FLIGHTS = [
+  { dur: 150, delay: 20, dy: 0, scale: 1, west: false },
+  { dur: 190, delay: 95, dy: -18, scale: 0.85, west: true },
+  { dur: 230, delay: 160, dy: -44, scale: 0.6, west: false },
+];
+
 export const LANDMARKS = {
   // A roadside billboard on two posts at the town's edge.
   'welcome-sign': {
@@ -611,7 +619,9 @@ export const LANDMARKS = {
       c.glow(cx, cy, r + 3, '#ffd166', 'sk-wheel-glow');
     },
   },
-  // Control tower with a beacon and a small plane on approach across the sky.
+  // Control tower with a beacon, and occasional planes crossing the sky: three flights on
+  // long staggered cycles (each visible ~22% of its loop, one westbound, one high and small),
+  // so a plane drifts past every minute or so rather than circling forever.
   'regional-airport': {
     depth: 0,
     draw(c) {
@@ -620,13 +630,23 @@ export const LANDMARKS = {
       c.path(`M${f1(x - 6)} ${f1(GROUND - 54)} L${f1(x + 12)} ${f1(GROUND - 54)} L${f1(x + 10)} ${f1(GROUND - 66)} L${f1(x - 4)} ${f1(GROUND - 66)} Z`, '#3a4478');
       c.win(x - 3, GROUND - 64, 12, 6, 1, '#b8ecff');
       c.glow(x + 3, GROUND - 68, 1.6, '#ff6b6b', 'sk-beacon');
-      const plane = svg('g', { class: 'sk-plane' });
-      plane.append(svg('path', { d: 'M0 0 L14 0 L17 1.4 L14 2.8 L0 2.8 L-3 1.4 Z', fill: '#e6ecff' }));
-      plane.append(svg('path', { d: 'M5 1.4 L9 -4 L11 -4 L8.5 1.4 Z', fill: '#c3ccf5' }));
-      plane.append(svg('path', { d: 'M5 1.4 L9 6.5 L11 6.5 L8.5 1.4 Z', fill: '#aeb8ea' }));
-      plane.append(svg('circle', { cx: 16.5, cy: 1.4, r: 0.9, fill: '#ff6b6b', class: 'sk-beacon' }));
-      if (!c.motion) plane.setAttribute('transform', 'translate(300 40)');
-      c.fx(plane);
+      const flights = c.motion ? PLANE_FLIGHTS : PLANE_FLIGHTS.slice(0, 1);
+      for (const f of flights) {
+        const sprite = svg('g', { transform: `scale(${f.scale})` });
+        sprite.append(svg('path', { d: 'M0 0 L14 0 L17 1.4 L14 2.8 L0 2.8 L-3 1.4 Z', fill: '#e6ecff' }));
+        sprite.append(svg('path', { d: 'M5 1.4 L9 -4 L11 -4 L8.5 1.4 Z', fill: '#c3ccf5' }));
+        sprite.append(svg('path', { d: 'M5 1.4 L9 6.5 L11 6.5 L8.5 1.4 Z', fill: '#aeb8ea' }));
+        sprite.append(svg('circle', { cx: 16.5, cy: 1.4, r: 0.9, fill: '#ff6b6b', class: 'sk-beacon' }));
+        const plane = svg('g', { class: 'sk-plane' });
+        plane.style.setProperty('--dur', `${f.dur}s`);
+        plane.style.setProperty('--delay', `${-f.delay}s`);
+        if (!c.motion) plane.setAttribute('transform', 'translate(300 40)');
+        plane.append(sprite);
+        // Wrapper offsets altitude and mirrors westbound flights so one keyframe serves all.
+        const wrap = svg('g', { transform: f.west ? `translate(${W} ${f.dy}) scale(-1 1)` : `translate(0 ${f.dy})` });
+        wrap.append(plane);
+        c.fx(wrap);
+      }
     },
   },
   // Transmission pylons strung across the back row.

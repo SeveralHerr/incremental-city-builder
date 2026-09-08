@@ -509,36 +509,58 @@ export const PLANE_FLIGHTS = [
 ];
 
 export const LANDMARKS = {
-  // A roadside billboard on two posts at the town's edge.
+  // A roadside billboard on two posts at the town's edge: cream frame, blue face, a row of
+  // marquee bulbs that light at night, and a shrub at the foot. Sits 56 units in so the
+  // xMidYMax "slice" crop on narrow panels (~25 units a side) never trims the word.
   'welcome-sign': {
     depth: 2,
     draw(c) {
-      const x = 22;
-      const y = GROUND - 30;
-      c.rect(x + 3, y + 12, 1.6, GROUND - y - 12, '#22284a');
-      c.rect(x + 27, y + 12, 1.6, GROUND - y - 12, '#22284a');
-      c.rect(x, y, 32, 13, '#f3e7c5', { rx: 1 });
-      c.rect(x + 1, y + 1, 30, 11, '#2b3a7a', { rx: 0.6 });
-      const t = svg('text', { x: f1(x + 16), y: f1(y + 9.2), 'text-anchor': 'middle', 'font-size': 6.4, 'font-weight': 700, 'font-family': 'var(--font)', fill: '#fff2c8', 'letter-spacing': 0.4 });
+      const x = 56;
+      const y = GROUND - 34;
+      c.rect(x + 3, y + 14, 1.8, GROUND - y - 14, '#22284a');
+      c.rect(x + 31, y + 14, 1.8, GROUND - y - 14, '#22284a');
+      c.rect(x + 2, y + 22, 32, 1, '#22284a');
+      c.rect(x, y, 36, 15, '#f3e7c5', { rx: 1.2 });
+      c.rect(x + 1.4, y + 1.4, 33.2, 12.2, '#2b3a7a', { rx: 0.8 });
+      const t = svg('text', { x: f1(x + 18), y: f1(y + 10.4), 'text-anchor': 'middle', 'font-size': 6.8, 'font-weight': 700, 'font-family': 'var(--font)', fill: '#fff2c8', 'letter-spacing': 0.5 });
       t.textContent = 'WELCOME';
       c.g.append(t);
-      c.glow(x + 16, y + 6.5, 12, '#ffe4a0', 'sk-sign-glow');
+      for (let i = 0; i < 8; i++) {
+        const bx = x + 2.6 + i * 4.4;
+        c.g.append(svg('circle', { cx: f1(bx), cy: f1(y + 0.7), r: 0.55, fill: '#d9c9a0' }));
+        c.glow(bx, y + 0.7, 0.75, i % 2 ? '#ffe4a0' : '#ffd166');
+      }
+      c.g.append(svg('circle', { cx: f1(x + 8), cy: f1(GROUND - 2.4), r: 2.6, fill: mixHex(TREE, '#1d3f36', 0.35) }));
+      c.g.append(svg('circle', { cx: f1(x + 12), cy: f1(GROUND - 2), r: 2.1, fill: mixHex(TREE, '#1d3f36', 0.2) }));
+      c.glow(x + 18, y + 7.5, 14, '#ffe4a0', 'sk-sign-glow');
     },
   },
-  // Neon strip along the strip: three pulsing tubes in the front row.
+  // Neon signage: three storefront word-signs on the strip. Tubes and lettering live in the
+  // city layer so they read by day too; a soft halo joins them in the night layer.
   'neon-signage': {
     depth: 2,
     draw(c) {
-      const colors = ['#ff4fa3', '#37e6ff', '#ffe14a'];
+      const signs = [
+        { word: 'DINER', color: '#ff4fa3' },
+        { word: 'OPEN', color: '#37e6ff' },
+        { word: 'BAR', color: '#ffe14a' },
+      ];
       for (let i = 0; i < 3; i++) {
-        const x = 300 + i * 46 + c.rnd() * 10;
-        const y = GROUND - 32 - c.rnd() * 18;
-        c.rect(x, y, 14, 4.5, '#1a1f3d', { rx: 1 });
-        c.rect(x + 6.5, y + 4.5, 1, GROUND - y - 4.5, '#1a1f3d');
-        const tube = svg('rect', { x: f1(x + 1.5), y: f1(y + 1.5), width: 11, height: 1.5, rx: 0.75, fill: colors[i], class: 'sk-neon' });
-        tube.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
-        c.lights.append(tube);
-        c.glow(x + 7, y + 2.2, 7, colors[i], 'sk-neon-glow');
+        const { word, color } = signs[i];
+        const w = 8 + word.length * 4.2;
+        const x = 296 + i * 50 + c.rnd() * 8;
+        const y = GROUND - 30 - c.rnd() * 16;
+        c.rect(x + w / 2 - 0.9, y + 9, 1.8, GROUND - y - 9, '#1a1f3d');
+        c.rect(x, y, w, 9.5, '#141833', { rx: 1.2 });
+        c.rect(x + 0.6, y + 0.6, w - 1.2, 8.3, '#1e2448', { rx: 0.9 });
+        const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6), 'text-anchor': 'middle', 'font-size': 4.6, 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': 0.7, class: 'sk-neon' });
+        t.textContent = word;
+        t.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
+        c.g.append(t);
+        const tube = svg('rect', { x: f1(x + 2), y: f1(y + 7), width: f1(w - 4), height: 1.1, rx: 0.55, fill: color, class: 'sk-neon' });
+        tube.style.setProperty('--delay', `${(-i * 0.9 - 0.4).toFixed(1)}s`);
+        c.g.append(tube);
+        c.glow(x + w / 2, y + 4.5, w * 0.6, color, 'sk-neon-glow');
       }
     },
   },

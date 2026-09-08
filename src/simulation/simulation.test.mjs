@@ -503,7 +503,8 @@ test('performPrestige banks the gain, resets the run, keeps the bank, spent, lif
   assert.deepEqual(state.buildings, {});
   assert.deepEqual(state.upgrades, {});
   assert.deepEqual(state.unlocks, {});
-  assert.deepEqual(state.settings, { autosave: false, numFormat: 'full', sfx: false });
+  // A key the fixture never set (tutorial) comes back at its default; the set ones survive.
+  assert.deepEqual(state.settings, { autosave: false, numFormat: 'full', sfx: false, tutorial: true });
   assert.equal(state.time, 0);
   assert.equal(state.tick, 0);
   // Log: the last 20 lines of the old city, then the founding lines.

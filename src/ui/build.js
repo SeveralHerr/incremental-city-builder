@@ -63,15 +63,49 @@ export function createBuildPanel(ui) {
     h('div.empty-title', { text: 'No zoning permits on file' }),
     h('div.empty-text', { text: 'The planning office has not published any building plans yet. Check back once the city registry loads.' }),
   ]);
-  // Onboarding: shown on a fresh plot until the first building goes up.
+  // Tutorial: a six-step callout driven purely by game state (see tutorialStep). Each step
+  // clears itself when the player does the thing; the × dismisses tips for good (a setting).
+  const onboardIcon = h('span.onboard-icon', { text: '🗺️', 'aria-hidden': 'true' });
+  const onboardTitle = h('div.onboard-title', { text: 'Welcome, Mayor.' });
+  const onboardText = h('div.onboard-text', { text: '' });
+  const onboardStep = h('span.onboard-step', { text: '' });
+  const onboardClose = h('button.onboard-close', { type: 'button', 'aria-label': 'Dismiss tutorial tips', title: 'Dismiss tips', text: '×' });
+  onboardClose.addEventListener('click', () => ui.setSetting('tutorial', false));
   const onboarding = h('div.onboard', { hidden: true, role: 'note' }, [
-    h('span.onboard-icon', { text: '🗺️', 'aria-hidden': 'true' }),
-    h('div.onboard-body', [
-      h('div.onboard-title', { text: 'Welcome, Mayor.' }),
-      h('div.onboard-text', { text: 'Build a cottage to attract your first citizens. Shops give them jobs, jobs pay taxes, and the skyline grows from there.' }),
-    ]),
+    onboardIcon,
+    h('div.onboard-body', [h('div.onboard-head', [onboardTitle, onboardStep]), onboardText]),
     h('span.onboard-arrow', { 'aria-hidden': 'true', text: '↓' }),
+    onboardClose,
   ]);
+  const TUTORIAL_STEPS = 6;
+  function tutorialStep(s, d, rows) {
+    if (s.settings && s.settings.tutorial === false) return null;
+    if (((s.stats && s.stats.prestiges) || 0) > 0) return null;
+    const row = (id) => rows.find((r) => r.id === id);
+    const built = (s.stats && s.stats.buildingsBuilt) || 0;
+    if (built === 0) {
+      return { n: 1, icon: '🏠', cat: 'residential', title: 'Welcome, Mayor.', text: 'Build a cottage to attract your first citizens. Shops give them jobs, jobs pay taxes, and the skyline grows from there.', hint: (def) => def.housing > 0 && def.tier === 1 };
+    }
+    const shop = row('shop');
+    if (shop && shop.unlocked && shop.count === 0) {
+      return { n: 2, icon: '🏪', cat: 'commercial', title: 'Citizens need work.', text: 'Unemployed citizens are unhappy and pay little tax. Open a corner shop in the Commercial tab to give them jobs.', hint: (def) => def.id === 'shop' };
+    }
+    const wind = row('windmill');
+    if (d.powerDemand > 0 && d.powerCap <= 0 && wind && wind.unlocked) {
+      return { n: 3, icon: '⚡', cat: 'power', title: 'The lights are out.', text: 'Every building draws power, and a brownout cuts income and growth. Build a windmill in the Power tab.', hint: (def) => def.powerGen > 0 && def.tier === 1 };
+    }
+    if (s.unlocks && s.unlocks['panel:upgrades'] && Object.keys(s.upgrades || {}).length === 0) {
+      return { n: 4, icon: '🔧', title: 'Your first upgrade is ready.', text: 'Upgrades multiply what you already own. Open the Upgrades panel and buy the first one you can afford.' };
+    }
+    const park = row('park');
+    if (park && park.unlocked && park.count === 0 && d.happiness < 1) {
+      return { n: 5, icon: '🌳', cat: 'civic', title: 'Keep them happy.', text: 'Happiness multiplies growth and income. A park in the Civic tab lifts the mood; watch the smiley in the top bar.', hint: (def) => def.id === 'park' };
+    }
+    if (s.unlocks && s.unlocks['panel:prestige']) {
+      return { n: 6, icon: '🏳️', title: 'Think about founding a new city.', text: 'The Legacy panel lets you start over with permanent bonuses and Charter perks once you have earned enough. Each city after the first is faster.' };
+    }
+    return null;
+  }
   const el = h('section.col.col-build', [
     h('section.panel.panel-build', [
       h('div.panel-head', [h('h2.panel-title', { text: 'Build' }), modeGroup]),
@@ -81,7 +115,7 @@ export function createBuildPanel(ui) {
       empty,
     ]),
   ]);
-  let onboardingShown = false;
+  let onboardingShown = 0;
 
   function isFreshCity(s) {
     if ((s.stats && s.stats.buildingsBuilt) > 0) return false;
@@ -363,12 +397,20 @@ export function createBuildPanel(ui) {
       if (lc.el.hidden || !lc.el.isConnected) continue;
       updateLocked(lc, s, d);
     }
-    // Onboarding callout + a hint glow on the cottage until the first building is placed.
-    const fresh = rows.length > 0 && isFreshCity(s);
-    if (fresh !== onboardingShown) {
-      onboardingShown = fresh;
-      setHidden(onboarding, !fresh);
-      for (const c of cards.values()) setClass(c.el, 'is-hinted', fresh && c.def.housing > 0 && c.def.tier === 1);
+    // Tutorial callout + a hint glow on the card (and tab) the current step points at.
+    const step = rows.length > 0 ? tutorialStep(s, d, rows) : null;
+    const stepKey = step ? step.n : 0;
+    if (stepKey !== onboardingShown) {
+      onboardingShown = stepKey;
+      setHidden(onboarding, !step);
+      if (step) {
+        setText(onboardIcon, step.icon);
+        setText(onboardTitle, step.title);
+        setText(onboardText, step.text);
+        setText(onboardStep, `${step.n} / ${TUTORIAL_STEPS}`);
+      }
+      for (const c of cards.values()) setClass(c.el, 'is-hinted', !!(step && step.hint && step.hint(c.def)));
+      for (const [id, t] of tabs) setClass(t.el, 'is-guided', !!(step && step.cat === id && id !== activeCat));
     }
     // Tab dots: something affordable in that category.
     const affordable = new Set();

@@ -13,6 +13,7 @@ import { createLogPanel } from './log.js';
 import { createToasts } from './toast.js';
 import { createModal, createSettingsModal } from './modal.js';
 import { createUnlockAnnouncer } from './announce.js';
+import { createSfx } from './sfx.js';
 import { createRefreshGate } from './schedule.js';
 import { nameList } from './text.js';
 
@@ -116,6 +117,11 @@ async function mount(game) {
   // the hero column's scroll position — nor on the build column's Buy buttons or the sidebar.
   ui.toasts = createToasts(hero.cityPanel);
   ui.modal = createModal(app);
+  try {
+    ui.sfx = createSfx(ui);
+  } catch (e) {
+    reportError('ui:sfx', e);
+  }
   ui.settings = createSettingsModal(ui, ui.modal);
 
   // ---- event wiring ----

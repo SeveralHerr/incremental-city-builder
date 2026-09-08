@@ -17,7 +17,7 @@ export function createInitialState() {
     unlocks: {},
     stats: { totalEarned: 0, peakPop: 0, buildingsBuilt: 0, prestiges: 0, playtime: 0, clicks: 0 },
     prestige: { legacy: 0, spent: 0, lifetimeEarned: 0 },
-    settings: { autosave: true, numFormat: 'short', sfx: true },
+    settings: { autosave: true, numFormat: 'short', sfx: true, tutorial: true },
     log: [],
   };
 }

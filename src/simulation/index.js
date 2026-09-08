@@ -572,6 +572,7 @@ export function tap(state, derived) {
 const SETTINGS = {
   autosave: (v) => (typeof v === 'boolean' ? v : null),
   sfx: (v) => (typeof v === 'boolean' ? v : null),
+  tutorial: (v) => (typeof v === 'boolean' ? v : null),
   numFormat: (v) => (v === 'short' || v === 'full' ? v : null),
 };
 

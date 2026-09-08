@@ -90,6 +90,16 @@ export function createSettingsModal(ui, modal) {
     autosave.addEventListener('change', () => ui.setSetting('autosave', autosave.checked));
     const autosaveSec = ui.content.config?.save?.autosaveSec ?? 30;
 
+    const sfx = h('input', { type: 'checkbox', id: 'set-sfx' });
+    sfx.checked = s.sfx !== false;
+    sfx.addEventListener('change', () => {
+      ui.setSetting('sfx', sfx.checked);
+      if (sfx.checked && ui.sfx) ui.sfx.play('buy');
+    });
+    const tutorial = h('input', { type: 'checkbox', id: 'set-tutorial' });
+    tutorial.checked = s.tutorial !== false;
+    tutorial.addEventListener('change', () => ui.setSetting('tutorial', tutorial.checked));
+
     // ---- Save / export / import ----
     const exportArea = h('textarea.textarea', { rows: 3, readonly: true, spellcheck: 'false', placeholder: 'Your export code appears here.', 'aria-label': 'Export code' });
     const importArea = h('textarea.textarea', { rows: 3, spellcheck: 'false', placeholder: 'Paste an export code here, then press Import.', 'aria-label': 'Import code' });
@@ -210,6 +220,8 @@ export function createSettingsModal(ui, modal) {
         h('h3.form-title', { text: 'Display' }),
         h('label.form-row', [h('span', { text: 'Number format' }), fmtSelect]),
         h('label.form-row', [h('span', { text: `Autosave every ${autosaveSec} s` }), autosave]),
+        h('label.form-row', [h('span', { text: 'Sound effects' }), sfx]),
+        h('label.form-row', [h('span', { text: 'Tutorial tips' }), tutorial]),
       ]),
       h('section.form-section', [
         h('h3.form-title', { text: 'Save data' }),

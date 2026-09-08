@@ -1,6 +1,6 @@
 {
-  "updated": "2026-09-07T20:50:55.681Z",
-  "iteration": 7,
+  "updated": "2026-09-08T00:54:14.817Z",
+  "iteration": 8,
   "passThreshold": 8.5,
   "modules": {
     "core": {
@@ -136,7 +136,7 @@
   "verify": {
     "pass": true,
     "errors": 0,
-    "tickAvgMs": 0.01216666579246521,
+    "tickAvgMs": 0.0113,
     "fps": 60.3
   },
   "history": [
@@ -226,6 +226,28 @@
         "core": 9,
         "balance": 7.5
       }
+    },
+    {
+      "iteration": 8,
+      "timestamp": "2026-09-08T00:54:14.817Z",
+      "scores": {
+        "core": 9,
+        "balance": 7.5,
+        "resources": 8.8,
+        "buildings": 8.2,
+        "upgrades": 8,
+        "simulation": 8.6,
+        "ui": 8.6,
+        "save": 8.5
+      },
+      "note": "wrap-up: final fix round stopped early (credits); upgrades+buildings fixes committed, ui+balance fixes not run; see open[]"
     }
+  ],
+  "open": [
+    "balance: saver bot profile (npm run sim -- --saver) exceeds magnitude gate (money ~2.1e18 > 1e18, legacy ~1.46M > 1e6, 14 late cities with nothing new); default profile passes every contract metric (34 foundings, reach 41%, under-power 3.4%, 0 empty cycles)",
+    "balance: cadence margin thin (max cycle ratio ~1.34 vs 1.35 line); balance.test.mjs skips saver assertions when its log is absent",
+    "ui: locked money-upgrade rungs not rendered with unlock hints (data ready in upgrades unlockHint/unlockAt); grid-strain demandGrowth.text not shown on build cards",
+    "upgrades/buildings: earnings doors on Standing Orders/Archives/Memory and Orbital Ring text fix landed after the last critic pass (uncritiqued; tests green)",
+    "not started: mobile layout (<900px), sound, tutorial beyond one hint"
   ]
 }

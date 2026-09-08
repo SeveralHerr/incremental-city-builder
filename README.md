@@ -92,3 +92,11 @@ From `logs/sim-gauntlet.json` (`npm run sim -- --ticks 432000`, greedy bot, 2026
 
 Verify (`logs/gauntlet.json`, 10,000 ticks in Chrome): 0 errors, 0 warnings, 60.4 fps, tick
 0.012 ms average / 0.10 ms p99, no horizontal overflow.
+
+## Status (2026-09-07 wrap-up)
+
+Critic gate history and open items live in `docs/STATUS.json` (`modules`, `open`, `history`).
+Last full gate: core 9.0, resources 8.8, ui 8.6, simulation 8.6, save 8.5 pass; buildings 8.2,
+upgrades 8.0, balance 7.5 below the 8.5 bar (all with zero errors). Headless verify passes with
+zero errors at 60 fps; the default-profile 12 h economy sim passes every contract metric; the
+`--saver` profile still overshoots the magnitude gate. See `open` in STATUS.json for the short list.

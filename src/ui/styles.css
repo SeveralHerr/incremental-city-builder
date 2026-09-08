@@ -998,20 +998,36 @@ ul {
   grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
   gap: 8px;
 }
-/* Three across once the hero column can hold it (≈ 386px panel at 1440): the Legacy panel's
-   three tiles sit on one row instead of leaving 'Income bonus' alone, and the nine City stats
-   tiles make the 3×3 grid hero.js describes instead of four rows plus an orphan. Below that
-   width auto-fit's two columns stay. */
-@media (min-width: 1400px) {
+/* The two stat panels size their own grids (a viewport query missed 1366/1280/1180-wide desktops,
+   where the hero column is 330-390px and nine tiles fell into 4×2 plus an orphan). Container
+   queries read the panel's content box: 386px at 1440, 364px at 1366, 338px at 1280. */
+.panel-prestige,
+.panel-stats {
+  container-type: inline-size;
+  container-name: stats;
+}
+/* Three across once three 112px tiles fit (352px content box, ≈1355px viewport and up, tablets,
+   landscape phones): the Legacy panel's three tiles sit on one row instead of leaving 'Income
+   bonus' alone, and the nine City stats tiles make the 3×3 grid hero.js describes. */
+@container stats (min-width: 352px) {
   .stat-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .stat-grid .stat {
-    padding: 8px 8px;
+    padding: 8px 7px;
   }
+  /* 'Peak population' / 'Business income' measure ~98px at 10px/0.04em, which clips inside a
+     112px tile at 1340-1366 wide; 9.5px/0.03em fits the 352px threshold with a few px spare. */
   .stat-grid .stat-label {
-    font-size: 10px;
-    letter-spacing: 0.04em;
+    font-size: 9.5px;
+    letter-spacing: 0.03em;
+  }
+}
+/* Narrower: auto-fit gives two columns (one under 264px), so an odd last tile — 'Buildings
+   built', 'Income bonus' — spans the row rather than sitting alone beside a hole. */
+@container stats (max-width: 351.98px) {
+  .stat-grid > .stat:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 

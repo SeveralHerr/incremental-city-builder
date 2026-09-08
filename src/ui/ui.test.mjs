@@ -2,6 +2,7 @@
 // progress mirrors, upgrade teaser selection, content lookups and milestone progress.
 // Run: node src/ui/ui.test.mjs
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
 import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, buildingLines, teaserRungs, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
@@ -362,6 +363,17 @@ test('refresh gate: full passes only when the tick advanced, an event landed, or
   const k = createRefreshGate({ every: 0 });
   k.next({ tick: 0, frame: 1 });
   assert.deepEqual(k.next({ tick: 0, frame: 30 }), { refresh: false, rebuild: false });
+});
+
+// Stat tiles size their grid from the panel, not the viewport: a min-width: 1400px rule left
+// 1366/1280/1180-wide desktops with a 4×2 + orphan City stats grid and a lone 'Income bonus'.
+test('stat panels are size containers with a 3-across rule and an orphan-span fallback', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  const stats = css.slice(css.indexOf('/* Stats */'), css.indexOf('\n.stat {'));
+  assert.match(stats, /\.panel-prestige,\s*\.panel-stats\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*stats;/);
+  assert.match(stats, /@container stats \(min-width: 352px\)\s*\{\s*\.stat-grid\s*\{\s*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(stats, /@container stats \(max-width: 351\.98px\)\s*\{\s*\.stat-grid > \.stat:last-child:nth-child\(odd\)\s*\{\s*grid-column:\s*1 \/ -1;/);
+  assert.doesNotMatch(stats, /@media \(min-width: 1400px\)/);
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

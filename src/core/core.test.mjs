@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { state, derived, errors, loadState, resetState, sanitize, createInitialState, MAX_COUNT } from './state.js';
-import { registry, registerBuilding, registerUpgrade, registerTickHandler } from './registry.js';
+import { registry, registerBuilding, registerUpgrade, registerTickHandler, registerAction, resetGuards } from './registry.js';
 import { buildingCost, buildingCap, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
 import { fmt, fmtMoney, fmtRate, fmtInt, fmtPct } from './format.js';
 import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from './safe.js';
@@ -283,6 +283,13 @@ test('fmtPct floors like fmt and never prints -0%', () => {
   assert.equal(fmtPct(0.999, 2), '99.90%');
   assert.equal(fmtPct(-0.00001, 2), '0.00%');
   assert.equal(fmtPct(0.5, 'x'), '50%');
+  // From 1000% up the value reads like every other big number (fmt tiers / scientific), never
+  // "1000000000000000%" or "1e+38%".
+  assert.equal(fmtPct(9.99), '999%');
+  assert.equal(fmtPct(10), '1.00K%');
+  assert.equal(fmtPct(-12.5, 1), '-1.25K%');
+  assert.equal(fmtPct(1e13), '1.00Qa%');
+  assert.equal(fmtPct(1e38), '1.00e40%'); // 1e38 x 100, past the suffix table
 });
 
 test('displayed money never exceeds real money and displayed cost never undercuts real cost', () => {
@@ -398,6 +405,53 @@ test('guard disables a consistent thrower after 3 consecutive failures (2 ring e
     g();
     assert.equal(calls, DISABLE_AFTER + 1);
   } finally {
+    c.restore();
+  }
+});
+
+test('registry.resetGuards() re-enables every guard the registry handed out', () => {
+  clearErrors();
+  const c = silence();
+  try {
+    let effectCalls = 0;
+    let actionCalls = 0;
+    const up = registerUpgrade({
+      id: 'rg-boom',
+      name: 'Boom',
+      cost: 1,
+      effect: () => {
+        effectCalls++;
+        throw new Error('boom');
+      },
+    });
+    registerAction('rg-boom', () => {
+      actionCalls++;
+      throw new Error('boom');
+    });
+    const act = registry.actions.get('rg-boom');
+    for (let i = 0; i < 10; i++) {
+      up.effect({}, state);
+      act();
+    }
+    assert.equal(effectCalls, DISABLE_AFTER);
+    assert.equal(actionCalls, DISABLE_AFTER);
+    assert.equal(up.effect.isDisabled(), true);
+    assert.equal(act.isDisabled(), true);
+    assert.ok(registry.guards.includes(up.effect) && registry.guards.includes(act));
+    // The registry object and the named export are the same function.
+    assert.equal(registry.resetGuards, resetGuards);
+    assert.ok(resetGuards() >= 2, 'reports how many guards had tripped');
+    assert.equal(up.effect.isDisabled(), false);
+    assert.equal(act.isDisabled(), false);
+    up.effect({}, state);
+    act();
+    assert.equal(effectCalls, DISABLE_AFTER + 1);
+    assert.equal(actionCalls, DISABLE_AFTER + 1);
+    assert.equal(resetGuards(), 0);
+  } finally {
+    registry.upgrades.delete('rg-boom');
+    registry.upgradeOrder.splice(registry.upgradeOrder.indexOf('rg-boom'), 1);
+    registry.actions.delete('rg-boom');
     c.restore();
   }
 });

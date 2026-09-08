@@ -497,7 +497,8 @@ function plan(rows, colorOf) {
 // ---------- landmarks ----------
 // One-off set pieces unlocked by owning an upgrade. Each entry: which depth row it lives in,
 // whether it goes under (`behind`) or over the buildings of that row, and a draw function that
-// receives a light-weight context { g, lights, rnd, motion, rect, path, win, glow, fx }.
+// receives a light-weight context { g, lights, rnd, motion, shapes, at, rect, path, win, glow, fx }.
+// `shapes` are the planned silhouettes' footprints; `at(depth)` starts a group in another row.
 // Keyed by upgrade id; `ui.test.mjs` asserts every key is a real upgrade so a rename can't
 // silently orphan a set piece.
 // Airport flights: cycle length, stagger, altitude offset, size, heading. Cycle lengths share
@@ -535,8 +536,9 @@ export const LANDMARKS = {
       c.glow(x + 18, y + 7.5, 14, '#ffe4a0', 'sk-sign-glow');
     },
   },
-  // Neon signage: three storefront word-signs on the strip. Tubes and lettering live in the
-  // city layer so they read by day too; a soft halo joins them in the night layer.
+  // Neon signage: up to three storefront word-signs mounted on the roofs of real shops (front
+  // rows preferred, spread across the strip), so they read as the shops' signs rather than
+  // decorations near the houses. Before any shop stands they sit on posts along the strip.
   'neon-signage': {
     depth: 2,
     draw(c) {
@@ -545,23 +547,47 @@ export const LANDMARKS = {
         { word: 'OPEN', color: '#37e6ff' },
         { word: 'BAR', color: '#ffe14a' },
       ];
-      for (let i = 0; i < 3; i++) {
-        const { word, color } = signs[i];
-        const w = 8 + word.length * 4.2;
-        const x = 296 + i * 50 + c.rnd() * 8;
-        const y = GROUND - 30 - c.rnd() * 16;
-        c.rect(x + w / 2 - 0.9, y + 9, 1.8, GROUND - y - 9, '#1a1f3d');
-        c.rect(x, y, w, 9.5, '#141833', { rx: 1.2 });
-        c.rect(x + 0.6, y + 0.6, w - 1.2, 8.3, '#1e2448', { rx: 0.9 });
-        const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6), 'text-anchor': 'middle', 'font-size': 4.6, 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': 0.7, class: 'sk-neon' });
+      // Candidates: front- and mid-row shops (the back row is too small and too hidden), minus
+      // any whose sign would fall in the crop margin or on top of the welcome sign; the five
+      // lowest roofs win so signs stay at street level instead of crowning towers, then three
+      // are spread across the strip.
+      const pool = c.shapes.filter((sh) => sh.cat === 'commercial' && sh.depth >= 1 && sh.x + sh.w / 2 > 40 && sh.x + sh.w / 2 < W - 40 && !(sh.top > 150 && sh.x < 100 && sh.x + sh.w > 44));
+      const shops = pool
+        .sort((p, q) => q.top - p.top)
+        .slice(0, 5)
+        .sort((p, q) => p.x - q.x);
+      const spots = [];
+      if (shops.length) {
+        const n = Math.min(3, shops.length);
+        for (let i = 0; i < n; i++) spots.push({ ...shops[Math.round(((i + 0.5) / n) * shops.length - 0.5)], onRoof: true });
+      } else {
+        for (let i = 0; i < 3; i++) spots.push({ depth: 2, scale: 1, x: 296 + i * 50 + c.rnd() * 8, w: 30, top: GROUND - 30 - c.rnd() * 16, gy: GROUND, onRoof: false });
+      }
+      spots.forEach((spot, i) => {
+        const { word, color } = signs[i % 3];
+        const k = spot.scale;
+        const w = (8 + word.length * 4.2) * k;
+        const h = 9.5 * k;
+        const x = spot.x + spot.w / 2 - w / 2;
+        const y = spot.onRoof ? spot.top - h - 2.5 * k : spot.top;
+        c.at(spot.depth);
+        if (spot.onRoof) {
+          c.rect(x + 2 * k, y + h, 1.2 * k, 2.5 * k, '#1a1f3d');
+          c.rect(x + w - 3.2 * k, y + h, 1.2 * k, 2.5 * k, '#1a1f3d');
+        } else {
+          c.rect(x + w / 2 - 0.9, y + h, 1.8, spot.gy - y - h, '#1a1f3d');
+        }
+        c.rect(x, y, w, h, '#141833', { rx: 1.2 * k });
+        c.rect(x + 0.6 * k, y + 0.6 * k, w - 1.2 * k, h - 1.2 * k, '#1e2448', { rx: 0.9 * k });
+        const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6 * k), 'text-anchor': 'middle', 'font-size': f1(4.6 * k), 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': f1(0.7 * k), class: 'sk-neon' });
         t.textContent = word;
         t.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
         c.g.append(t);
-        const tube = svg('rect', { x: f1(x + 2), y: f1(y + 7), width: f1(w - 4), height: 1.1, rx: 0.55, fill: color, class: 'sk-neon' });
+        const tube = svg('rect', { x: f1(x + 2 * k), y: f1(y + 7 * k), width: f1(w - 4 * k), height: f1(1.1 * k), rx: f1(0.55 * k), fill: color, class: 'sk-neon' });
         tube.style.setProperty('--delay', `${(-i * 0.9 - 0.4).toFixed(1)}s`);
         c.g.append(tube);
-        c.glow(x + w / 2, y + 4.5, w * 0.6, color, 'sk-neon-glow');
-      }
+        c.glow(x + w / 2, y + h / 2, w * 0.6, color, 'sk-neon-glow');
+      });
     },
   },
   // Green belts: a hedgerow of round trees along the front of the plot.
@@ -713,40 +739,56 @@ export const LANDMARKS = {
   },
 };
 
-function drawLandmarks(ownedUpgrades, layers, rows, lightRows) {
+function drawLandmarks(ownedUpgrades, layers, rows, lightRows, shapes = []) {
   const motion = !prefersReducedMotion();
+  // Screen-space footprint of every planned silhouette, so set pieces can anchor to buildings.
+  const footprints = shapes.map((sh) => {
+    const D = DEPTH[sh.depth];
+    const w = sh.w * D.scale;
+    return { cat: sh.cat, depth: sh.depth, scale: D.scale, x: sh.cx - w / 2, w, top: GROUND + D.dy - sh.h * D.scale, gy: GROUND + D.dy };
+  });
   for (const id of ownedUpgrades) {
     const lm = LANDMARKS[id];
     if (!lm) continue;
-    const g = svg('g', { class: 'sk-lm', 'data-landmark': id });
-    const lights = svg('g');
     const rnd = prng(hash(id));
+    const groups = [];
     const c = {
-      g,
-      lights,
+      g: null,
+      lights: null,
       rnd,
       motion,
+      shapes: footprints,
+      // Start (or switch to) a group in the given depth row; draws go there until the next call.
+      at(depth) {
+        c.g = svg('g', { class: 'sk-lm', 'data-landmark': id });
+        c.lights = svg('g');
+        groups.push({ depth, g: c.g, lights: c.lights });
+      },
       rect(rx, ry, rw, rh, fill, extra = null) {
-        g.append(svg('rect', { x: f1(rx), y: f1(ry), width: f1(Math.max(0.5, rw)), height: f1(Math.max(0.5, rh)), fill, ...(extra || {}) }));
+        c.g.append(svg('rect', { x: f1(rx), y: f1(ry), width: f1(Math.max(0.5, rw)), height: f1(Math.max(0.5, rh)), fill, ...(extra || {}) }));
       },
       path(d, fill, extra = null) {
-        g.append(svg('path', { d, fill, ...(extra || {}) }));
+        c.g.append(svg('path', { d, fill, ...(extra || {}) }));
       },
       win(wx, wy, ww, wh, prob = 1, color = '#ffd98a') {
         if (rnd() > prob) return;
-        lights.append(svg('rect', { x: f1(wx), y: f1(wy), width: f1(ww), height: f1(wh), fill: color, opacity: 0.85 }));
+        c.lights.append(svg('rect', { x: f1(wx), y: f1(wy), width: f1(ww), height: f1(wh), fill: color, opacity: 0.85 }));
       },
       glow(cx, cy, r, color, cls = '') {
-        lights.append(svg('circle', { cx: f1(cx), cy: f1(cy), r: f1(r), fill: color, class: cls || null }));
+        c.lights.append(svg('circle', { cx: f1(cx), cy: f1(cy), r: f1(r), fill: color, class: cls || null }));
       },
       fx(el) {
         layers.fx.append(el);
       },
     };
+    c.at(lm.depth);
     lm.draw(c);
-    if (lm.behind) rows[lm.depth].prepend(g);
-    else rows[lm.depth].append(g);
-    if (lights.childNodes.length) lightRows[lm.depth].append(lights);
+    for (const grp of groups) {
+      if (!grp.g.childNodes.length && !grp.lights.childNodes.length) continue;
+      if (lm.behind) rows[grp.depth].prepend(grp.g);
+      else rows[grp.depth].append(grp.g);
+      if (grp.lights.childNodes.length) lightRows[grp.depth].append(grp.lights);
+    }
   }
 }
 
@@ -861,14 +903,15 @@ export function createSkyline(host, ui) {
     const colorOf = (cat) => ui.content.category(cat).color;
     const budget = { windows: MAX_WINDOWS, smoke: MAX_SMOKE };
     const lightRows = [svg('g'), svg('g'), svg('g')];
-    for (const shape of plan(owned, colorOf)) {
+    const shapes = plan(owned, colorOf);
+    for (const shape of shapes) {
       const ctx = makeCtx(shape, { fx }, budget);
       const draw = SHAPES[shape.id] || BY_CATEGORY[shape.cat] || block;
       draw(ctx);
       rows[shape.depth].append(ctx.g);
       if (ctx.lights.childNodes.length) lightRows[shape.depth].append(ctx.lights);
     }
-    drawLandmarks(marks, { fx }, rows, lightRows);
+    drawLandmarks(marks, { fx }, rows, lightRows, shapes);
     lightRows[0].setAttribute('opacity', 0.55);
     lightRows[1].setAttribute('opacity', 0.8);
     lights.append(lampsGlow, ...lightRows, lamps);

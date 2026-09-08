@@ -276,7 +276,7 @@ function fmtPct(mult) {
 /**
  * Perform the prestige reset. Returns true when a new city was founded.
  * Keeps prestige (legacy, spent, lifetimeEarned), settings, lifetime stats and the tail of
- * the city log; resets the run (buildings, upgrades, unlocks, totalEarned, money, population).
+ * the city log; resets the run (buildings, upgrades, non-panel unlocks, totalEarned, money, population).
  * `onReset` runs after the state is rebuilt, before the event fires (simulation uses it
  * to recompute derived values and refresh its milestone bookkeeping).
  */
@@ -299,7 +299,13 @@ export function performPrestige(state, cfg = config, onReset) {
   state.prestige.lifetimeEarned = lifetimeEarnedOf(state);
   state.stats.prestiges = cityNo - 1;
 
+  // Dashboard panels (`panel:*`) are furniture, not progress: a mayor who has seen the
+  // statistics office keeps it on every replay. Building/upgrade/milestone unlocks re-latch.
+  const keptPanels = [];
+  for (const k in state.unlocks) if (k.startsWith('panel:') && state.unlocks[k]) keptPanels.push(k);
+
   resetState({ keepPrestige: true, keepSettings: true, keepStats: true });
+  for (let i = 0; i < keptPanels.length; i++) state.unlocks[keptPanels[i]] = true;
   // totalEarned is per run: it drives the money milestones and the prestige bar. Lifetime
   // earnings (what legacy is computed from) live in state.prestige.lifetimeEarned.
   state.stats.totalEarned = 0;

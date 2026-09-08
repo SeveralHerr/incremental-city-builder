@@ -435,9 +435,9 @@ function checkMilestones(b, state, derived) {
   return rewarded;
 }
 
-// Gates re-latch every run (unlocks reset on founding) so the UI can keep reading them, but
-// the "panel added" story lines belong to the first city only: a veteran's dashboard
-// reopening in the first seconds of a replay is not news.
+// Panel gates survive a founding (performPrestige carries `panel:*` across the reset), so
+// on a replay only panels never seen before can latch; the "panel added" story lines belong
+// to the first city only.
 function checkGates(state, derived) {
   const unlocks = state.unlocks;
   const firstCity = !(state.stats.prestiges > 0);

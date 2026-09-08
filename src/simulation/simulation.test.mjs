@@ -470,7 +470,7 @@ test('performPrestige banks the gain, resets the run, keeps the bank, spent, lif
     res: { money: 5e6, pop: 12000 },
     buildings: { house: 40, factory: 12 },
     upgrades: { 'zoning-reform': true },
-    unlocks: { 'm:pop-1k': true, 'panel:prestige': true },
+    unlocks: { 'm:pop-1k': true, 'b:factory': true, 'panel:prestige': true, 'panel:stats': true, 'panel:civic': true },
     stats: { totalEarned: 9e6, peakPop: 12000, buildingsBuilt: 52, prestiges: 0, playtime: 1800, clicks: 7 },
     prestige: { legacy: 0, spent: 0, lifetimeEarned: 9e6 },
     settings: { autosave: false, numFormat: 'full', sfx: false },
@@ -502,7 +502,9 @@ test('performPrestige banks the gain, resets the run, keeps the bank, spent, lif
   assert.equal(state.res.pop, 0);
   assert.deepEqual(state.buildings, {});
   assert.deepEqual(state.upgrades, {});
-  assert.deepEqual(state.unlocks, {});
+  // Dashboard panels survive the move (the stats office does not close on founding);
+  // milestone and building unlocks re-latch.
+  assert.deepEqual(state.unlocks, { 'panel:prestige': true, 'panel:stats': true, 'panel:civic': true });
   // A key the fixture never set (tutorial) comes back at its default; the set ones survive.
   assert.deepEqual(state.settings, { autosave: false, numFormat: 'full', sfx: false, tutorial: true });
   assert.equal(state.time, 0);
@@ -1043,8 +1045,9 @@ test('a founding resyncs the pending milestone list on recompute', () => {
   simulate(state, derived, 0.1); // latches the pop tiers up to 10k on the way
   assert.equal(state.unlocks['m:pop-10k'], true);
   assert.equal(performPrestige(state, PLAIN, (s) => recompute(s, derived)), true);
-  assert.deepEqual(state.unlocks, {});
-  // The reset emptied the unlocks: the next tick starts from a fresh pending list and
+  // Only the dashboard panels ride along; every milestone key is gone.
+  assert.deepEqual(Object.keys(state.unlocks).filter((k) => !k.startsWith('panel:')), []);
+  // The reset emptied the milestone unlocks: the next tick starts from a fresh pending list and
   // re-latches what the new city qualifies for (first founding) without a periodic resync.
   simulate(state, derived, 0.1);
   assert.equal(state.unlocks['m:prestige-1'], true);

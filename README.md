@@ -99,4 +99,4 @@ Critic gate history and open items live in `docs/STATUS.json` (`modules`, `open`
 Last full gate: core 9.0, resources 8.8, ui 8.6, simulation 8.6, save 8.5 pass; buildings 8.2,
 upgrades 8.0, balance 7.5 below the 8.5 bar (all with zero errors). Headless verify passes with
 zero errors at 60 fps; the default-profile 12 h economy sim passes every contract metric; the
-`--saver` profile still overshoots the magnitude gate. See `open` in STATUS.json for the short list.
+`--saver` profile still overshoots the magnitude gate. Mobile layout (< 900 px), sound effects and a six-step tutorial were added after the last gate and are not yet critic-scored. See `open` in STATUS.json for the short list.

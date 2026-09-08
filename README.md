@@ -1,11 +1,31 @@
-# Metropolis
+<p align="center">
+  <img src="docs/screenshots/banner.png" alt="Metropolis" width="960">
+</p>
+
+<h1 align="center">Metropolis</h1>
+
+<p align="center">
+  <em>An idle city that draws its own skyline. Build it, power it, keep it happy, then found a better one.</em>
+</p>
+
+<p align="center">
+  <a href="https://severalherr.itch.io/metropolis"><img src="https://img.shields.io/badge/play-itch.io-fa5c5c?style=for-the-badge&logo=itch.io&logoColor=white" alt="Play on itch.io"></a>
+  <img src="https://img.shields.io/badge/dependencies-0%20at%20runtime-38bdf8?style=for-the-badge" alt="No runtime dependencies">
+  <img src="https://img.shields.io/badge/critic%20gate-8.5%2B-4ade80?style=for-the-badge" alt="Critic gate">
+</p>
+
+---
+
+**[Play it in the browser &rarr;](https://severalherr.itch.io/metropolis)**
 
 A SimCity-flavoured incremental game. You are the mayor of a plot of land: build homes, put
 citizens to work, keep the lights on, keep them happy, then found a new city and carry your
 legacy forward. Plain HTML, CSS and ES modules — no build step, no framework, no dependencies at
 runtime. The whole economy runs in Node as well as in the browser, which is how it is tuned.
 
-## Prompt (Fable 5.1 experiment)
+<details>
+<summary><strong>The prompt this repo was built from</strong> (Fable 5.1 experiment)</summary>
+
  # Goal
   Build a SimCity-inspired incremental/idle game in plain HTML/CSS and ES modules from this empty folder. The bar is a premium idle game: sleek UI, satisfying progression, clear resource management (money, population, power), and visual dashboard expansion. Never messy programmer art.
 
@@ -23,6 +43,17 @@ runtime. The whole economy runs in Node as well as in the browser, which is how 
   - Keep the dev server running and the app loadable at all times.
   - Do not ask me questions. Make routine game-balance decisions yourself, state assumptions, keep going.
   Start now.
+
+</details>
+
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/screenshots/01-empty-plot.png" alt="An empty plot and a small treasury" width="420"> | <img src="docs/screenshots/02-first-city.png" alt="A city of 8,800 with power and legacy panels open" width="420"> |
+| **Minute zero.** A plot of land, $300 in the treasury, and a $30 cottage. | **Twenty-five minutes in.** Five categories of building, the grid holding, legacy 55&nbsp;% of the way to a new city. |
+| <img src="docs/screenshots/03-metropolis.png" alt="A metropolis of 327,000 citizens by day" width="420"> | <img src="docs/screenshots/04-metropolis-night.png" alt="The same metropolis at night" width="420"> |
+| **327,635 citizens.** Every building you own is drawn into the skyline. | **The same city at night.** The day/night cycle runs on its own eight-minute clock. |
 
 ## Run it
 
@@ -111,6 +142,14 @@ From `logs/sim-gauntlet.json` (`npm run sim -- --ticks 432000`, greedy bot, 2026
 
 Verify (`logs/gauntlet.json`, 10,000 ticks in Chrome): 0 errors, 0 warnings, 60.4 fps, tick
 0.012 ms average / 0.10 ms p99, no horizontal overflow.
+
+## Deploy
+
+Every push to `master` runs `.github/workflows/deploy-to-itchio.yml`: it assembles `index.html`
+plus `src/` into `dist/` (no build step — the game is plain ES modules) and pushes that directory
+to [`severalherr/metropolis:html5`](https://severalherr.itch.io/metropolis) with butler, stamped
+with the short commit SHA. The credential check runs first, so a missing `BUTLER_API_KEY` fails in
+seconds rather than at the upload.
 
 ## Status (2026-09-07 wrap-up)
 

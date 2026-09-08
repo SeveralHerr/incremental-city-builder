@@ -215,6 +215,20 @@ export function buildingLines(def) {
   };
 }
 
+// The live grid-strain factor as a card suffix: '' for a single unit (or nothing scaled),
+// '×3.1 now' once the fleet draws more than its sticker, '×40 now (cap)' at the rule's cap.
+// `live` / `base` are the per-unit draw the buildings module reports (`game.buildings`
+// liveStat / baseStat), so the multiplier is the module's own number, not a second copy
+// of the formula. Two significant digits under ×10, whole numbers above. Pure.
+export function strainNow(live, base, cap) {
+  if (!(Number.isFinite(live) && Number.isFinite(base) && base > 0)) return '';
+  const f = live / base;
+  if (!(f > 1.005)) return '';
+  const n = f >= 10 ? Math.round(f) : +f.toFixed(1);
+  const capped = Number.isFinite(cap) && cap > 1 && f >= cap - 1e-9;
+  return `×${n.toLocaleString('en-US')} now${capped ? ' (cap)' : ''}`;
+}
+
 export function unlockProgress(at, state, derived, api) {
   const m = unlockMeasure(at, state, derived, api);
   if (!m) return null;

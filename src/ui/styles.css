@@ -1580,7 +1580,7 @@ ul {
   text-overflow: ellipsis;
   min-width: 0;
 }
-.bcard-synergy > span:last-child {
+.bcard-synergy > .bcard-line-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1598,6 +1598,17 @@ ul {
   opacity: 0.75;
   font-size: 10px;
 }
+/* Live strain factor ("×3.1 now"): pinned to the row's end so the rule text is what truncates. */
+.bcard-strain-now {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 4px;
+  color: #facc15;
+  opacity: 0.85;
+}
+.bcard-strain-now:empty {
+  display: none;
+}
 
 /* Power hint line ("Draws 10,500 MW ≈ 0.9 × Nuclear Plant"): same quiet row as the synergy. */
 .bcard-power {
@@ -1612,7 +1623,7 @@ ul {
   text-overflow: ellipsis;
   min-width: 0;
 }
-.bcard-power > span:last-child {
+.bcard-power > .bcard-line-text {
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1806,8 +1817,8 @@ ul {
   .bcard-power {
     white-space: normal;
   }
-  .bcard-synergy > span:last-child,
-  .bcard-power > span:last-child {
+  .bcard-synergy > .bcard-line-text,
+  .bcard-power > .bcard-line-text {
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;

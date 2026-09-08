@@ -769,6 +769,16 @@ test('catalogue.mjs prints the shipped catalogue with every config override flag
   }
   const shipped = rows.find((r) => r.id === 'stadium');
   assert.ok(shipped.synergy && shipped.demandGrowth, 'rule texts ride along');
+  // The card reads the resolved def through api.buildings(): every strain rule arrives with
+  // its sentence (the build card's ↯ line) and the pair the "×3.1 now" suffix divides.
+  for (const row of api.buildings()) {
+    if (!row.demandGrowth) continue;
+    assert.match(row.demandGrowth.text, /^Grid strain: draw \+[\d.]+% per .+ owned \(up to ×[\d.,]+\)$/, `${row.id} strain line on the api row`);
+    const base = baseStat(row.id, 'powerUse');
+    const live = liveStat(row.id, 'powerUse');
+    assert.ok(Number.isFinite(base) && base > 0 && Number.isFinite(live) && live >= base, `${row.id} live/base draw pair for the card suffix`);
+    assert.ok(Math.abs(live / base - growthFactor(row.demandGrowth, row.count)) < 1e-9, `${row.id} live/base is the rule's factor at ${row.count} owned`);
+  }
   // The rule fields are compared on their numbers: config's +12.5 % / ×40 strain against
   // this folder's +2.5 % / ×1.5 fallback is a delta the tool prints in brackets.
   const key = (r) => (r ? [r.stat, r.source, r.per, r.cap].filter((v) => v !== undefined).join('/') : '');

@@ -3,7 +3,7 @@
 // Run: node src/ui/ui.test.mjs
 import assert from 'node:assert/strict';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, buildingLines, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, buildingLines, strainNow, teaserRungs, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -328,6 +328,20 @@ test('building card lines: synergy, grid strain and power hint from the def', ()
   assert.deepEqual(buildingLines({ demandGrowth: { per: 40, cap: 1.5 }, synergy: 'nope', powerHint: 7 }), { synergy: '', strain: '', power: '' });
   assert.deepEqual(buildingLines({}), { synergy: '', strain: '', power: '' });
   assert.deepEqual(buildingLines(null), { synergy: '', strain: '', power: '' });
+});
+
+test('strain suffix: the live/base draw ratio, blank for one unit, marked at the cap', () => {
+  assert.equal(strainNow(6500, 6500, 40), '', 'a single unit draws its sticker');
+  assert.equal(strainNow(6500 * 1.004, 6500, 40), '', 'rounding noise is not a strain');
+  assert.equal(strainNow(6500 * 3.125, 6500, 40), '×3.1 now');
+  assert.equal(strainNow(6500 * 1.1, 6500, 1.5), '×1.1 now');
+  assert.equal(strainNow(6500 * 12.4, 6500, 40), '×12 now', 'whole numbers from ×10');
+  assert.equal(strainNow(6500 * 40, 6500, 40), '×40 now (cap)');
+  assert.equal(strainNow(6500 * 1.5, 6500, 1.5), '×1.5 now (cap)', 'the data.js fallback cap');
+  // Garbage from a missing module reads as nothing, never NaN.
+  assert.equal(strainNow(undefined, 6500, 40), '');
+  assert.equal(strainNow(6500, 0, 40), '');
+  assert.equal(strainNow(NaN, NaN), '');
 });
 
 test('refresh gate: full passes only when the tick advanced, an event landed, or the safety net fires', () => {

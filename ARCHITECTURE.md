@@ -92,7 +92,7 @@ Simulation adds `tap` (seconds of output a tap pays, ×1 by default) before fold
 registerBuilding({ id, name, icon, desc, category,          // category: residential|commercial|industrial|power|civic
   baseCost, costGrowth,                                     // cost = baseCost * costGrowth^count * mods.cost
   housing?, jobs?, powerUse?, powerGen?, income?, happiness?, upkeep?,  // per unit
-  maxCount?,                                                // positive integer hard cap (windmill: 12)
+  maxCount?,                                                // positive integer hard cap (windmill: 8)
   sellRefund?, unlock?: (state, derived) => boolean, tier })
 registerUpgrade({ id, name, icon, desc, cost, category?, tier?,
   currency?: 'money' | 'legacy',                            // legacy-priced charter perks debit prestige.spent
@@ -161,7 +161,7 @@ UI renders on its own rAF, reading `state`/`derived`; never inside tick handlers
 | Item | Budget |
 |---|---|
 | Tick (all handlers) | < 0.5 ms avg, < 4 ms p99 |
-| UI frame | < 6 ms; DOM writes only on changed values |
+| UI frame | < 6 ms; DOM writes only on changed values; the full panel pass runs only on frames where the tick advanced or an event landed (`src/ui/schedule.js`), topbar tweens and the skyline every frame — measured ~0.3 ms avg |
 | 10,000-tick verify | zero console errors, income monotone non-decreasing under bot play |
 | Steady 60 fps | rAF loop, no layout thrash, transforms/opacity only for animation |
 

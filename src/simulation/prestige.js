@@ -36,7 +36,7 @@
 //
 // Shipped knobs (simulation.test.mjs asserts this line against src/balance/config.js, so
 // it cannot drift): threshold 1.1e7, exponent 0.488, incomePerLegacy 0.01, legacyPower
-// 0.548, firstBonus 0.18, startMoneyPerLegacy 1, minGain 1, minGainShare 0.4,
+// 0.548, firstBonus 0.15, startMoneyPerLegacy 1, minGain 1, minGainShare 0.4,
 // prestigePanelShare 0.1.
 //
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488

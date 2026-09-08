@@ -183,11 +183,16 @@ export function createHero(ui) {
     charter.rebuild(upgradeRows);
   }
 
+  // Every frame: the sky, clouds and windmills keep moving between ticks.
+  function animate(dt) {
+    skyline.tick(dt);
+  }
+
   let hintHidden = hintDone;
-  function update(dt, upgradeRows) {
+  // On refresh frames only (the tick advanced or an event landed — see index.js).
+  function update(upgradeRows) {
     const s = game.state;
     const d = game.derived;
-    skyline.tick(dt);
     setText(cityTier, tierTitle(s.res.pop));
     const clicks = (s.stats && s.stats.clicks) || 0;
     // The pill also retires for a pure idler: once the town has fifty citizens or three minutes
@@ -325,5 +330,5 @@ export function createHero(ui) {
     }
   }
 
-  return { el, cityPanel, update, rebuild, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
+  return { el, cityPanel, animate, update, rebuild, setBuildings, spawnParticle, playtime: () => fmtTime(game.state.stats.playtime) };
 }

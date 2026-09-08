@@ -17,7 +17,7 @@
 //   legacyPower          p in the bonus above; clamped to [0.25, LEGACY_POWER_MAX] (0.6). The
 //                        bonus is always a root of the linear term: no soft cap, no tail, and
 //                        p ≤ 0.6 keeps a million-point bank at ×251 for the shipped k = 0.01
-//                        (×326 with a 30% first bonus; the shipped p = 0.548, firstBonus 0.18 is ×156 / ×184).
+//                        (×326 with a 30% first bonus; the shipped p = 0.548, firstBonus 0.15 is ×156 / ×184).
 //   firstBonus           one-off multiplier (1 + firstBonus) once any legacy is banked
 //   startMoneyPerLegacy  seed cash = economy.startMoney · (1 + startMoneyPerLegacy · legacy)
 //   minGain              founding is allowed only once at least this many points are on offer
@@ -89,7 +89,7 @@ export const DEFAULTS = Object.freeze({
     exponent: 0.488,
     incomePerLegacy: 0.01,
     legacyPower: 0.548,
-    firstBonus: 0.18,
+    firstBonus: 0.15,
     startMoneyPerLegacy: 1,
     minGain: 1,
     minGainShare: 0.4,

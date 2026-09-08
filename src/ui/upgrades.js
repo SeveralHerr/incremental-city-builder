@@ -2,7 +2,7 @@
 // teasers with their unlock hint and a progress bar, owned collapsed underneath, the rest of
 // the locked count teased in one line.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num } from './dom.js';
-import { unlockMeasure, unlockLabel, unlockDisplayKey, teaserRungs } from './text.js';
+import { unlockMeasure, unlockLabel, unlockMetLabel, unlockDisplayKey, teaserRungs } from './text.js';
 
 const VISIBLE_DEFAULT = 6;
 export const TEASERS = 2; // locked rungs shown under the open cards
@@ -183,10 +183,10 @@ export function createUpgradesPanel(ui) {
       // rung waits on the other one (funded rungs: "Build 3 factories, then hold $600" with
       // the treasury already holding it) — tick the clause so the bar never reads as a
       // broken gate.
-      const label = unlockLabel(m);
       const met = m.p >= 1;
-      setText(t.meta, met ? `${label} ✓` : label);
-      setAttr(t.bar, 'title', met ? `${label} — met; the rest of the hint is what remains` : label);
+      const label = met ? unlockMetLabel(m) : unlockLabel(m);
+      setText(t.meta, label);
+      setAttr(t.bar, 'title', met ? `${label} — the rest of the hint is what remains` : label);
       setClass(t.el, 'is-gated', met);
     }
     setClass(t.el, 'is-close', m.p >= CLOSE_AT);

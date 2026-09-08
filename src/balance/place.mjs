@@ -54,7 +54,7 @@ function run(extra = []) {
   const sets = [...BASE];
   if (SAVE > 0) sets.push('--save', String(SAVE));
   for (const [id, p] of Object.entries(prices)) sets.push('--set', `upgrades.${id}.cost=${p}`);
-  const tmp = path.join(HERE, '.place-run.json');
+  const tmp = path.join(HERE, `.place-run-${process.pid}.json`); // per process: two placements side by side must not share a probe file
   const r = spawnSync(process.execPath, [path.join(HERE, 'probe.mjs'), '--ticks', String(TICKS), '--json', path.relative(ROOT, tmp), '--no-margins', ...sets, ...extra], { cwd: ROOT, encoding: 'utf-8', timeout: 600000 });
   if (!fs.existsSync(tmp)) throw new Error(`probe produced no JSON: ${r.stderr.slice(0, 500)}`);
   const report = JSON.parse(fs.readFileSync(tmp, 'utf-8'));

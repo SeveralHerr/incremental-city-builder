@@ -1,0 +1,3 @@
+[verify] PASS ticks=10000 money=6155 pop=3594 income=2901.88/s tick avg=0.012ms p99=0.10ms fps=60.4 errors=0
+[verify] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\gauntlet.json
+exit 0

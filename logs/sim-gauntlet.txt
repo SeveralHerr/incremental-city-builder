@@ -1,0 +1,5 @@
+[sim] PASS (contract PASS) 12h game in 22878ms (18883 t/s) money=8.82e+15 income=4.41e+15/s pop=102689100 prestiges=34 legacy=530718 (spent 213186) issues=0 errors=0
+[sim] cycles(min): 41.1 13.1 11.9 7.7 7.1 9.2 11.9 13.9 16.7 20.9 22.2 25.0 11.4 6.5 8.7 11.2 14.9 17.6 16.4 20.7 27.7 35.3 42.8 29.6 29.6 24.1 32.0 35.7 25.4 30.5 33.0 28.9 13.5 18.1
+[sim] profile=default reach=41% bigRatio=34% (next-step 9%) underPower=3.4% minRatio=0.60 happyDips=21/34 emptyLate=0
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-gauntlet.json
+exit 0

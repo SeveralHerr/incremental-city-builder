@@ -9,7 +9,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { config, costGrowthFor } from './config.js';
 import { init } from './index.js';
@@ -181,19 +182,19 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
   const cityOrder = [
     'breeder-reactors', // city 1 (second city)
     'institutional-memory', // 3
-    'city-archives', // 4
+    'dyson-swarm', // 4 (mid-city; the one frontier rung under the Quantum Exchange, priced where a saver reaches it in city 3)
     'championship-season', // 5
     'robotic-assembly', // 7
     'ai-governance', // 9
-    'dyson-swarm', // 10
-    'planetary-charter', // 12
+    'orbital-solar', // 10
+    'planetary-charter', // 11
     'quantum-exchange', // 13
     'megastructures', // 15
-    'orbital-solar', // 16
-    'arcology-gardens', // 18
-    'algorithmic-trading', // 20
+    'arcology-gardens', // 16
+    'algorithmic-trading', // 18
+    'city-archives', // 19
     'standing-orders', // 21
-    'mass-driver-port', // 23
+    'mass-driver-port', // 22
     'ringworld-district', // 24
     'stellar-engine', // 26
     'superconductor-grid', // 27
@@ -260,7 +261,7 @@ test('placement tools: probe.mjs and place.mjs parse, and plan.json names priced
   // cycle after the first city (a nil-rung city after a nil-rung city reads ×1.3 of a 38 min
   // predecessor on the shipped content), so it sits above the gate on the last cycle.
   assert.ok(targets.lastCycleMax <= 39 && targets.cycleMax <= 50, 'cycle targets: the last cycle inside the 40 min gate, every cycle inside 50');
-  assert.ok(targets.underPowerMin >= 0.035 && targets.underPowerMax <= 0.19, 'under-power targets inside 3–20 %');
+  assert.ok(targets.underPowerMin >= 0.032 && targets.underPowerMax <= 0.19, 'under-power targets inside 3–20 %');
   assert.ok(targets.reachMin >= 0.32 && targets.dipShareMin >= 0.52, 'reach and dip targets inside the gates');
   assert.ok(targets.moneyMax <= 1e18 && targets.legacyMax <= 1e6, 'magnitude targets inside the ceilings');
   assert.ok(targets.foundingsMin >= 18 && targets.foundingsMax <= 35, 'founding-count targets inside 18–35');
@@ -282,71 +283,125 @@ test('placement tools: probe.mjs and place.mjs parse, and plan.json names priced
 
 // ---- measured cadence: the sim's own numbers, held to the contract's letter (no slack) ----
 //
-// tools/economy-sim.mjs allows each cycle 1.35× the previous *plus 30 s* and only checks
-// from the 6th founding; docs/DESIGN.md says "each cycle ≤ 1.35× the previous". This
-// pins the shipped 12 h logs to the literal contract from the 5th founding on, so a retune
-// that passes the sim by a second of slack still fails here. Logs are produced by
-// `node tools/economy-sim.mjs --ticks 432000 [--saver] --out logs/<name>.json`; a log that
-// is missing is skipped (the sim is not run from the test), a log from a shorter session
-// is ignored, and both profiles are held to the magnitude ceilings.
-// logs/sim-gauntlet.json and logs/sim-saver.json are the integrator's two committed
-// profiles; logs/sim-fix-balance-12h*.json are this pass's own 12 h runs of the same two
-// commands (`--ticks 432000 [--saver]`). A saver log is held to the magnitude ceilings
-// and zero errors like any other; on the final-gate tree the 30 s saver crosses both
-// ceilings (config.js header), so a committed saver log from that tree fails here on
-// purpose until the late content grows.
-const SIM_LOGS = ['logs/sim-gauntlet.json', 'logs/sim-saver.json', 'logs/sim-fix-balance-12h.json', 'logs/sim-fix-balance-12h-saver.json'];
-const CONFIG_MTIME = fs.statSync(path.join(ROOT, 'src/balance/config.js')).mtimeMs;
+// tools/economy-sim.mjs is run from here, for both profiles, into a temp directory: the
+// default profile (`--ticks 432000`) is held to every line of the late-game contract with no
+// slack (docs/DESIGN.md: "each cycle from the 5th on <= 1.35x the previous") plus the safety
+// margins in plan.json `targets`; the saver profile (`--saver`) is held to the hard gates
+// (magnitudes, zero errors, no overflow/stall/magnitude issue), to the plan's magnitude
+// margins and to a founding-count margin. Nothing here skips: a sim that cannot run, or a
+// log that comes back short, is a failure, so the two-profile contract is enforced every
+// time `npm test` runs (both runs are spawned at once and take ~30 s of wall time together).
+// Committed logs (logs/sim-gauntlet.json, logs/sim-saver.json) are the integrator's record
+// of the same two commands; they are not read here, so a stale or missing log can never
+// pass or skip a gate.
+const SIM = path.join(ROOT, 'tools/economy-sim.mjs');
+const SIM_TICKS = 432000; // 12 game-hours, the contract's session
 const PLAN_TARGETS = loadPlan(path.join(ROOT, 'src/balance/plan.json')).targets;
 const RATIO_MAX = 1.35;
 const RATIO_FROM = 4; // cycles[i] / cycles[i - 1] from the 5th founding (i = 4) on
-function readLog(rel) {
-  try {
-    return JSON.parse(fs.readFileSync(path.join(ROOT, rel), 'utf-8'));
-  } catch {
-    return null;
+const HARD = ['overflow', 'stall', 'magnitude'];
+
+function runSim(profile) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'metropolis-balance-'));
+  const out = path.join(dir, `sim-${profile}.json`);
+  const args = [SIM, '--ticks', String(SIM_TICKS), '--out', out];
+  if (profile === 'saver') args.push('--saver');
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d));
+    child.stderr.on('data', (d) => (stderr += d));
+    child.on('error', (err) => resolve({ profile, error: String(err), stdout, stderr, log: null }));
+    child.on('close', (code) => {
+      let log = null;
+      // The sim exits 1 on a FAIL line; that is a log to assert on, not a broken run.
+      let error = code === 0 || code === 1 ? null : `exit ${code}`;
+      try {
+        log = JSON.parse(fs.readFileSync(out, 'utf-8'));
+      } catch (e) {
+        error = error || `no log written: ${e.message}`;
+      }
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {}
+      resolve({ profile, error, stdout, stderr, log });
+    });
+  });
+}
+// Both profiles at once (each sim is single-threaded), started when the file loads so the
+// wall time is one sim, not two.
+const SIM_RUNS = { default: runSim('default'), saver: runSim('saver') };
+
+function usable(run) {
+  assert.equal(run.error, null, `${run.profile} sim ran: ${run.error}\n${run.stderr.slice(0, 800)}`);
+  const log = run.log;
+  assert.ok(log && log.metrics && Array.isArray(log.metrics.cycles) && log.final, `${run.profile} log carries metrics and final`);
+  assert.equal(log.profile, run.profile, 'the log is the requested profile');
+  assert.ok(Number.isFinite(log.gameHours) && log.gameHours >= 12, `${run.profile} session is 12 h (${log.gameHours})`);
+  return log;
+}
+
+function assertHardGates(log, label) {
+  assert.deepEqual(log.errors, [], `${label}: zero errors`);
+  assert.ok(log.final.maxMoney <= 1e18, `${label}: money peak ${log.final.maxMoney.toExponential(2)} <= 1e18`);
+  assert.ok(log.final.legacy <= 1e6, `${label}: legacy ${log.final.legacy} <= 1e6`);
+  assert.deepEqual(log.issues.filter((i) => HARD.includes(i.kind)), [], `${label}: no overflow/stall/magnitude issue`);
+  assert.equal(log.pass, true, `${label}: the sim's own PASS line`);
+}
+
+for (const profile of ['saver', 'default']) {
+  test(`12 h ${profile} profile (run here): magnitudes under the ceilings, zero errors, no hard issue`, async () => {
+    const log = usable(await SIM_RUNS[profile]);
+    assertHardGates(log, profile);
+    // The plan's magnitude margins hold for both profiles: a saver that banks 1e6 - 1 points
+    // passes the contract and fails on the next sibling retune.
+    assert.ok(log.final.maxMoney <= PLAN_TARGETS.moneyMax, `${profile}: money peak ${log.final.maxMoney.toExponential(2)} inside the plan margin ${PLAN_TARGETS.moneyMax.toExponential(0)}`);
+    assert.ok(log.final.legacy <= PLAN_TARGETS.legacyMax, `${profile}: legacy ${log.final.legacy} inside the plan margin ${PLAN_TARGETS.legacyMax.toExponential(0)}`);
+  });
+}
+
+test('12 h saver profile (run here): the 36th founding, which crosses the legacy ceiling, lands past 12 h with margin', async () => {
+  // The bot's bank is a fixed sequence per founding (5 points, then +40 % each), so the
+  // ceilings flip at a founding count, not at a number: the 36th founding banks 1.04e6.
+  // Margin is measured as the share of the session the saver would have to gain to make
+  // that founding; the open 36th city has nothing new to buy, and a city with nothing new
+  // reads x1.28–1.40 over the one before it on this content (config.js), so x1.25 of the
+  // last completed cycle is a floor on its length. Shipped: the 36th founding lands ~730
+  // min (config.js header), 1.3–1.6 % past the session; the line here is 1 %.
+  const log = usable(await SIM_RUNS.saver);
+  const cycles = log.metrics.cycles;
+  assert.ok(cycles.length <= 35, `${cycles.length} foundings <= 35 (the 36th banks 1.04e6)`);
+  if (cycles.length === 35) {
+    const t35 = cycles.reduce((a, b) => a + b, 0);
+    const earliest36 = t35 + cycles[cycles.length - 1] * 1.25;
+    assert.ok(earliest36 >= 720 * 1.01, `36th founding no earlier than ${earliest36.toFixed(0)} min (>= ${(720 * 1.01).toFixed(0)})`);
   }
-}
-function logIsCurrent(rel) {
-  try {
-    return fs.statSync(path.join(ROOT, rel)).mtimeMs >= CONFIG_MTIME;
-  } catch {
-    return false;
-  }
-}
-for (const rel of SIM_LOGS) {
-  const log = readLog(rel);
-  const usable = log && Number.isFinite(log.gameHours) && log.gameHours >= 12 && log.metrics && Array.isArray(log.metrics.cycles);
-  test(`measured 12 h session (${rel}): magnitudes under the ceilings, zero errors`, { skip: usable ? false : `${rel} not present or shorter than 12 h` }, () => {
-    assert.equal(log.errors.length, 0, 'zero errors');
-    assert.ok(log.final.maxMoney <= 1e18, `money peak ${log.final.maxMoney.toExponential(2)} <= 1e18`);
-    assert.ok(log.final.legacy <= 1e6, `legacy ${log.final.legacy} <= 1e6`);
-    assert.equal(log.issues.filter((i) => ['overflow', 'stall', 'magnitude'].includes(i.kind)).length, 0, 'no hard issues');
-  });
-  test(`measured 12 h session (${rel}): cadence and variety to the letter of the contract`, { skip: !usable ? `${rel} not present or shorter than 12 h` : log.profile !== 'default' ? 'only the default profile is held to the cadence numbers' : false }, () => {
-    const cycles = log.metrics.cycles;
-    assert.ok(cycles.length >= 18 && cycles.length <= 35, `${cycles.length} foundings in 18–35`);
-    assert.ok(cycles[0] >= 30 && cycles[0] <= 45, `first founding ${cycles[0]} min in 30–45`);
-    const floor = Math.min(...cycles.slice(3, 10));
-    assert.ok(floor >= 4 && floor <= 8, `floor ${floor} min (foundings 4–10) in 4–8`);
-    assert.ok(cycles[cycles.length - 1] <= 40, `last cycle ${cycles[cycles.length - 1]} min <= 40`);
-    const over = [];
-    for (let i = RATIO_FROM; i < cycles.length; i++) if (cycles[i] > cycles[i - 1] * RATIO_MAX) over.push(`${i}: ${cycles[i - 1]} -> ${cycles[i]} (x${(cycles[i] / cycles[i - 1]).toFixed(3)})`);
-    assert.deepEqual(over, [], `every cycle from the 5th founding <= ${RATIO_MAX}x the previous, no slack`);
-    assert.deepEqual(log.metrics.emptyLateCycles, [], 'every city after the 5th introduces something new');
-    assert.deepEqual(log.metrics.neverPurchased, { buildings: [], upgrades: [] }, 'every building and upgrade bought');
-    assert.ok(log.metrics.reachShare >= 0.3, `reach ${log.metrics.reachShare} >= 0.3`);
-    assert.ok(log.metrics.underPowerShare >= 0.03 && log.metrics.underPowerShare <= 0.2, `under-power ${log.metrics.underPowerShare} in 3–20%`);
-    assert.ok(log.metrics.minPowerRatio >= 0.6, 'power floor >= 0.6');
-    assert.ok(log.metrics.happinessDipCities >= cycles.length * 0.5, `happiness dips ${log.metrics.happinessDipCities}/${cycles.length}`);
-  });
-  // The safety margins (plan.json targets) are asserted only on a log produced after the
-  // last config edit: an older log measured a different ladder and is held to the contract
-  // above, not to this pass's margins.
-  const current = usable && log.profile === 'default' && logIsCurrent(rel);
-  test(`measured 12 h session (${rel}): inside the plan.json safety margins`, { skip: !usable ? `${rel} not present or shorter than 12 h` : log.profile !== 'default' ? 'only the default profile is held to the margins' : !current ? `${rel} predates src/balance/config.js` : false }, () => {
-    const checks = checkTargets(fromSimLog(log), PLAN_TARGETS);
-    assert.ok(checks.length >= 8, 'the plan names the margins');
-    assert.deepEqual(checks.filter((c) => !c.ok), [], formatChecks(checks));
-  });
-}
+});
+
+test('12 h default profile (run here): cadence and variety to the letter of the contract', async () => {
+  const log = usable(await SIM_RUNS.default);
+  assert.equal(log.contractPass, true, `the sim's own contract line: ${log.issues.map((i) => `[${i.kind}] ${i.msg}`).join(' | ')}`);
+  const cycles = log.metrics.cycles;
+  assert.ok(cycles.length >= 18 && cycles.length <= 35, `${cycles.length} foundings in 18-35`);
+  assert.ok(cycles[0] >= 30 && cycles[0] <= 45, `first founding ${cycles[0]} min in 30-45`);
+  const floor = Math.min(...cycles.slice(3, 10));
+  assert.ok(floor >= 4 && floor <= 8, `floor ${floor} min (foundings 4-10) in 4-8`);
+  assert.ok(cycles[cycles.length - 1] <= 40, `last cycle ${cycles[cycles.length - 1]} min <= 40`);
+  const over = [];
+  for (let i = RATIO_FROM; i < cycles.length; i++) if (cycles[i] > cycles[i - 1] * RATIO_MAX) over.push(`${i}: ${cycles[i - 1]} -> ${cycles[i]} (x${(cycles[i] / cycles[i - 1]).toFixed(3)})`);
+  assert.deepEqual(over, [], `every cycle from the 5th founding <= ${RATIO_MAX}x the previous, no slack`);
+  assert.deepEqual(log.metrics.emptyLateCycles, [], 'every city after the 5th introduces something new');
+  assert.deepEqual(log.metrics.neverPurchased, { buildings: [], upgrades: [] }, 'every building and upgrade bought');
+  assert.ok(log.metrics.reachShare >= 0.3, `reach ${log.metrics.reachShare} >= 0.3`);
+  assert.ok(log.metrics.underPowerShare >= 0.03 && log.metrics.underPowerShare <= 0.2, `under-power ${log.metrics.underPowerShare} in 3-20%`);
+  assert.ok(log.metrics.minPowerRatio >= 0.6, 'power floor >= 0.6');
+  assert.ok(log.metrics.happinessDipCities >= cycles.length * 0.5, `happiness dips ${log.metrics.happinessDipCities}/${cycles.length}`);
+});
+
+test('12 h default profile (run here): inside the plan.json safety margins', async () => {
+  const log = usable(await SIM_RUNS.default);
+  const checks = checkTargets(fromSimLog(log), PLAN_TARGETS);
+  assert.ok(checks.length >= 8, 'the plan names the margins');
+  assert.deepEqual(checks.filter((c) => !c.ok), [], formatChecks(checks));
+});

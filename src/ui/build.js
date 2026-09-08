@@ -1,7 +1,7 @@
 // Build panel: category tabs + building cards with buy ×1 / ×10 / ×max / sell modes.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, prefersReducedMotion } from './dom.js';
 import { CATEGORY_GATES } from './content.js';
-import { unlockMeasure, unlockLabel, unlockDisplayKey } from './text.js';
+import { unlockMeasure, unlockLabel, unlockDisplayKey, buildingLines } from './text.js';
 
 const MODES = [
   { id: 1, label: '×1', title: 'Buy one at a time' },
@@ -177,18 +177,16 @@ export function createBuildPanel(ui) {
     const btn = h('button.btn.btn-buy', { type: 'button' }, [btnLabel, btnCost]);
     const fill = h('div.progress-fill');
     const bar = h('div.progress.progress-xs.cost-bar', { 'aria-hidden': 'true' }, [fill]);
-    // Signature mechanic (tier-3/4 buildings): one subtle line under the stats.
-    const synergyText = def.synergy && typeof def.synergy.text === 'string' ? def.synergy.text.trim() : '';
-    const synergy = synergyText ? h('div.bcard-synergy', { title: synergyText }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: synergyText })]) : null;
-    // Grid strain (tier-4 consumers): "draw +2.5% per unit owned (up to ×1.5)" — a second,
-    // quieter synergy line, so the card says its draw climbs before the grid browns out.
-    const strainText = def.demandGrowth && typeof def.demandGrowth.text === 'string' ? def.demandGrowth.text.trim() : '';
-    const strain = strainText ? h('div.bcard-synergy.bcard-strain', { title: strainText }, [h('span.bcard-synergy-mark', { text: '↯', 'aria-hidden': 'true' }), h('span', { text: strainText })]) : null;
-    // Power hint (buildings module stamps `powerHint` on every consumer that draws at least a
-    // windmill's worth): "Draws 10,500 MW ≈ 0.9 × Nuclear Plant", so a tier-4 card says which
-    // plant it needs before the grid browns out.
-    const powerText = typeof def.powerHint === 'string' ? def.powerHint.trim() : '';
-    const powerLine = powerText ? h('div.bcard-power', { title: powerText }, [h('span.bcard-power-mark', { text: '⚡', 'aria-hidden': 'true' }), h('span', { text: powerText })]) : null;
+    // Three quiet lines under the stats (text.js buildingLines): the signature mechanic
+    // (tier-3/4 buildings, `synergy.text`), the grid strain (tier-4 consumers,
+    // `demandGrowth.text`: "draw +12.5% per District owned (up to ×40)" — a second, dimmer
+    // synergy line in the power colour, so the card says its draw climbs before the grid
+    // browns out) and the power hint the buildings module stamps on every consumer that
+    // draws at least a windmill's worth ("Draws 10,500 MW ≈ 0.9 × Nuclear Plant").
+    const lines = buildingLines(def);
+    const synergy = lines.synergy ? h('div.bcard-synergy', { title: lines.synergy }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: lines.synergy })]) : null;
+    const strain = lines.strain ? h('div.bcard-synergy.bcard-strain', { title: lines.strain }, [h('span.bcard-synergy-mark', { text: '↯', 'aria-hidden': 'true' }), h('span', { text: lines.strain })]) : null;
+    const powerLine = lines.power ? h('div.bcard-power', { title: lines.power }, [h('span.bcard-power-mark', { text: '⚡', 'aria-hidden': 'true' }), h('span', { text: lines.power })]) : null;
     const elc = h(`article.bcard.cat-${def.category}`, { dataset: { id: def.id } }, [
       h('div.bcard-icon', { text: def.icon || '🏢', 'aria-hidden': 'true' }),
       h('div.bcard-main', [

@@ -3,8 +3,9 @@
 // Run: node src/ui/ui.test.mjs
 import assert from 'node:assert/strict';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, buildingLines, teaserRungs, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
+import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { MAX_VISIBLE } from './toast.js';
@@ -293,6 +294,74 @@ test('teaser rungs keep Heritage (legacy-gated) rungs back until a founding is o
   ];
   assert.deepEqual(teaserRungs(rows, { count: 2 }).map((r) => r.id), ['franchising', 'green-belts']);
   assert.deepEqual(teaserRungs(rows, { count: 2, prestigeKnown: true }).map((r) => r.id), ['legacy-archive', 'franchising']);
+});
+
+test('met teaser labels drop the treasury figure and tick the clause', () => {
+  const state = { res: { money: 5e9, pop: 60000 }, stats: { totalEarned: 2e12, buildingsBuilt: 30 }, buildings: { coal: 3 }, upgrades: {}, prestige: {} };
+  const derived = { powerDemand: 17 };
+  const held = unlockMeasure({ money: 12000 }, state, derived, null);
+  assert.equal(held.p, 1);
+  assert.equal(unlockMetLabel(held), '$12,000 held ✓');
+  assert.equal(unlockMetLabel(unlockMeasure({ earned: 5e5 }, state, derived, null)), '$500,000 earned ✓');
+  assert.equal(unlockMetLabel(unlockMeasure({ building: 'coal', count: 3 }, state, derived, null)), '3 / 3 built ✓');
+  assert.equal(unlockMetLabel(unlockMeasure({ powerDemand: 0.001 }, state, derived, null)), 'ready ✓');
+  assert.equal(unlockMetLabel(unlockMeasure({ pop: 250 }, state, derived, null)), '60,000 / 250 ✓');
+  assert.equal(unlockMetLabel(null), '');
+  // A hint that is not yet met keeps the live figure.
+  const open = unlockMeasure({ money: 1e10 }, state, derived, null);
+  assert.ok(open.p < 1);
+  assert.equal(unlockMetLabel(open), '$10.0B held ✓', 'the met label is the caller’s choice; it never reads p');
+});
+
+test('building card lines: synergy, grid strain and power hint from the def', () => {
+  const def = {
+    synergy: { stat: 'income', source: 'employed', per: 20000, cap: 2.5, text: ' Income +5% per 1,000 employed citizens (up to ×2.5) ' },
+    demandGrowth: { per: 8, cap: 40, text: 'Grid strain: draw +12.5% per District owned (up to ×40)' },
+    powerHint: 'Draws 10,200 MW ≈ 0.8 × Nuclear Plant',
+  };
+  assert.deepEqual(buildingLines(def), {
+    synergy: 'Income +5% per 1,000 employed citizens (up to ×2.5)',
+    strain: 'Grid strain: draw +12.5% per District owned (up to ×40)',
+    power: 'Draws 10,200 MW ≈ 0.8 × Nuclear Plant',
+  });
+  // A strain rule without a sentence, a malformed synergy and a missing hint all read as ''.
+  assert.deepEqual(buildingLines({ demandGrowth: { per: 40, cap: 1.5 }, synergy: 'nope', powerHint: 7 }), { synergy: '', strain: '', power: '' });
+  assert.deepEqual(buildingLines({}), { synergy: '', strain: '', power: '' });
+  assert.deepEqual(buildingLines(null), { synergy: '', strain: '', power: '' });
+});
+
+test('refresh gate: full passes only when the tick advanced, an event landed, or the safety net fires', () => {
+  const g = createRefreshGate({ every: 30 });
+  // First frame draws and rebuilds.
+  assert.deepEqual(g.next({ tick: 0, frame: 1 }), { refresh: true, rebuild: true });
+  // Same tick, no events: nothing but the tweens.
+  assert.deepEqual(g.next({ tick: 0, frame: 2 }), { refresh: false, rebuild: false });
+  assert.deepEqual(g.next({ tick: 0, frame: 3 }), { refresh: false, rebuild: false });
+  // The simulation ticked.
+  assert.deepEqual(g.next({ tick: 1, frame: 4 }), { refresh: true, rebuild: false });
+  assert.deepEqual(g.next({ tick: 1, frame: 5 }), { refresh: false, rebuild: false });
+  // A tap changed money outside a tick.
+  g.mark();
+  assert.deepEqual(g.next({ tick: 1, frame: 6 }), { refresh: true, rebuild: false });
+  assert.deepEqual(g.next({ tick: 1, frame: 7 }), { refresh: false, rebuild: false });
+  // A purchase rebuilds the lists (and refreshes).
+  g.dirty();
+  assert.equal(g.isDirty(), true);
+  assert.deepEqual(g.next({ tick: 1, frame: 8 }), { refresh: true, rebuild: true });
+  assert.equal(g.isDirty(), false);
+  assert.deepEqual(g.next({ tick: 1, frame: 9 }), { refresh: false, rebuild: false });
+  // Safety net every 30 frames.
+  assert.deepEqual(g.next({ tick: 1, frame: 30 }), { refresh: true, rebuild: true });
+  assert.deepEqual(g.next({ tick: 1, frame: 31 }), { refresh: false, rebuild: false });
+  // At 60 fps and 10 ticks/s, roughly one frame in six does the full pass.
+  const h = createRefreshGate({ every: 30 });
+  let full = 0;
+  for (let f = 1; f <= 600; f++) if (h.next({ tick: Math.floor(f / 6), frame: f }).refresh) full++;
+  assert.ok(full >= 100 && full <= 125, `full passes in 600 frames: ${full}`);
+  // No safety net when `every` is off.
+  const k = createRefreshGate({ every: 0 });
+  k.next({ tick: 0, frame: 1 });
+  assert.deepEqual(k.next({ tick: 0, frame: 30 }), { refresh: false, rebuild: false });
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

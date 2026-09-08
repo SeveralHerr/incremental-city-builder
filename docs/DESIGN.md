@@ -104,7 +104,7 @@ tier-4 consumers draw +2.5 % per unit owned (×1.5).
 Each building needs `name`, `icon` (emoji), `desc` (one flavorful line ≤ 70 chars), `tier`, `category`.
 Unlock functions take `(state, derived)`.
 
-## Upgrades (`src/upgrades/index.js`) — 69 upgrades (57 money + 12 charter perks)
+## Upgrades (`src/upgrades/index.js`) — 70 upgrades (58 money + 12 charter perks)
 
 `effect(mods, state)` mutates the mods bag only. `unlock(state, derived)`. Fields: `id, name, icon, desc, cost, category` (`residential|commercial|industrial|power|civic|global|prestige|charter`), `tier`, optional `currency: 'legacy'` (charter perks), `unlockAt` + `unlockHint` (data mirror of the gate), `keeps(def)` (a keeper rung re-grants the rungs it keeps at every founding: Institutional Memory tiers 1–2, the Grid Charter tier 3, Standing Orders tier 3 + Heritage).
 Apply `config.upgrades[id]` overrides (cost) before registering; a self-priced gate (frontier `earned ≥ cost/4`, pace `earned ≥ 100 × cost`, charter `spendable legacy ≥ cost/2`) follows the config price. Original effect ideas (use `import { buildingMod } from '../core/mods.js'`):
@@ -161,12 +161,12 @@ Shipped values (2026-09-07; the file's header carries the measured pacing behind
 ```js
 export const config = {
   economy: { startMoney: 300, taxPerPop: 0.08, wage: 0.35, tapSeconds: 1 },
-  pop: { growthRate: 0.09, shrinkRate: 0.2, baseInflow: 0.5 },
+  pop: { growthRate: 0.11, shrinkRate: 0.2, baseInflow: 0.5 },
   power: { brownoutFloor: 0.6 },
   happiness: { civicCap: 1.12, civicScale: 1.5, pollutionScale: 0.35, pollutionCap: 1.1, pollutionCurve: 1,
                unemploymentPenalty: 0.35, overcrowdPenalty: 0.5, brownoutPenalty: 0.6, min: 0.25, max: 3 },
   cost: { tierGrowth: { 1: 1.18, 2: 1.16, 3: 1.13, 4: 1.112 }, sellRefund: 0.5 },
-  prestige: { threshold: 1.1e7, exponent: 0.488, incomePerLegacy: 0.01, legacyPower: 0.548, firstBonus: 0.18,
+  prestige: { threshold: 1.1e7, exponent: 0.488, incomePerLegacy: 0.01, legacyPower: 0.548, firstBonus: 0.15,
               startMoneyPerLegacy: 1, minGain: 1, minGainShare: 0.4, prestigePanelShare: 0.1 },
   save: { autosaveSec: 30, offlineCapSec: 8*3600, offlineEfficiency: 0.5 },
   buildings: { /* 15 ids */ },   // id -> partial override of any registerBuilding field (currently identical to data.js)
@@ -235,9 +235,9 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
   `{ gain, legacy, spent, available, mult }`; refreshed header docs with measured numbers; tests updated.
 - *balance*: retune to the cadence target; late demand outpaces supply (financial powerUse 2000,
   arcology 1200, fusion ≤ 3e5 MW); first shop < 60 s; keep every building worth buying. Frontier and
-  charter prices live in `config.upgrades` (shipped: frontier $2.23e9 → $2.59e16 in canonical order,
-  nine pace rungs $9.04e7 → $3.44e14, perks ◆ 3 → ◆ 76,488 at ×2.5, placed one rung per city so every
-  city from the 5th to the 32nd buys something new; the bot signs the Imperial Charter in city 31).
+  charter prices live in `config.upgrades` (shipped: frontier $4.79e7 → $4.87e15 in canonical order,
+  nine pace rungs $8.84e7 → $4.35e14, perks ◆ 3 → ◆ 150,500 at ×2.5–4, placed one rung per city so every
+  city from the 4th to the 33rd buys something new; the bot signs the Imperial Charter in city 32).
 - *ui*: charter perks rendered in the Legacy panel (cost chip `◆ N`, available `◆ have / total`),
   `synergy.text` on building cards, unlock-toast dedupe across foundings, toasts never over Buy buttons.
 - *tools/economy-sim.mjs* (integrator): reports `metrics.cycles, reachShare, underPowerShare,
@@ -248,19 +248,21 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
   toward the next founding on a near-flat income — that is the plateau the cadence target asks for,
   not a stall).
 
-**Measured (2026-09-07 polish integration, `logs/sim-gauntlet.json`, `npm run sim -- --ticks 432000`):**
-PASS, contract PASS, 0 issues, 0 errors. 32 foundings; cycles (min) 41.8 · 12.6 · 11.4 · 7.1 · 6.3 ·
-8.2 · 11.0 · 13.6 · 15.5 · 19.2 · 20.7 · 16.4 · 10.1 · 5.6 · 7.5 · 10.1 · 13.2 · 16.7 · 22.5 · 30.0 ·
-25.9 · 32.9 · 22.8 · 27.7 · 34.3 · 34.3 · 45.4 · 50.1 · 36.2 · 46.3 · 21.7 · 23.3 (strict max ratio
-×1.346 at cycle 19, last 23.3 min); 0 empty late cycles; every building and all 69 upgrades bought;
-reach 53.3 % (priciest-item 20.6 %); under-power 3.14 %, floor 0.60; happiness dips in 21/32 cities;
-legacy 270,633 (127,476 spent on all twelve charter perks), money peak 2.77e16, income 8.5e14/s at
-12 h; ~18.7k ticks/s. Saver profile (`--saver`, `logs/sim-saver.json`): PASS, contract PASS (hard
-gates only): 33 foundings, first 34.4 min, reach 68.7 %, under-power 1.5 %, legacy 379,439, money
-peak 7.1e16, 11 empty late cities (9, 10, 12, 13, 15, 20, 21, 24, 29, 31, 32).
-**Open (documented, not gated):** the saver profile's empty late cities — one price table cannot
-serve a 5 s-reach and a 30 s-reach bot without a 20th late rung (`config.js`, "Why the saver
-profiles have empty cities"); first-city purchase tension reads 0 % of its 41 minute-samples (the
+**Measured (2026-09-07 final fix round, `logs/sim-gauntlet.json`, `npm run sim -- --ticks 432000`):**
+PASS, contract PASS, 0 issues, 0 errors. 34 foundings; cycles (min) 41.1 · 13.1 · 11.9 · 7.7 · 7.1 ·
+9.2 · 11.9 · 13.9 · 16.7 · 20.9 · 22.2 · 25.0 · 11.4 · 6.5 · 8.7 · 11.2 · 14.9 · 17.6 · 16.4 · 20.7 ·
+27.7 · 35.3 · 42.8 · 29.6 · 29.6 · 24.1 · 32.0 · 35.7 · 25.4 · 30.5 · 33.0 · 28.9 · 13.5 · 18.1 (strict
+max ratio ×1.343 at cycle 14, last 18.1 min); 0 empty late cycles; every building and all 70 upgrades
+bought; reach 41.3 % (priciest-item 34 %); under-power 3.38 %, floor 0.60; happiness dips in 21/34
+cities; legacy 530,718 (213,186 spent on all twelve charter perks), money peak 3.12e17, income
+4.4e15/s at 12 h; ~20k ticks/s. Saver profile (`--saver`, `logs/sim-saver.json`): PASS, contract
+PASS (hard gates only): 35 foundings, first 38.1 min, reach 62 %, under-power 2.8 %, legacy 746,168,
+money peak 4.78e17, 9 empty late cities (13, 15, 19, 21, 22, 24, 30, 31, 34).
+**Open (documented, not gated):** the saver's 36th founding (the one that crosses the legacy
+ceiling) lands ~730 min, 1.3–1.6 % past the session, and the greedy bot's Elevator city opens 3.3 %
+before it; one price table cannot put both profiles 5 % inside because a saver's 30 s-of-income
+reach lands every frontier rung ~2 cities before the bot's spree pile (`config.js`, "What the saver
+brake is"); the saver's 9 empty late cities follow from the same gap; first-city purchase tension reads 0 % of its 41 minute-samples (the
 core ladder opens a reflex buy every 1–2 min; needs re-spaced gates, not prices); three mid-session
 cycles run 45–50 min (26–28: Stellar Engine / Superconductor Grid / Energy Charter — a felt clause
 on the power content would let balance move the Galactic Charter to city 27).

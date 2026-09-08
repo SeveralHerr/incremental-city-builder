@@ -55,7 +55,7 @@
 //     shipped;
 //   • the Legacy rungs (category 'prestige'): unlocked by legacy points (the whole bank,
 //     spent or not), paid in money each run. The three dear ones — Institutional Memory
-//     ($30M), City Archives ($52M) and Standing Orders ($4T) — also carry the frontier's
+//     ($30M), City Archives ($2T) and Standing Orders ($4T) — also carry the frontier's
 //     earnings door (`legacyGate`, see `legacyFrontier`): the points alone opened Standing
 //     Orders in the 9th replay city and parked a $4T card as the only visible money target
 //     for four hours (measured: 60–80% of the samples in cycles 20–24 had the next upgrade
@@ -63,7 +63,7 @@
 //     its price, the same rule as the frontier;
 //   • the Charter perks (category 'charter', currency 'legacy'): twelve permanent perks
 //     bought with legacy points (core's api.buyUpgrade debits state.prestige.spent; the
-//     income bonus keeps using the whole bank). Costs run ×2.5 apart from 3 to 195,808
+//     income bonus keeps using the whole bank). Costs run ×2.5–4 apart from 3 to 150,500
 //     points (whole points, never under ×2.5), each opening once the *spendable* bank —
 //     legacy − spent, the same number core's canAffordUpgrade checks — holds half its
 //     price, and every one is a real jump: +50–200% income, +50–100% housing, +100–200%
@@ -403,7 +403,7 @@ const FRONTIER = [
     name: 'Dyson Swarm',
     icon: '🌞',
     desc: 'All power generation ×4',
-    cost: 2.27e9,
+    cost: 4.79e7,
     category: 'power',
     effect: global('power', 4),
   }),
@@ -412,7 +412,7 @@ const FRONTIER = [
     name: 'Quantum Exchange',
     icon: '💹',
     desc: 'All income +100% · financial districts earn +100%',
-    cost: 2.0e10,
+    cost: 3.2e10,
     category: 'commercial',
     effect: compose(global('income', 2), incomeOf('financial', 2)),
   }),
@@ -421,7 +421,7 @@ const FRONTIER = [
     name: 'Mass-Driver Port',
     icon: '🚀',
     desc: 'All buildings cost −25% · industry earns +100% income',
-    cost: 4.3e13,
+    cost: 9e12,
     category: 'industrial',
     effect: compose(global('cost', 0.75), incomeOfEach(INDUSTRY, 2)),
   }),
@@ -430,7 +430,7 @@ const FRONTIER = [
     name: 'Ringworld District',
     icon: '🪐',
     desc: 'All housing +150% and all jobs +50%',
-    cost: 4.88e13,
+    cost: 7.0e13,
     category: 'residential',
     effect: compose(global('housing', 2.5), global('jobs', 1.5)),
   }),
@@ -492,7 +492,7 @@ const FRONTIER = [
 // ---------- charter perks (legacy-priced, permanent) ----------
 
 export const CHARTER_MIN_COST = 3;
-export const CHARTER_MAX_COST = 195808;
+export const CHARTER_MAX_COST = 150500;
 // A perk opens once the *spendable* bank (legacy − spent) holds half its price. Gating on
 // the whole bank left late perks reading "open" for two or three cities while the Sign
 // button stayed dead (measured: the Imperial Charter opened at bank 38,244 in city 27 and
@@ -554,7 +554,7 @@ const CHARTER = [
     name: 'Merchant Charter',
     icon: '🏪',
     desc: 'Shops, offices, malls and financial districts earn +100%',
-    cost: 125,
+    cost: 154,
     effect: incomeOfEach(COMMERCE, 2),
   }),
   charter({
@@ -562,19 +562,19 @@ const CHARTER = [
     name: "Settlers' Charter",
     icon: '🚂',
     desc: 'Population grows +100% faster · new arrivals +200%',
-    cost: 313,
+    cost: 385,
     effect: compose(global('growth', 2), global('inflow', 3)),
   }),
-  charter({ id: 'charter-masons', name: "Masons' Charter", icon: '🧱', desc: 'All buildings cost −15%', cost: 783, effect: global('cost', 0.85) }),
-  charter({ id: 'charter-civic', name: 'Civic Charter', icon: '🎭', desc: 'All jobs +50% · population grows +50% faster', cost: 1958, effect: compose(global('jobs', 1.5), global('growth', 1.5)) }),
-  charter({ id: 'charter-treasury', name: 'Treasury Charter', icon: '💎', desc: 'All income +100% and building upkeep −50%', cost: 4895, effect: compose(global('income', 2), global('upkeep', 0.5)) }),
-  charter({ id: 'charter-skyline', name: 'Skyline Charter', icon: '🌇', desc: 'All housing +100% and all jobs +50%', cost: 12238, effect: compose(global('housing', 2), global('jobs', 1.5)) }),
+  charter({ id: 'charter-masons', name: "Masons' Charter", icon: '🧱', desc: 'All buildings cost −15%', cost: 963, effect: global('cost', 0.85) }),
+  charter({ id: 'charter-civic', name: 'Civic Charter', icon: '🎭', desc: 'All jobs +50% · population grows +50% faster', cost: 2408, effect: compose(global('jobs', 1.5), global('growth', 1.5)) }),
+  charter({ id: 'charter-treasury', name: 'Treasury Charter', icon: '💎', desc: 'All income +100% and building upkeep −50%', cost: 6020, effect: compose(global('income', 2), global('upkeep', 0.5)) }),
+  charter({ id: 'charter-skyline', name: 'Skyline Charter', icon: '🌇', desc: 'All housing +100% and all jobs +50%', cost: 15050, effect: compose(global('housing', 2), global('jobs', 1.5)) }),
   charter({
     id: 'charter-energy',
     name: 'Energy Charter',
     icon: '🔋',
     desc: 'All power generation +200% · buildings use −25% power',
-    cost: 48952,
+    cost: 37625,
     effect: compose(global('power', 3), global('demand', 0.75)),
   }),
   charter({
@@ -582,7 +582,7 @@ const CHARTER = [
     name: 'Imperial Charter',
     icon: '👑',
     desc: 'All income +200% and all buildings cost −15%',
-    cost: 195808,
+    cost: 150500,
     effect: compose(global('income', 3), global('cost', 0.85)),
   }),
 ];
@@ -917,7 +917,7 @@ export const UPGRADES = [
     id: 'maintenance-contracts',
     name: 'Maintenance Contracts',
     icon: '🔧',
-    desc: 'Power plants cost −20% · building upkeep −40%',
+    desc: 'Power plants cost −20% · refineries and malls earn +20%',
     cost: 200000,
     category: 'global',
     tier: 3,
@@ -926,19 +926,30 @@ export const UPGRADES = [
       hasBuilt('coal', 5),
       hasBuilt('solar', 1)
     ),
-    // Upkeep is a sliver of the gross when this is bought (measured: 0.0% at minute 27.5
-    // of the first city, 1–2% through its last quarter hour; a plain −25% upkeep was worth
-    // +0% net income, the one rung whose felt effect was nil). The plant discount is what
-    // the card is worth on the day: from this purchase to the founding, power plants are
-    // 42% of what the city spends (nuclear 15%, solar 12%, coal 8%, fusion 7%), so −20% on
-    // their price is ~8% more city for the same income, on the cards being bought right
-    // then; the deeper upkeep cut is what it grows into once nuclear plants and fusion
-    // reactors carry real upkeep in the replays. Not an income clause: the Grid Charter
-    // re-grants tier 3 in every replay, and +10% income here compounded through thirty
-    // foundings (measured: 36 foundings, money peak 1.7e18 and legacy 1.05e6 — both over
-    // the ceiling — where the plant discount keeps the placed ladder to the minute).
-    // Windmills are left out: capped at a dozen and long since bought by minute 27.
-    effect: compose(global('upkeep', 0.6), costOf('coal', 0.8), costOf('solar', 0.8), costOf('nuclear', 0.8), costOf('fusion', 0.8)),
+    // No upkeep clause: upkeep is a sliver of the gross for the whole session (measured:
+    // 0.56% at minute 27.6 of the first city, when this is bought, and 0.00–0.03% in every
+    // replay — only nuclear plants, fusion reactors and the elevator carry any), so a
+    // −25% or −40% upkeep cut was worth +0% net income, the one rung whose felt effect was
+    // nil. Two felt terms instead:
+    //   • the plant discount — from this purchase to the founding, power plants are 42% of
+    //     what the city spends (nuclear 15%, solar 12%, coal 8%, fusion 7%), so −20% on
+    //     their price is ~8% more city for the same income, on the cards being bought
+    //     right then. Windmills are left out: capped at a dozen and bought by minute 27;
+    //   • service crews for the two buildings that carry the first city's income at
+    //     minute 27.6 (measured: refineries 45% and malls 40% of building income, which is
+    //     43% of the gross → +7% gross on the day). Per-building, not global: the Grid
+    //     Charter re-grants tier 3 in every replay, and +10% *all* income here compounded
+    //     through thirty foundings (measured: 36 foundings, money peak 1.7e18 and legacy
+    //     1.05e6 — both over the ceiling). Refineries and malls are 1–5% of a replay's
+    //     income (financial districts carry 72–82% of it from city 9 on), so the clause is
+    //     worth +1–2% there. +20% is the most the placed tail absorbs today: the session
+    //     ends inside an open 35th city with ~16 min of slack (config.js, "the tail is the
+    //     delicate part"), +20% spends ~9 of them (first founding 41.7 → 41.0 min, 34
+    //     foundings, contract PASS) and +30% or +50% ~13 — the 35th city then completes
+    //     (24 min) and the cadence and variety gates fail. A wider tail (the balance
+    //     builder's late employer incomes or the Space Elevator gate) would let this
+    //     clause read +30% (+11% on the day).
+    effect: compose(costOf('coal', 0.8), costOf('solar', 0.8), costOf('nuclear', 0.8), costOf('fusion', 0.8), incomeOf('refinery', 1.2), incomeOf('mall', 1.2)),
   }),
   funded({
     id: 'welcome-center',
@@ -1067,7 +1078,7 @@ export const UPGRADES = [
     name: 'Robotic Assembly',
     icon: '🤖',
     desc: 'All industry earns +100% income: factories, refineries, campuses',
-    cost: 3.0e8,
+    cost: 2.62e8,
     category: 'industrial',
     effect: incomeOfEach(INDUSTRY, 2),
   }),
@@ -1076,16 +1087,25 @@ export const UPGRADES = [
     name: 'AI Governance',
     icon: '🧠',
     desc: 'All income +100%',
-    cost: 1.1e9,
+    cost: 1.07e9,
     category: 'global',
     effect: global('income', 2),
+  }),
+  pace({
+    id: 'orbital-solar',
+    name: 'Orbital Solar',
+    icon: '🛰️',
+    desc: 'All power generation +200%',
+    cost: 2.05e9,
+    category: 'power',
+    effect: global('power', 3),
   }),
   pace({
     id: 'planetary-charter',
     name: 'Planetary Charter',
     icon: '🌍',
     desc: 'All income +150% and population grows +100% faster',
-    cost: 8.4e9,
+    cost: 4.3e9,
     category: 'global',
     effect: compose(global('income', 2.5), global('growth', 2)),
   }),
@@ -1094,25 +1114,16 @@ export const UPGRADES = [
     name: 'Megastructures',
     icon: '🏙️',
     desc: 'All housing +100%',
-    cost: 2.78e11,
+    cost: 2.64e11,
     category: 'residential',
     effect: global('housing', 2),
-  }),
-  pace({
-    id: 'orbital-solar',
-    name: 'Orbital Solar',
-    icon: '🛰️',
-    desc: 'All power generation +200%',
-    cost: 3.21e11,
-    category: 'power',
-    effect: global('power', 3),
   }),
   pace({
     id: 'arcology-gardens',
     name: 'Arcology Gardens',
     icon: '🌺',
     desc: 'Arcologies hold +100% residents and provide +50% jobs',
-    cost: 7.65e11,
+    cost: 3.2e11,
     category: 'residential',
     effect: compose(housingOf('arcology', 2), jobsOf('arcology', 1.5)),
   }),
@@ -1121,7 +1132,7 @@ export const UPGRADES = [
     name: 'Algorithmic Trading',
     icon: '📈',
     desc: 'Financial districts earn +100% income',
-    cost: 2.17e12,
+    cost: 7.7e11,
     category: 'commercial',
     effect: incomeOf('financial', 2),
   }),
@@ -1209,12 +1220,14 @@ export const UPGRADES = [
     name: 'City Archives',
     icon: '📚',
     desc: 'Population grows +50% faster and all jobs +25%',
-    cost: 5.24e7,
+    cost: 2.0e12,
     tier: 3,
-    // Lands mid-way through the fourth city (config prices it at $52M, off plateau cash):
-    // the one replay between the Mint Charter and Championship Season that had nothing
-    // new to buy. Growth and
-    // jobs, not income: it is re-granted in every later city, and an income term here
+    // Config prices it at $2.0T as the 19th city's novelty (the saver-gate pass moved it
+    // up from $52M in city 4: at $52M a saver's mid-game hoard toward it opened Algorithmic
+    // Trading a city early; $2T sits above the saver's 30 s-of-income reach in city 17).
+    // It must stay cheaper than Standing Orders ($4T, city 21), which re-grants every
+    // Legacy rung at each founding after it, so no Legacy rung can be a first purchase
+    // once that is owned. Growth and jobs, not income: it is re-granted in every later city, and an income term here
     // compounds through thirty foundings (measured: +40% income turned the 12 h session
     // into 43 foundings and 1e7 legacy).
     legacyGate: hasLegacy(20),
@@ -1235,7 +1248,7 @@ export const UPGRADES = [
     effect: noEffect,
   }),
 
-  // ===== Charter — permanent perks bought with legacy points (◆ 3 … ◆ 195,808) =====
+  // ===== Charter — permanent perks bought with legacy points (◆ 3 … ◆ 150,500) =====
   ...CHARTER,
 ];
 

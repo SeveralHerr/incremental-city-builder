@@ -13,10 +13,13 @@ import { createLogPanel } from './log.js';
 import { createToasts } from './toast.js';
 import { createModal, createSettingsModal } from './modal.js';
 import { createUnlockAnnouncer } from './announce.js';
+import { createRefreshGate } from './schedule.js';
 import { nameList } from './text.js';
 
 const REBUILD_EVERY = 30; // frames — safety net; events trigger immediate rebuilds
 const REBUILD_EVENTS = ['buy', 'sell', 'upgrade', 'unlock', 'milestone', 'load', 'prestige', 'offline'];
+// State changes outside a tick that need a panel pass but no list rebuild (schedule.js).
+const REFRESH_EVENTS = ['tap', 'setting', 'brownout', 'catchup'];
 const UNLOCK_TOAST_DELAY = 350; // ms — batch unlocks that land in the same burst into one toast
 const UNLOCK_QUIET_MS = 1500; // ms — after a load or a founding, re-latched unlocks are not news
 const PERF_WINDOW = 120; // frames in the rolling render-cost average
@@ -67,12 +70,15 @@ async function mount(game) {
   const content = await loadContent();
   setNumFormat(game.state.settings?.numFormat);
 
+  const gate = createRefreshGate({ every: REBUILD_EVERY });
   const ui = {
     game,
     content,
     newlyUnlocked: new Set(),
+    // `dirty` is kept as a property for the panels that set it directly; the gate reads it
+    // on the next frame (see render()).
     dirty: true,
-    perf: { last: 0, avg: 0, max: 0, frames: 0 },
+    perf: { last: 0, avg: 0, max: 0, frames: 0, full: 0 },
     rebuild() {
       ui.dirty = true;
     },
@@ -115,6 +121,7 @@ async function mount(game) {
   // ---- event wiring ----
   const ev = game.events;
   for (const name of REBUILD_EVENTS) ev.on(name, () => (ui.dirty = true));
+  for (const name of REFRESH_EVENTS) ev.on(name, () => gate.mark());
 
   // Unlocks: mark cards for the reveal glow and announce them in one batched toast. The
   // announcer dedupes ids within a burst, announces each id once per session (later foundings
@@ -195,14 +202,21 @@ async function mount(game) {
   });
 
   // ---- render loop ----
+  // Every frame: the topbar's number tweens and the skyline's sky/clouds (animation). Only on
+  // frames where the simulation ticked or an event landed (schedule.js): the api row fetches
+  // and the panels that draw state. Lists rebuild on their events or every REBUILD_EVERY
+  // frames as a safety net. ui.perf.full counts the full passes.
   let lastT = 0;
   let frames = 0;
   let rendering = false;
+  let rows = [];
+  let ups = [];
 
   function render(t) {
     if (rendering) return;
     rendering = true;
     const t0 = performance.now();
+    let full = false;
     try {
       const now = Number.isFinite(t) ? t : t0;
       let dt = lastT ? (now - lastT) / 1000 : 1 / 60;
@@ -210,23 +224,29 @@ async function mount(game) {
       if (!(dt > 0)) dt = 1 / 60;
       frames++;
 
-      const rows = game.api.buildings();
-      const ups = game.api.upgrades();
-      if (ui.dirty || frames % REBUILD_EVERY === 0) {
-        ui.dirty = false;
-        build.rebuild(rows);
-        upgrades.rebuild(ups);
-        milestones.rebuild();
-        log.rebuild();
-        hero.setBuildings(rows);
-        hero.rebuild(ups);
-      }
+      if (ui.dirty) gate.dirty();
+      const plan = gate.next({ tick: game.state.tick, frame: frames });
       topbar.update(dt);
-      hero.update(dt, ups);
-      build.update(rows);
-      upgrades.update(ups);
-      milestones.update();
-      log.update();
+      hero.animate(dt);
+      if (plan.refresh) {
+        full = true;
+        rows = game.api.buildings();
+        ups = game.api.upgrades();
+        if (plan.rebuild) {
+          ui.dirty = false;
+          build.rebuild(rows);
+          upgrades.rebuild(ups);
+          milestones.rebuild();
+          log.rebuild();
+          hero.setBuildings(rows);
+          hero.rebuild(ups);
+        }
+        hero.update(ups);
+        build.update(rows);
+        upgrades.update(ups);
+        milestones.update();
+        log.update();
+      }
     } catch (e) {
       reportError('ui:render', e);
     } finally {
@@ -235,6 +255,7 @@ async function mount(game) {
       const p = ui.perf;
       p.last = ms;
       p.frames++;
+      if (full) p.full++;
       p.avg += (ms - p.avg) / Math.min(p.frames, PERF_WINDOW);
       if (ms > p.max) p.max = ms;
     }

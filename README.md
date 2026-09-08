@@ -38,8 +38,8 @@ src/
   core/               state, events, registry, tick loop, public api, formatting, safety, the bot
   balance/            every tuning number (config.js) + probe/place tooling + plan.json
   resources/          resource metadata and the derived-rate math (income, growth, power, happiness)
-  buildings/          the 20-building catalogue, live synergy rules, unlock cadence
-  upgrades/           69 upgrades: the core ladder, pace and frontier rungs, 12 legacy-priced charter perks
+  buildings/          the 22-building catalogue, live synergy rules, unlock cadence
+  upgrades/           70 upgrades: the core ladder, pace and frontier rungs, 12 legacy-priced charter perks
   simulation/         the tick: fold mods, integrate, milestones, prestige, dashboard gates
   ui/                 the DOM: topbar, skyline, build panel, upgrades, Legacy panel, log, toasts, settings
   save/               localStorage autosave, export/import, offline catch-up, migrations, recovery
@@ -77,18 +77,18 @@ upgrades 8.5 — all passing.
 
 From `logs/sim-gauntlet.json` (`npm run sim -- --ticks 432000`, greedy bot, 2026-09-07):
 
-- **PASS, contract PASS**, 0 issues, 0 errors, ~18.7k ticks/s.
-- First founding at **41.8 min**; 32 foundings in 12 h. Cycles fall to a 5.6–7 min floor, then
-  plateau at 22–50 min; every cycle from the 5th on is ≤ ×1.346 the previous (contract ≤ ×1.35);
-  last cycle 23.3 min.
-- Every building and all 69 upgrades bought; no city after the 5th passes without something new.
-- The cheapest open upgrade sits 30 s – 15 min of income away in **53 %** of samples (contract ≥ 30 %).
-- Under-power **3.1 %** of the session, floor 0.60 (contract 3–20 %); happiness dips below 100 %
-  in 21 of 32 cities (contract ≥ 50 %).
-- Legacy 270,633 (127,476 spent on all twelve charter perks); money peak 2.8e16, income 8.5e14/s.
-- Saver profile (`logs/sim-saver.json`): PASS, contract PASS on the hard gates; 33 foundings,
-  first at 34.4 min, reach 69 %, legacy 379,439, 11 late cities with nothing new (documented in
-  `src/balance/config.js`).
+- **PASS, contract PASS**, 0 issues, 0 errors, ~20k ticks/s.
+- First founding at **41.1 min**; 34 foundings in 12 h. Cycles fall to a 6.5–7 min floor, then
+  plateau at 20–43 min; every cycle from the 5th on is ≤ ×1.343 the previous (contract ≤ ×1.35);
+  last cycle 18.1 min.
+- Every building and all 70 upgrades bought; no city after the 4th passes without something new.
+- The cheapest open upgrade sits 30 s – 15 min of income away in **41 %** of samples (contract ≥ 30 %).
+- Under-power **3.4 %** of the session, floor 0.60 (contract 3–20 %); happiness dips below 100 %
+  in 21 of 34 cities (contract ≥ 50 %).
+- Legacy 530,718 (213,186 spent on all twelve charter perks); money peak 3.1e17, income 4.4e15/s.
+- Saver profile (`logs/sim-saver.json`): PASS, contract PASS on the hard gates; 35 foundings,
+  first at 38.1 min, reach 62 %, legacy 746,168, money peak 4.8e17, 9 late cities with nothing new
+  (documented in `src/balance/config.js`, "What the saver brake is").
 
 Verify (`logs/gauntlet.json`, 10,000 ticks in Chrome): 0 errors, 0 warnings, 60.4 fps, tick
 0.012 ms average / 0.10 ms p99, no horizontal overflow.

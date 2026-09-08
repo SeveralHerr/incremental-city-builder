@@ -183,6 +183,38 @@ export function unlockLabel(m) {
   }
 }
 
+// Label for a teaser whose mirrored clause is already met (bar full, card still locked: the
+// rung waits on its other clause). The treasury figure is dropped — "$5.00B / $12,000 ✓" in
+// a replay city says nothing the hint does not, and clips in the 300px sidebar — so a hold
+// reads "$12,000 held ✓", earnings "$500,000 earned ✓", counts "3 / 3 built ✓".
+export function unlockMetLabel(m) {
+  if (!m) return '';
+  switch (m.kind) {
+    case 'money':
+      return `${money(m.t)} held ✓`;
+    case 'earned':
+      return `${money(m.t)} earned ✓`;
+    case 'powerAny':
+      return 'ready ✓';
+    default: {
+      const label = unlockLabel(m);
+      return label ? `${label} ✓` : '';
+    }
+  }
+}
+
+// The three quiet lines under a building card's stats — signature synergy, grid strain
+// (`demandGrowth.text`, tier-4 consumers: "draw +12.5% per District owned (up to ×40)") and
+// the power hint — as trimmed strings, '' when the def carries none. Pure.
+export function buildingLines(def) {
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  return {
+    synergy: def && def.synergy ? str(def.synergy.text) : '',
+    strain: def && def.demandGrowth ? str(def.demandGrowth.text) : '',
+    power: def ? str(def.powerHint) : '',
+  };
+}
+
 export function unlockProgress(at, state, derived, api) {
   const m = unlockMeasure(at, state, derived, api);
   if (!m) return null;

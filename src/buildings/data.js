@@ -1,7 +1,8 @@
 // Building catalogue — the 22 structures of Metropolis: five categories, four tiers in
 // every column plus two legacy-gated tier-5 megastructures (the Orbital Ring and the Space
-// Elevator) that open in the 17th and 24th city of a session, so the catalogue keeps
-// unveiling after the first founding instead of being spent in its first forty minutes.
+// Elevator) that open at 500 and 300,000 banked legacy — the 14th and 33rd city of a greedy
+// 12 h session — so the catalogue keeps unveiling after the first founding instead of being
+// spent in its first forty minutes.
 // Pure data, DOM-free. These are the module's *defaults*: `config.buildings[id]` in
 // src/balance/config.js may override any field per building and index.js merges it before
 // `registerBuilding`. Since the 2026-09-07 polish pass the defaults below are the shipped

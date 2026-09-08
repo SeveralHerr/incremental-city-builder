@@ -150,7 +150,7 @@ export function formatResource(id, value) {
 // if a balance pass drops the keys; set pollutionCap to 0 in config.js for the linear form.
 export const DEFAULTS = Object.freeze({
   economy: Object.freeze({ taxPerPop: 0.08, wage: 0.35 }),
-  pop: Object.freeze({ growthRate: 0.1, shrinkRate: 0.2, baseInflow: 0.5 }),
+  pop: Object.freeze({ growthRate: 0.11, shrinkRate: 0.2, baseInflow: 0.5 }),
   power: Object.freeze({ brownoutFloor: 0.6 }),
   happiness: Object.freeze({
     civicCap: 1.12,

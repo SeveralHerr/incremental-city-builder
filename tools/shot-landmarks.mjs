@@ -32,7 +32,7 @@ try {
       if (s.buildings[id] !== undefined) s.buildings[id] = n;
       else s.buildings[id] = n;
     }
-    for (const id of ['welcome-sign', 'neon-signage', 'green-belts', 'express-transit', 'container-port', 'tourism-board', 'regional-airport', 'grid-substations', 'orbital-solar', 'ringworld-district']) s.upgrades[id] = true;
+    for (const id of ['welcome-sign', 'green-belts', 'express-transit', 'container-port', 'tourism-board', 'regional-airport', 'grid-substations', 'orbital-solar', 'ringworld-district']) s.upgrades[id] = true;
     for (let i = 0; i < 3; i++) g.step();
     document.querySelectorAll('.toast, .toasts, .city-hint').forEach((el) => (el.style.display = 'none'));
     document.querySelector('.panel-city').style.cssText += ';width:1200px;height:600px;position:fixed;left:0;top:0;z-index:99';

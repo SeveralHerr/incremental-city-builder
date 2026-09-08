@@ -4,10 +4,10 @@
 //   sky    — gradient, stars, sun/moon, drifting parallax clouds (CSS animated, few nodes)
 //   city×3 — hills, then one SVG per depth row of silhouettes (rebuilt only when building
 //            counts change)
-//   fx×3   — windmills, smoke, fusion plants, signs, the ferris wheel, planes (CSS animated,
+//   fx×3   — windmills, smoke, fusion plants, the welcome sign, the ferris wheel, planes (CSS animated,
 //            few nodes), one SVG per depth row interleaved with the city rows so an animated
 //            sprite sits wholly in front of or behind its neighbours: a back-row windmill
-//            never cuts across a front-row shop sign
+//            never cuts across a front-row welcome sign
 //   top    — ground, night overlay, window lights, the empty-plot survey (two attributes
 //            touched at ~2.5 Hz)
 // Silhouettes are per building id (fallback per category) tinted with the category accent,
@@ -512,7 +512,7 @@ function plan(rows, colorOf) {
 // ---------- landmarks ----------
 // One-off set pieces unlocked by owning an upgrade. Each entry: which depth row it lives in,
 // whether it goes under (`behind`) or over the buildings of that row — or into the row's fx
-// layer (`fx`), above that row's animated parts, so a sign is never sliced by a windmill's
+// layer (`fx`), above that row's animated parts, so the welcome sign is never sliced by a windmill's
 // blades while its post hides behind the sign — and a draw function that
 // receives a light-weight context { g, lights, rnd, motion, shapes, at, rect, path, win, glow, fx }.
 // `shapes` are the planned silhouettes' footprints; `at(depth)` starts a group in another row.
@@ -552,72 +552,6 @@ export const LANDMARKS = {
       c.g.append(svg('circle', { cx: f1(x + 8), cy: f1(GROUND - 2.4), r: 2.6, fill: mixHex(TREE, '#1d3f36', 0.35) }));
       c.g.append(svg('circle', { cx: f1(x + 12), cy: f1(GROUND - 2), r: 2.1, fill: mixHex(TREE, '#1d3f36', 0.2) }));
       c.glow(x + 18, y + 7.5, 14, '#ffe4a0', 'sk-sign-glow');
-    },
-  },
-  // Neon signage: up to three storefront word-signs mounted on the roofs of real shops (front
-  // rows preferred, spread across the strip), so they read as the shops' signs rather than
-  // decorations near the houses. Before any shop stands they sit on posts along the strip.
-  'neon-signage': {
-    depth: 2,
-    fx: true,
-    draw(c) {
-      const signs = [
-        { word: 'DINER', color: '#ff4fa3' },
-        { word: 'OPEN', color: '#37e6ff' },
-        { word: 'BAR', color: '#ffe14a' },
-      ];
-      // Candidates: front- and mid-row shops (the back row is too small and too hidden), minus
-      // any whose sign would fall in the crop margin or on top of the welcome sign; the five
-      // lowest roofs win so signs stay at street level instead of crowning towers, then three
-      // are spread across the strip.
-      const pool = c.shapes.filter((sh) => sh.cat === 'commercial' && sh.depth >= 1 && sh.x + sh.w / 2 > 40 && sh.x + sh.w / 2 < W - 40 && !(sh.top > 150 && sh.x < 100 && sh.x + sh.w > 44));
-      const shops = pool
-        .sort((p, q) => q.top - p.top)
-        .slice(0, 5)
-        .sort((p, q) => p.x - q.x);
-      const spots = [];
-      if (shops.length) {
-        const n = Math.min(3, shops.length);
-        for (let i = 0; i < n; i++) spots.push({ ...shops[Math.round(((i + 0.5) / n) * shops.length - 0.5)], onRoof: true });
-      } else {
-        for (let i = 0; i < 3; i++) spots.push({ depth: 2, scale: 1, x: 296 + i * 50 + c.rnd() * 8, w: 30, top: GROUND - 30 - c.rnd() * 16, gy: GROUND, onRoof: false });
-      }
-      spots.forEach((spot, i) => {
-        const { word, color } = signs[i % 3];
-        const k = spot.scale;
-        const w = (8 + word.length * 4.2) * k;
-        const h = 9.5 * k;
-        const x = spot.x + spot.w / 2 - w / 2;
-        const y = spot.onRoof ? spot.top - h - 2.5 * k : spot.top;
-        c.at(spot.depth, true);
-        if (spot.onRoof) {
-          // Legs stand inside the building's footprint and run a fifth of the way down into it,
-          // so stepped or parapeted roofs (the shop's narrow crown) still visibly carry the sign.
-          const legLen = 2.5 * k + (spot.gy - spot.top) * 0.2;
-          const lx1 = Math.max(x + 2 * k, spot.x + 1);
-          const lx2 = Math.min(x + w - 3.2 * k, spot.x + spot.w - 1 - 1.2 * k);
-          c.rect(lx1, y + h, 1.2 * k, legLen, '#1a1f3d');
-          c.rect(lx2, y + h, 1.2 * k, legLen, '#1a1f3d');
-        } else {
-          c.rect(x + w / 2 - 0.9, y + h, 1.8, spot.gy - y - h, '#1a1f3d');
-        }
-        c.rect(x, y, w, h, '#141833', { rx: 1.2 * k });
-        c.rect(x + 0.6 * k, y + 0.6 * k, w - 1.2 * k, h - 1.2 * k, '#1e2448', { rx: 0.9 * k });
-        // The lettering and tube pulse in the row (under the night overlay); a still copy in
-        // the lights layer, above the overlay, is what makes the neon burn brightest after dark.
-        const lettering = (cls) => {
-          const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6 * k), 'text-anchor': 'middle', 'font-size': f1(4.6 * k), 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': f1(0.7 * k), class: cls });
-          t.textContent = word;
-          const tube = svg('rect', { x: f1(x + 2 * k), y: f1(y + 7 * k), width: f1(w - 4 * k), height: f1(1.1 * k), rx: f1(0.55 * k), fill: color, class: cls });
-          return [t, tube];
-        };
-        const [t, tube] = lettering('sk-neon');
-        t.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
-        tube.style.setProperty('--delay', `${(-i * 0.9 - 0.4).toFixed(1)}s`);
-        c.g.append(t, tube);
-        c.lights.append(...lettering(null));
-        c.glow(x + w / 2, y + h / 2, w * 0.6, color, 'sk-neon-glow');
-      });
     },
   },
   // Green belts: a hedgerow of round trees along the front of the plot.

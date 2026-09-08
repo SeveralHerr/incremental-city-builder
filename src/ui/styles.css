@@ -897,25 +897,9 @@ ul {
   }
 }
 
-.sk-neon {
-  animation: sk-neon 2.4s ease-in-out infinite;
-  animation-delay: var(--delay, 0s);
-}
-
-.sk-neon-glow,
 .sk-sign-glow,
 .sk-wheel-glow {
   opacity: 0.12;
-}
-
-@keyframes sk-neon {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -923,8 +907,7 @@ ul {
   .sk-train,
   .sk-plane,
   .sk-sat,
-  .sk-beacon,
-  .sk-neon {
+  .sk-beacon {
     animation: none;
   }
 }

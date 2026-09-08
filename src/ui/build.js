@@ -1,7 +1,7 @@
 // Build panel: category tabs + building cards with buy ×1 / ×10 / ×max / sell modes.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, prefersReducedMotion } from './dom.js';
 import { CATEGORY_GATES } from './content.js';
-import { unlockMeasure, unlockLabel, unlockDisplayKey, buildingLines } from './text.js';
+import { unlockMeasure, unlockLabel, unlockDisplayKey, buildingLines, strainNow } from './text.js';
 
 const MODES = [
   { id: 1, label: '×1', title: 'Buy one at a time' },
@@ -218,11 +218,14 @@ export function createBuildPanel(ui) {
     // `demandGrowth.text`: "draw +12.5% per District owned (up to ×40)" — a second, dimmer
     // synergy line in the power colour, so the card says its draw climbs before the grid
     // browns out) and the power hint the buildings module stamps on every consumer that
-    // draws at least a windmill's worth ("Draws 10,500 MW ≈ 0.9 × Nuclear Plant").
+    // draws at least a windmill's worth ("Draws 10,500 MW ≈ 0.9 × Nuclear Plant"). The
+    // strain line also carries the live factor ("×3.1 now", updateCard) so a fleet that
+    // draws 33× its sticker says so on the card, not only in the power chip.
     const lines = buildingLines(def);
-    const synergy = lines.synergy ? h('div.bcard-synergy', { title: lines.synergy }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span', { text: lines.synergy })]) : null;
-    const strain = lines.strain ? h('div.bcard-synergy.bcard-strain', { title: lines.strain }, [h('span.bcard-synergy-mark', { text: '↯', 'aria-hidden': 'true' }), h('span', { text: lines.strain })]) : null;
-    const powerLine = lines.power ? h('div.bcard-power', { title: lines.power }, [h('span.bcard-power-mark', { text: '⚡', 'aria-hidden': 'true' }), h('span', { text: lines.power })]) : null;
+    const synergy = lines.synergy ? h('div.bcard-synergy', { title: lines.synergy }, [h('span.bcard-synergy-mark', { text: '✦', 'aria-hidden': 'true' }), h('span.bcard-line-text', { text: lines.synergy })]) : null;
+    const strainNowEl = lines.strain ? h('span.bcard-strain-now.mono', { text: '' }) : null;
+    const strain = lines.strain ? h('div.bcard-synergy.bcard-strain', { title: lines.strain }, [h('span.bcard-synergy-mark', { text: '↯', 'aria-hidden': 'true' }), h('span.bcard-line-text', { text: lines.strain }), strainNowEl]) : null;
+    const powerLine = lines.power ? h('div.bcard-power', { title: lines.power }, [h('span.bcard-power-mark', { text: '⚡', 'aria-hidden': 'true' }), h('span.bcard-line-text', { text: lines.power })]) : null;
     const elc = h(`article.bcard.cat-${def.category}`, { dataset: { id: def.id } }, [
       h('div.bcard-icon', { text: def.icon || '🏢', 'aria-hidden': 'true' }),
       h('div.bcard-main', [
@@ -252,7 +255,7 @@ export function createBuildPanel(ui) {
       elc.classList.add('is-new');
       setTimeout(() => elc.classList.remove('is-new'), 6000);
     }
-    c = { el: elc, def, count, stats, total, btn, btnLabel, btnCost, fill, lastMode: null };
+    c = { el: elc, def, count, stats, total, btn, btnLabel, btnCost, fill, strainNow: strainNowEl, lastMode: null };
     cards.set(def.id, c);
     return c;
   }
@@ -319,6 +322,13 @@ export function createBuildPanel(ui) {
     setText(c.count, row.count > 0 ? '×' + num(row.count) : '');
     const mods = d.mods;
     for (const st of c.stats) setText(st.val, st.fmt(effectiveStat(def, st.key, mods)));
+    if (c.strainNow) {
+      // Live per-unit draw over the pinned sticker, as the buildings module reports them.
+      const b = game.buildings;
+      const live = typeof b?.liveStat === 'function' ? b.liveStat(def.id, 'powerUse') : undefined;
+      const base = typeof b?.baseStat === 'function' ? b.baseStat(def.id, 'powerUse') : undefined;
+      setText(c.strainNow, strainNow(live, base, def.demandGrowth?.cap));
+    }
 
     let n = 1;
     let cost = row.cost;

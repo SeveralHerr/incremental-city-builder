@@ -6,6 +6,11 @@
 // exportCorrupt (raw bytes of the parked unreadable save, '' if none), recoverSave (re-parses
 // the parked copy and restores it if it reads; false otherwise, the copy is kept).
 //
+// Events: 'save', 'load', 'catchup', 'offline', plus 'saveUnavailable' (storage blocked at
+// boot; the city will not persist) and 'saveConflict' (a second tab wrote a newer save; this
+// tab stops writing, saveStatus().otherTab is true). Envelope: { app, version, savedAt,
+// sessionId, state } — sessionId is per page load and optional on read (older saves lack it).
+//
 // Playtime: stats.playtime is what the topbar clock shows and must mean "time at the keyboard".
 // Catch-up ticks (offline or a throttled background tab) run the real loop, which adds DT per
 // tick, so stepScaled() restores playtime afterwards and books the time in stats.offlineTime.
@@ -41,8 +46,19 @@ const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 // Events that change the city in a way a 30 s autosave gap could lose. 'prestige' writes at
 // once; the others are debounced so a shopping burst is one write.
 const IMMEDIATE_SAVE_EVENTS = ['prestige'];
-const DEBOUNCED_SAVE_EVENTS = ['upgrade', 'milestone'];
+const DEBOUNCED_SAVE_EVENTS = ['upgrade', 'milestone', 'buy', 'sell'];
 const DEBOUNCE_SAVE_MS = 1500;
+// Multi-tab guard: every page load gets its own session id, written into the envelope. A
+// 'storage' event carrying a newer save from another id means a second tab owns the city
+// now; this tab stops writing (autosave, debounce and unload) so a stale copy never wins.
+const newSessionId = () => {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+};
 
 // Offline rule (one rule, both paths): the city grows at full rate while away, but cash earned
 // offline is credited at config.save.offlineEfficiency (0.5) whether the ticks were simulated
@@ -291,11 +307,15 @@ export async function init(game) {
     loadedAt: 0,
     catchingUp: false,
     lastOffline: null,
+    sessionId: newSessionId(),
+    otherTab: false, // another tab wrote a newer save; this tab no longer writes
   };
   game.saveInfo = info;
 
   let cfg = { ...DEFAULTS };
   let storage = null;
+  let autosaveTimer = null;
+  let debounced = 0;
   const autosaveOn = () => state.settings?.autosave !== false;
 
   // ---- catch-up (offline progress + background-tab throttling) ----
@@ -435,11 +455,11 @@ export async function init(game) {
     // While a catch-up is still pending, backdate savedAt by the un-simulated remainder so
     // closing the tab mid-catch-up never loses the time the player was owed.
     const savedAt = Date.now() - Math.round(pendingSeconds() * 1000);
-    return { app: APP_TAG, version: STATE_VERSION, savedAt, state };
+    return { app: APP_TAG, version: STATE_VERSION, savedAt, sessionId: info.sessionId, state };
   }
 
   function save(reason = 'manual') {
-    if (!storage) return false;
+    if (!storage || info.otherTab) return false;
     // hidden + pagehide + beforeunload fire back to back on tab close; one write is enough.
     if (UNLOAD_REASONS.has(reason) && info.lastSavedAt && Date.now() - info.lastSavedAt < MIN_AUTO_GAP_MS) return true;
     try {
@@ -580,6 +600,29 @@ export async function init(game) {
     return true;
   }
 
+  // A save written to SAVE_KEY by another document on this origin. Only a *newer* save from a
+  // *different* session id pauses this tab: our own writes never raise 'storage' here, and an
+  // older stamp (a tab that was closed mid-write) is nothing to yield to.
+  function onStorageEvent(e) {
+    if (info.otherTab || !e || e.key !== SAVE_KEY || typeof e.newValue !== 'string' || !e.newValue) return;
+    let obj = null;
+    try {
+      obj = JSON.parse(e.newValue);
+    } catch {
+      return;
+    }
+    if (!isObj(obj) || obj.sessionId === info.sessionId) return;
+    const theirs = num(obj.savedAt, 0);
+    const ours = Math.max(info.lastSavedAt, info.loadedAt);
+    if (theirs <= ours) return;
+    info.otherTab = true;
+    if (autosaveTimer !== null) clearInterval(autosaveTimer);
+    autosaveTimer = null;
+    clearTimeout(debounced);
+    addLog('This city is open in another tab; saving is paused here.', 'warn');
+    emit('saveConflict', { sessionId: obj.sessionId, savedAt: theirs });
+  }
+
   function saveStatus() {
     return {
       ...info,
@@ -608,7 +651,11 @@ export async function init(game) {
 
     storage = probeStorage();
     info.storage = !!storage;
-    if (!storage) console.warn('[save] localStorage is unavailable; progress will not persist this session.');
+    if (!storage) {
+      console.warn('[save] localStorage is unavailable; progress will not persist this session.');
+      addLog('Your browser is blocking storage; this city will not persist. Export it from Settings before closing.', 'warn');
+      emit('saveUnavailable', { reason: 'blocked' });
+    }
 
     const loaded = storage ? loadFromStorage() : null;
 
@@ -623,19 +670,18 @@ export async function init(game) {
     });
 
     if (typeof setInterval === 'function') {
-      const timer = setInterval(() => {
+      autosaveTimer = setInterval(() => {
         if (autosaveOn()) save('auto');
       }, cfg.autosaveSec * 1000);
-      timer?.unref?.(); // Node (tools/save-test.mjs): never keep the process alive for autosave
+      autosaveTimer?.unref?.(); // Node (tools/save-test.mjs): never keep the process alive for autosave
     }
     // Major state changes are written right away (prestige) or shortly after (upgrade,
-    // milestone) so a tab crash inside the 30 s window cannot replay the old city.
+    // milestone, buy, sell) so a tab crash inside the 30 s window cannot replay the old city.
     for (const name of IMMEDIATE_SAVE_EVENTS) {
       game.events?.on?.(name, () => {
         if (autosaveOn()) save(name);
       });
     }
-    let debounced = 0;
     for (const name of DEBOUNCED_SAVE_EVENTS) {
       game.events?.on?.(name, () => {
         if (catchUp.running || !autosaveOn()) return; // catch-up ends with its own save
@@ -657,6 +703,8 @@ export async function init(game) {
       window.addEventListener('beforeunload', () => {
         if (autosaveOn()) save('beforeunload');
       });
+      // Fires in every *other* document on this origin when SAVE_KEY changes.
+      window.addEventListener('storage', onStorageEvent);
     }
 
     // Offline progress starts once the UI is mounted and has painted once, so the toast has

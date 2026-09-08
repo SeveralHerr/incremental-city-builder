@@ -2,7 +2,8 @@
 // Pins the pure layer (codec, parseSave, runMigrations, coerceShape) and then runs
 // tools/save-test.mjs, which drives init() end to end with a stubbed localStorage (corrupt
 // parking + recoverSave, 2 h offline return at 50 %, background-tab catch-up at 100 %,
-// playtime untouched by catch-up, v99 save re-stamped to v1, quota errors).
+// playtime untouched by catch-up, v99 save re-stamped to v1, quota errors, multi-tab
+// conflict pause, blocked storage).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -53,6 +54,7 @@ test('parseSave accepts envelope and bare state, rejects junk', () => {
   const q = quiet();
   try {
     assert.equal(parseSave(wrap(city())).ok, true);
+    assert.equal(parseSave(wrap(city(), { sessionId: 'tab-a' })).ok, true, 'sessionId in the envelope is accepted');
     assert.equal(parseSave(JSON.stringify(city())).ok, true);
     for (const bad of ['', 'nope', '[]', '42', '{"state":5}', '{"state":{"tick":1}}', wrap(city(), { app: 'elsewhere' })]) {
       assert.equal(parseSave(bad).ok, false, bad);

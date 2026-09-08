@@ -85,10 +85,22 @@ export function createSettingsModal(ui, modal) {
     fmtSelect.value = s.numFormat === 'full' ? 'full' : 'short';
     fmtSelect.addEventListener('change', () => ui.setSetting('numFormat', fmtSelect.value));
 
+    // saveStatus() comes from the save module; `null` until it has registered. storage === false
+    // outside headless means the browser blocked localStorage (private mode, SecurityError).
+    const hasStatus = !!(game.registry && game.registry.actions && game.registry.actions.has('saveStatus'));
+    const status0 = hasStatus ? game.api.action('saveStatus') : null;
+    const saveInfo = status0 && typeof status0 === 'object' ? status0 : null;
+    const storageBlocked = !!saveInfo && saveInfo.storage === false && !saveInfo.headless;
+
     const autosave = h('input', { type: 'checkbox', id: 'set-autosave' });
     autosave.checked = s.autosave !== false;
     autosave.addEventListener('change', () => ui.setSetting('autosave', autosave.checked));
     const autosaveSec = ui.content.config?.save?.autosaveSec ?? 30;
+    let storageNote = null;
+    if (storageBlocked) {
+      autosave.disabled = true;
+      storageNote = h('p.form-note.is-warn', { text: 'Storage blocked; use Export' });
+    }
 
     const sfx = h('input', { type: 'checkbox', id: 'set-sfx' });
     sfx.checked = s.sfx !== false;
@@ -108,8 +120,11 @@ export function createSettingsModal(ui, modal) {
     saveBtn.addEventListener('click', () => {
       const r = game.api.action('save');
       if (r === undefined) note('Saving is not available yet.', 'warn');
-      else if (r === false) note('Could not save. Storage may be full or blocked by the browser.', 'bad');
-      else note('City saved.', 'ok');
+      else if (r === false) {
+        const now = game.api.action('saveStatus');
+        if (now && typeof now === 'object' && now.otherTab) note('This city is open in another tab; saving is paused here.', 'warn');
+        else note('Could not save. Storage may be full or blocked by the browser.', 'bad');
+      } else note('City saved.', 'ok');
     });
     const exportBtn = h('button.btn', { type: 'button', text: 'Export' });
     exportBtn.addEventListener('click', () => {
@@ -148,8 +163,7 @@ export function createSettingsModal(ui, modal) {
     // does not read) plus `exportCorrupt` (its raw bytes). The row only renders while such a
     // copy exists; nothing here is shown on a healthy profile.
     const hasRecover = !!(game.registry && game.registry.actions && game.registry.actions.has('recoverSave'));
-    const status0 = hasRecover ? game.api.action('saveStatus') : null;
-    const parked = hasRecover && (status0 && typeof status0 === 'object' ? status0.hasCorrupt === true : game.api.action('exportCorrupt') !== '');
+    const parked = hasRecover && (saveInfo ? saveInfo.hasCorrupt === true : game.api.action('exportCorrupt') !== '');
     let recoverSection = null;
     if (parked) {
       const recoverBtn = h('button.btn', { type: 'button', text: 'Recover previous save' });
@@ -220,6 +234,7 @@ export function createSettingsModal(ui, modal) {
         h('h3.form-title', { text: 'Display' }),
         h('label.form-row', [h('span', { text: 'Number format' }), fmtSelect]),
         h('label.form-row', [h('span', { text: `Autosave every ${autosaveSec} s` }), autosave]),
+        storageNote,
         h('label.form-row', [h('span', { text: 'Sound effects' }), sfx]),
         h('label.form-row', [h('span', { text: 'Tutorial tips' }), tutorial]),
       ]),

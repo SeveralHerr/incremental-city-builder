@@ -7,13 +7,15 @@
 // corrupt (unreadable save parked, recoverSave action), offline (2 h return: 50 % credit,
 // playtime untouched, welcome line), background (throttled tab: full credit, no notice
 // below 5 min), newer (v99 save loads and re-saves as v1 without a repeat warning),
-// welcome (a reload 3 s after the autosave logs no greeting).
+// welcome (a reload 3 s after the autosave logs no greeting), tabs (session id in the
+// envelope, buy/sell debounce, a newer save from another tab pauses this one), blocked
+// (localStorage throws at boot: log line, 'saveUnavailable', export still works).
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 const SELF = fileURLToPath(import.meta.url);
-const SCENARIOS = ['parse', 'content', 'corrupt', 'offline', 'background', 'newer', 'welcome'];
+const SCENARIOS = ['parse', 'content', 'corrupt', 'offline', 'background', 'newer', 'welcome', 'tabs', 'blocked'];
 const which = process.argv.includes('--scenario') ? process.argv[process.argv.indexOf('--scenario') + 1] : null;
 
 if (!which) {
@@ -344,6 +346,80 @@ const scenarios = {
     ok(game.action('save') === false, 'quota error surfaces as false');
     ok(/could not write/.test(warnings[warnings.length - 1] || ''), 'quota warning logged');
     ok(game.action('saveStatus').lastSaveError !== null, 'lastSaveError set');
+  },
+
+  async tabs() {
+    // A minimal window: the save module only needs addEventListener to hook 'storage'.
+    const listeners = {};
+    globalThis.window = { addEventListener: (name, fn) => (listeners[name] = listeners[name] || []).push(fn) };
+    store.set(SAVE_KEY, envelope(cityState(), { savedAgoSec: 3 }));
+    const game = makeGame();
+    const conflicts = [];
+    events.on('saveConflict', (p) => conflicts.push(p));
+    const saves = [];
+    events.on('save', (p) => saves.push(p));
+    await save.init(game);
+    const status = game.action('saveStatus');
+    ok(typeof status.sessionId === 'string' && status.sessionId.length >= 8, 'a session id is issued per load');
+    ok(status.otherTab === false, 'no conflict at boot');
+    ok(game.action('save') === true, 'manual save writes');
+    const env = JSON.parse(store.get(SAVE_KEY));
+    ok(env.sessionId === status.sessionId, 'envelope carries the session id');
+    ok(parseSave(store.get(SAVE_KEY)).ok, 'an envelope with sessionId parses');
+    ok(parseSave(envelope(cityState())).ok, 'an envelope without sessionId (older build) still parses');
+    ok(listeners.storage && listeners.storage.length === 1, "'storage' listener installed");
+
+    // buy/sell bursts collapse into one debounced write
+    saves.length = 0;
+    events.emit('buy', { id: 'house', n: 1 });
+    events.emit('buy', { id: 'house', n: 1 });
+    events.emit('sell', { id: 'house', n: 1 });
+    await wait(1700);
+    ok(saves.length === 1 && saves[0].reason === 'sell', `shopping burst saved once (${saves.map((s) => s.reason).join(',')})`);
+
+    const fire = (e) => listeners.storage.forEach((fn) => fn(e));
+    // Unrelated key, removal, junk, our own id, an older stamp: all ignored.
+    fire({ key: 'other.key', newValue: '{}' });
+    fire({ key: SAVE_KEY, newValue: null });
+    fire({ key: SAVE_KEY, newValue: 'not json' });
+    fire({ key: SAVE_KEY, newValue: JSON.stringify({ ...env, savedAt: Date.now() + 5000 }) });
+    fire({ key: SAVE_KEY, newValue: JSON.stringify({ ...env, sessionId: 'other-tab', savedAt: env.savedAt - 60000 }) });
+    ok(game.action('saveStatus').otherTab === false && conflicts.length === 0, 'unrelated, own and older writes are ignored');
+    ok(game.action('save') === true, 'still saving after ignored events');
+
+    // A newer save from another session pauses this tab for good.
+    const theirs = JSON.stringify({ ...env, sessionId: 'other-tab', savedAt: Date.now() + 1000, state: cityState({ res: { money: 9999, pop: 1 } }) });
+    store.set(SAVE_KEY, theirs);
+    fire({ key: SAVE_KEY, newValue: theirs });
+    ok(game.action('saveStatus').otherTab === true, 'saveStatus reports otherTab');
+    ok(conflicts.length === 1 && conflicts[0].sessionId === 'other-tab', "'saveConflict' emitted once");
+    ok(logHas(/open in another tab/), 'player is told saving is paused');
+    ok(game.action('save') === false, 'manual save refused');
+    events.emit('prestige', {});
+    events.emit('buy', { id: 'house', n: 1 });
+    await wait(1700);
+    ok(store.get(SAVE_KEY) === theirs, "the other tab's save is never overwritten");
+    fire({ key: SAVE_KEY, newValue: theirs });
+    ok(conflicts.length === 1, 'a repeat write does not re-emit the conflict');
+    ok(state.res.money !== 9999 && state.res.money >= 1234, `this tab keeps running its own city (${state.res.money})`);
+  },
+
+  async blocked() {
+    globalThis.localStorage.setItem = () => {
+      throw new Error('SecurityError: The operation is insecure.');
+    };
+    const game = makeGame();
+    const unavailable = [];
+    events.on('saveUnavailable', (p) => unavailable.push(p));
+    await save.init(game);
+    const status = game.action('saveStatus');
+    ok(status.storage === false && status.headless === false, 'storage reported blocked');
+    ok(unavailable.length === 1, "'saveUnavailable' emitted once");
+    ok(logHas(/blocking storage/), 'player is told to export');
+    ok(warnings.some((w) => /unavailable/.test(w)), 'console warning kept');
+    ok(game.action('save') === false, 'save refuses without storage');
+    const code = game.action('exportSave');
+    ok(typeof code === 'string' && code.length > 0 && parseSave(decodePayload(code)).ok, 'export still works');
   },
 };
 

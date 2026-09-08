@@ -94,7 +94,9 @@ export function createBuildPanel(ui) {
     if (d.powerDemand > 0 && d.powerCap <= 0 && wind && wind.unlocked) {
       return { n: 3, icon: '⚡', cat: 'power', title: 'The lights are out.', text: 'Every building draws power, and a brownout cuts income and growth. Build a windmill in the Power tab.', hint: (def) => def.powerGen > 0 && def.tier === 1 };
     }
-    if (s.unlocks && s.unlocks['panel:upgrades'] && Object.keys(s.upgrades || {}).length === 0) {
+    // The panel gate survives a founding, so check for a rung that is actually open.
+    if (s.unlocks && s.unlocks['panel:upgrades'] && Object.keys(s.upgrades || {}).length === 0
+      && game.api.upgrades().some((u) => u.unlocked && !u.owned)) {
       return { n: 4, icon: '🔧', title: 'Your first upgrade is ready.', text: 'Upgrades multiply what you already own. Open the Upgrades panel and buy the first one you can afford.' };
     }
     const park = row('park');

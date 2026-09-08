@@ -2763,3 +2763,174 @@ input[type='checkbox'] {
     max-height: 92vh;
   }
 }
+
+/* ---------- Short viewports (landscape phones, small windows): page scroll, no inner panes ---------- */
+@media (max-height: 640px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #app {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .shell {
+    display: block;
+    height: auto;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .layout {
+    grid-template-rows: auto;
+    align-items: start;
+    min-height: 0;
+  }
+  .col,
+  .col-side {
+    overflow: visible;
+    max-height: none;
+    padding-right: 0;
+  }
+}
+
+/* ---------- Phone (< 900px): the panels people act on come first ---------- */
+@media (max-width: 900px) {
+  .col {
+    display: contents;
+  }
+  .panel-city {
+    order: 1;
+  }
+  .panel-build {
+    order: 2;
+  }
+  .panel-prestige {
+    order: 3;
+  }
+  .panel-upgrades {
+    order: 4;
+  }
+  .panel-next {
+    order: 5;
+  }
+  .panel-milestones {
+    order: 6;
+  }
+  .panel-stats {
+    order: 7;
+  }
+  .panel-log {
+    order: 8;
+  }
+}
+
+/* Phone layout is a flex column: panels must stretch (the short-viewport grid rule above
+   sets align-items: start for the tablet/desktop grids only). */
+@media (max-width: 900px) {
+  .layout {
+    align-items: stretch;
+  }
+  .panel {
+    width: auto;
+    max-width: none;
+  }
+}
+@media (max-width: 900px) and (min-width: 700px) {
+  .chip {
+    flex: 1 1 calc(25% - 6px);
+  }
+}
+
+/* ---------- Round 1 (phone review): toasts off the skyline, city view fits a landscape screen ---------- */
+@media (max-width: 900px) {
+  .toasts {
+    position: fixed;
+    inset: auto 0 0 0;
+    height: 0;
+    z-index: 60;
+  }
+  .toast-stack {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 12px;
+    flex-direction: column-reverse;
+  }
+  .toast {
+    padding: 8px 12px 9px;
+  }
+}
+@media (max-height: 640px) {
+  .city-view {
+    min-height: 180px;
+    max-height: 62vh;
+  }
+}
+@media (max-width: 900px) {
+  /* .panel's contain: paint would trap the fixed toast host inside the city panel. */
+  .panel-city {
+    contain: none;
+  }
+}
+
+/* ---------- Round 2 (landscape review): one toast at a time on short screens ---------- */
+@media (max-height: 640px) {
+  .toast-stack .toast:not(:last-child) {
+    display: none;
+  }
+}
+
+/* ---------- Round 3 (phone review): locked upgrade cards keep price on the title row ---------- */
+@media (max-width: 900px) {
+  .ucard.is-locked {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+  }
+  .ucard.is-locked .ucard-buy.ucard-lock {
+    grid-column: auto;
+    width: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: end;
+  }
+  .toast-stack .toast:not(:last-child) {
+    display: none;
+  }
+}
+
+/* ---------- Round 4 (phone review): compact sticky header ---------- */
+@media (max-width: 700px) {
+  .topbar {
+    padding: 6px 10px 8px;
+    gap: 4px 8px;
+  }
+  .chips {
+    gap: 6px;
+  }
+  .chip {
+    padding: 6px 9px;
+    min-height: 0;
+    gap: 7px;
+  }
+  .chip-icon {
+    font-size: 15px;
+  }
+  .chip-label {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+  .chip-value {
+    font-size: 13.5px;
+  }
+  .chip-sub {
+    display: none;
+  }
+}

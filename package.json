@@ -7,6 +7,7 @@
     "serve": "node tools/serve.mjs",
     "verify": "node tools/verify.mjs",
     "sim": "node tools/economy-sim.mjs",
+    "shots": "node tools/shots.mjs",
     "test": "node tools/test.mjs"
   },
   "dependencies": {

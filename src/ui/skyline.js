@@ -1,10 +1,15 @@
 // Skyline: an SVG city that grows with state.buildings.
 //
-// Three stacked SVGs share one viewBox so continuous animation never repaints the heavy layer:
-//   sky  — gradient, stars, sun/moon, drifting parallax clouds (CSS animated, few nodes)
-//   city — hills, silhouettes in three depth rows, ground, night overlay, window lights
-//          (rebuilt only when building counts change; two attributes touched at ~2.5 Hz)
-//   fx   — windmill blades, smoke, reactor glow (CSS animated, few nodes)
+// Eight stacked SVGs share one viewBox so continuous animation never repaints a heavy layer:
+//   sky    — gradient, stars, sun/moon, drifting parallax clouds (CSS animated, few nodes)
+//   city×3 — hills, then one SVG per depth row of silhouettes (rebuilt only when building
+//            counts change)
+//   fx×3   — windmills, smoke, fusion plants, signs, the ferris wheel, planes (CSS animated,
+//            few nodes), one SVG per depth row interleaved with the city rows so an animated
+//            sprite sits wholly in front of or behind its neighbours: a back-row windmill
+//            never cuts across a front-row shop sign
+//   top    — ground, night overlay, window lights, the empty-plot survey (two attributes
+//            touched at ~2.5 Hz)
 // Silhouettes are per building id (fallback per category) tinted with the category accent,
 // count-scaled on a log curve so one cottage and a thousand towers both read well, placed with
 // a seeded PRNG so buying more never reshuffles what is already standing.
@@ -131,6 +136,9 @@ function makeCtx(shape, layers, budget) {
   const lights = svg('g');
   const light = mixHex(LIGHT[shape.cat] || '#ffd98a', '#ffffff', 0.1);
   const ctx = {
+    // Set by a drawer whose animated part must stay z-ordered with its static parts: the
+    // whole group then goes to the row's fx layer instead of the row.
+    inFx: false,
     x,
     gy,
     w,
@@ -322,7 +330,11 @@ const SHAPES = {
     // The hub sits at the wrapper's origin so the CSS rotation composes with the placement.
     const wrap = svg('g', { transform: `translate(${f1(cx)} ${f1(c.gy - ph)})` });
     wrap.append(blades);
-    c.fx(wrap);
+    // Pole and blades leave together for the row's fx layer (`inFx`): a windmill is then
+    // wholly in front of, or wholly behind, every neighbour — never a pole hidden by a
+    // house with the blades still cutting across its roof.
+    c.g.append(wrap);
+    c.inFx = true;
   },
   coal(c) {
     const bh = c.h * 0.42;
@@ -368,9 +380,12 @@ const SHAPES = {
     c.path(`M${f1(c.x)} ${f1(c.gy)} A${f1(r)} ${f1(dh)} 0 0 1 ${f1(c.x + c.w)} ${f1(c.gy)} Z`, shade(c.body, 0.06));
     c.path(`M${f1(c.x + r * 0.25)} ${f1(c.gy - dh * 0.5)} A${f1(r * 0.75)} ${f1(dh * 0.5)} 0 0 1 ${f1(c.x + c.w - r * 0.25)} ${f1(c.gy - dh * 0.5)}`, 'none', { stroke: c.edge, 'stroke-width': 1, opacity: c.edgeOp * 0.7 });
     c.rect(cx - 1, c.gy - c.h, 2, c.h - dh + 2, shade(c.body, 0.2));
-    c.glow(cx, c.gy - dh * 0.55, r * 0.22, '#9be7ff');
+    // The pulsing core lives in the row's fx layer, under the night overlay; the wider glow
+    // in the lights layer is what keeps the reactor reading lit after dark.
+    c.glow(cx, c.gy - dh * 0.55, r * 0.36, '#9be7ff');
     const core = svg('circle', { cx: f1(cx), cy: f1(c.gy - dh * 0.55), r: f1(r * 0.42), fill: '#7fd9ff', class: 'sk-core' });
-    c.fx(core);
+    c.g.append(core);
+    c.inFx = true; // dome and core stay one sprite (see windmill)
     for (let i = 0; i < 4; i++) c.win(c.x + r * 0.35 + i * (r * 0.33), c.gy - dh * 0.18, r * 0.18, 1.6, 0.9, '#b8f0ff');
   },
   park(c) {
@@ -496,7 +511,9 @@ function plan(rows, colorOf) {
 
 // ---------- landmarks ----------
 // One-off set pieces unlocked by owning an upgrade. Each entry: which depth row it lives in,
-// whether it goes under (`behind`) or over the buildings of that row, and a draw function that
+// whether it goes under (`behind`) or over the buildings of that row — or into the row's fx
+// layer (`fx`), above that row's animated parts, so a sign is never sliced by a windmill's
+// blades while its post hides behind the sign — and a draw function that
 // receives a light-weight context { g, lights, rnd, motion, shapes, at, rect, path, win, glow, fx }.
 // `shapes` are the planned silhouettes' footprints; `at(depth)` starts a group in another row.
 // Keyed by upgrade id; `ui.test.mjs` asserts every key is a real upgrade so a rename can't
@@ -515,6 +532,7 @@ export const LANDMARKS = {
   // xMidYMax "slice" crop on narrow panels (~25 units a side) never trims the word.
   'welcome-sign': {
     depth: 2,
+    fx: true,
     draw(c) {
       const x = 56;
       const y = GROUND - 34;
@@ -541,6 +559,7 @@ export const LANDMARKS = {
   // decorations near the houses. Before any shop stands they sit on posts along the strip.
   'neon-signage': {
     depth: 2,
+    fx: true,
     draw(c) {
       const signs = [
         { word: 'DINER', color: '#ff4fa3' },
@@ -570,7 +589,7 @@ export const LANDMARKS = {
         const h = 9.5 * k;
         const x = spot.x + spot.w / 2 - w / 2;
         const y = spot.onRoof ? spot.top - h - 2.5 * k : spot.top;
-        c.at(spot.depth);
+        c.at(spot.depth, true);
         if (spot.onRoof) {
           // Legs stand inside the building's footprint and run a fifth of the way down into it,
           // so stepped or parapeted roofs (the shop's narrow crown) still visibly carry the sign.
@@ -584,13 +603,19 @@ export const LANDMARKS = {
         }
         c.rect(x, y, w, h, '#141833', { rx: 1.2 * k });
         c.rect(x + 0.6 * k, y + 0.6 * k, w - 1.2 * k, h - 1.2 * k, '#1e2448', { rx: 0.9 * k });
-        const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6 * k), 'text-anchor': 'middle', 'font-size': f1(4.6 * k), 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': f1(0.7 * k), class: 'sk-neon' });
-        t.textContent = word;
+        // The lettering and tube pulse in the row (under the night overlay); a still copy in
+        // the lights layer, above the overlay, is what makes the neon burn brightest after dark.
+        const lettering = (cls) => {
+          const t = svg('text', { x: f1(x + w / 2), y: f1(y + 5.6 * k), 'text-anchor': 'middle', 'font-size': f1(4.6 * k), 'font-weight': 700, 'font-family': 'var(--font)', fill: color, 'letter-spacing': f1(0.7 * k), class: cls });
+          t.textContent = word;
+          const tube = svg('rect', { x: f1(x + 2 * k), y: f1(y + 7 * k), width: f1(w - 4 * k), height: f1(1.1 * k), rx: f1(0.55 * k), fill: color, class: cls });
+          return [t, tube];
+        };
+        const [t, tube] = lettering('sk-neon');
         t.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
-        c.g.append(t);
-        const tube = svg('rect', { x: f1(x + 2 * k), y: f1(y + 7 * k), width: f1(w - 4 * k), height: f1(1.1 * k), rx: f1(0.55 * k), fill: color, class: 'sk-neon' });
         tube.style.setProperty('--delay', `${(-i * 0.9 - 0.4).toFixed(1)}s`);
-        c.g.append(tube);
+        c.g.append(t, tube);
+        c.lights.append(...lettering(null));
         c.glow(x + w / 2, y + h / 2, w * 0.6, color, 'sk-neon-glow');
       });
     },
@@ -647,11 +672,12 @@ export const LANDMARKS = {
       c.glow(x + 23, GROUND - h - 3, 1.4, '#ff6b6b', 'sk-beacon');
     },
   },
-  // A slowly turning ferris wheel for the tourists.
+  // A slowly turning ferris wheel for the tourists, up front so the whole wheel shows. Stands
+  // at 136 so it clears the welcome sign (56–92) and the airport tower (34).
   'tourism-board': {
-    depth: 1,
+    depth: 2,
     draw(c) {
-      const cx = 92;
+      const cx = 136;
       const r = 24;
       const cy = GROUND - r - 8;
       c.path(`M${f1(cx - 14)} ${f1(GROUND)} L${f1(cx)} ${f1(cy)} L${f1(cx + 14)} ${f1(GROUND)} Z`, '#2a3260');
@@ -744,7 +770,7 @@ export const LANDMARKS = {
   },
 };
 
-function drawLandmarks(ownedUpgrades, layers, rows, lightRows, shapes = []) {
+function drawLandmarks(ownedUpgrades, fxLayers, rows, lightRows, shapes = []) {
   const motion = !prefersReducedMotion();
   // Screen-space footprint of every planned silhouette, so set pieces can anchor to buildings.
   const footprints = shapes.map((sh) => {
@@ -757,17 +783,20 @@ function drawLandmarks(ownedUpgrades, layers, rows, lightRows, shapes = []) {
     if (!lm) continue;
     const rnd = prng(hash(id));
     const groups = [];
+    let depth = lm.depth;
     const c = {
       g: null,
       lights: null,
       rnd,
       motion,
       shapes: footprints,
-      // Start (or switch to) a group in the given depth row; draws go there until the next call.
-      at(depth) {
+      // Start (or switch to) a group in the given depth row (or, with `toFx`, that row's fx
+      // layer); draws and fx go there until the next call.
+      at(d, toFx = !!lm.fx) {
+        depth = d;
         c.g = svg('g', { class: 'sk-lm', 'data-landmark': id });
         c.lights = svg('g');
-        groups.push({ depth, g: c.g, lights: c.lights });
+        groups.push({ depth, g: c.g, lights: c.lights, toFx });
       },
       rect(rx, ry, rw, rh, fill, extra = null) {
         c.g.append(svg('rect', { x: f1(rx), y: f1(ry), width: f1(Math.max(0.5, rw)), height: f1(Math.max(0.5, rh)), fill, ...(extra || {}) }));
@@ -783,14 +812,15 @@ function drawLandmarks(ownedUpgrades, layers, rows, lightRows, shapes = []) {
         c.lights.append(svg('circle', { cx: f1(cx), cy: f1(cy), r: f1(r), fill: color, class: cls || null }));
       },
       fx(el) {
-        layers.fx.append(el);
+        fxLayers[depth].append(el);
       },
     };
     c.at(lm.depth);
     lm.draw(c);
     for (const grp of groups) {
       if (!grp.g.childNodes.length && !grp.lights.childNodes.length) continue;
-      if (lm.behind) rows[grp.depth].prepend(grp.g);
+      if (grp.toFx) fxLayers[grp.depth].append(grp.g);
+      else if (lm.behind) rows[grp.depth].prepend(grp.g);
       else rows[grp.depth].append(grp.g);
       if (grp.lights.childNodes.length) lightRows[grp.depth].append(grp.lights);
     }
@@ -801,8 +831,10 @@ function drawLandmarks(ownedUpgrades, layers, rows, lightRows, shapes = []) {
 export function createSkyline(host, ui) {
   const mk = (cls) => svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMidYMax slice', class: `skyline ${cls}`, 'aria-hidden': 'true' });
   const sky = mk('sk-sky');
-  const city = mk('sk-city');
-  const fx = mk('sk-fx');
+  // One static city SVG and one animated fx SVG per depth row, interleaved back to front.
+  const cities = [mk('sk-city'), mk('sk-city'), mk('sk-city')];
+  const fxs = [mk('sk-fx'), mk('sk-fx'), mk('sk-fx')];
+  const top = mk('sk-top');
 
   // --- sky ---
   const defs = svg('defs');
@@ -863,20 +895,21 @@ export function createSkyline(host, ui) {
   // Hills: a daytime blue underneath, the night indigo on top fading in with the dark.
   const farHill = `M0 ${GROUND - 30} C 70 ${GROUND - 62}, 130 ${GROUND - 26}, 210 ${GROUND - 48} S 370 ${GROUND - 70}, ${W} ${GROUND - 34} V ${GROUND} H 0 Z`;
   const nearHill = `M0 ${GROUND - 18} C 90 ${GROUND - 34}, 160 ${GROUND - 12}, 250 ${GROUND - 26} S 400 ${GROUND - 40}, ${W} ${GROUND - 16} V ${GROUND} H 0 Z`;
-  city.append(svg('path', { d: farHill, fill: '#3b5aa6', opacity: 0.9 }), svg('path', { d: nearHill, fill: '#2b4287' }));
+  cities[0].append(svg('path', { d: farHill, fill: '#3b5aa6', opacity: 0.9 }), svg('path', { d: nearHill, fill: '#2b4287' }));
   const hillsNight = svg('g', { opacity: 0 });
   hillsNight.append(svg('path', { d: farHill, fill: '#182452', opacity: 0.85 }), svg('path', { d: nearHill, fill: '#121b40' }));
-  city.append(hillsNight);
+  cities[0].append(hillsNight);
   const rows = [svg('g', { class: 'sk-row-back' }), svg('g', { class: 'sk-row-mid' }), svg('g', { class: 'sk-row-front' })];
-  city.append(...rows);
-  city.append(svg('rect', { x: 0, y: GROUND, width: W, height: H - GROUND, fill: 'url(#sk-ground)' }));
-  city.append(svg('rect', { x: 0, y: GROUND, width: W, height: 1.5, fill: '#ffffff', opacity: 0.12 }));
-  city.append(svg('rect', { x: 0, y: GROUND + 9, width: W, height: 7, fill: '#0a0e1d' }));
-  city.append(svg('path', { d: `M0 ${GROUND + 12.5} H ${W}`, stroke: '#3b4470', 'stroke-width': 0.8, 'stroke-dasharray': '6 5', opacity: 0.6 }));
+  rows.forEach((r, i) => cities[i].append(r));
+  // The ground gradient references the sky's <defs>; same document, so the url() resolves.
+  top.append(svg('rect', { x: 0, y: GROUND, width: W, height: H - GROUND, fill: 'url(#sk-ground)' }));
+  top.append(svg('rect', { x: 0, y: GROUND, width: W, height: 1.5, fill: '#ffffff', opacity: 0.12 }));
+  top.append(svg('rect', { x: 0, y: GROUND + 9, width: W, height: 7, fill: '#0a0e1d' }));
+  top.append(svg('path', { d: `M0 ${GROUND + 12.5} H ${W}`, stroke: '#3b4470', 'stroke-width': 0.8, 'stroke-dasharray': '6 5', opacity: 0.6 }));
   const nightRect = svg('rect', { x: 0, y: 0, width: W, height: H, fill: '#03061a', opacity: 0 });
-  city.append(nightRect);
+  top.append(nightRect);
   const lights = svg('g', { class: 'sk-lights', opacity: 0 });
-  city.append(lights);
+  top.append(lights);
   const lamps = svg('g');
   for (let i = 0; i < 9; i++) lamps.append(svg('circle', { cx: f1(26 + i * 53.5), cy: GROUND + 5, r: 1.1, fill: '#ffe4a0', opacity: 0.85 }));
   const lampsGlow = svg('g');
@@ -887,9 +920,9 @@ export function createSkyline(host, ui) {
   const plot = svg('rect', { x: W / 2 - 70, y: GROUND - 8, width: 140, height: 8, rx: 2, fill: 'none', stroke: 'rgba(255,255,255,0.3)', 'stroke-dasharray': '4 4' });
   const survey = svg('g', { class: 'sk-survey' });
   survey.append(plot, emptyLabel);
-  city.append(survey);
+  top.append(survey);
 
-  host.append(sky, city, fx);
+  host.append(sky, cities[0], fxs[0], cities[1], fxs[1], cities[2], fxs[2], top);
 
   // --- rebuild on count change ---
   let signature = '';
@@ -901,7 +934,7 @@ export function createSkyline(host, ui) {
     signature = sig;
     for (const r of rows) clear(r);
     clear(lights);
-    clear(fx);
+    for (const f of fxs) clear(f);
     const empty = owned.length === 0;
     survey.style.display = empty ? '' : 'none';
     if (empty) return;
@@ -910,13 +943,13 @@ export function createSkyline(host, ui) {
     const lightRows = [svg('g'), svg('g'), svg('g')];
     const shapes = plan(owned, colorOf);
     for (const shape of shapes) {
-      const ctx = makeCtx(shape, { fx }, budget);
+      const ctx = makeCtx(shape, { fx: fxs[shape.depth] }, budget);
       const draw = SHAPES[shape.id] || BY_CATEGORY[shape.cat] || block;
       draw(ctx);
-      rows[shape.depth].append(ctx.g);
+      (ctx.inFx ? fxs[shape.depth] : rows[shape.depth]).append(ctx.g);
       if (ctx.lights.childNodes.length) lightRows[shape.depth].append(ctx.lights);
     }
-    drawLandmarks(marks, { fx }, rows, lightRows, shapes);
+    drawLandmarks(marks, fxs, rows, lightRows, shapes);
     lightRows[0].setAttribute('opacity', 0.55);
     lightRows[1].setAttribute('opacity', 0.8);
     lights.append(lampsGlow, ...lightRows, lamps);
@@ -975,5 +1008,5 @@ export function createSkyline(host, ui) {
   }
 
   apply(phase);
-  return { el: city, update, tick, setPhase, phase: () => phase };
+  return { el: host, update, tick, setPhase, phase: () => phase };
 }

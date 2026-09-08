@@ -734,7 +734,9 @@ ul {
   transform-origin: 50% 100%;
 }
 
-/* Three stacked SVGs: sky (animated clouds), city (static, rebuilt on events), fx (animated). */
+/* Stacked SVGs: sky (animated clouds), then per depth row a static city layer and an animated
+   fx layer, then the top layer (ground, night overlay, lights). Animated layers get their own
+   compositor layer so a spinning blade never repaints a thousand windows. */
 .skyline {
   position: absolute;
   inset: 0;
@@ -748,7 +750,8 @@ ul {
   will-change: transform;
 }
 
-.sk-fx {
+.sk-fx,
+.sk-top {
   pointer-events: none;
 }
 
@@ -780,7 +783,6 @@ ul {
 
 .sk-blades {
   animation: sk-spin var(--spin, 7s) linear infinite;
-  opacity: calc(1 - var(--sk-night, 0) * 0.55);
 }
 
 @keyframes sk-spin {

@@ -9,7 +9,28 @@ export const registry = {
   actions: new Map(), // name -> fn
   buildingOrder: [],
   upgradeOrder: [],
+  guards: [], // every guard() wrapper handed out below, so resetGuards() can reach them all
+  resetGuards,
 };
+
+// Wrap `fn` with guard() and remember the wrapper. A guard that tripped (3 consecutive throws,
+// or 10 in a window) stays disabled for the session otherwise; a save load or a prestige
+// replaces the state that made it throw, so those paths call resetGuards() to give every
+// callback a fresh start. Returns the number of guards that were disabled before the reset.
+function wrap(owner, fn) {
+  const g = guard(owner, fn);
+  registry.guards.push(g);
+  return g;
+}
+
+export function resetGuards() {
+  let tripped = 0;
+  for (const g of registry.guards) {
+    if (g.isDisabled()) tripped++;
+    g.reset();
+  }
+  return tripped;
+}
 
 const REQUIRED_BUILDING = ['id', 'name', 'baseCost', 'costGrowth'];
 const REQUIRED_UPGRADE = ['id', 'name', 'cost', 'effect'];
@@ -83,7 +104,7 @@ export function registerBuilding(def) {
       sellRefund: 0.5,
       ...def,
     };
-    d.unlock = def.unlock ? guard(`building:${def.id}:unlock`, def.unlock) : null;
+    d.unlock = def.unlock ? wrap(`building:${def.id}:unlock`, def.unlock) : null;
     registry.buildings.set(d.id, d);
     registry.buildingOrder.push(d.id);
     return d;
@@ -98,8 +119,8 @@ export function registerUpgrade(def) {
     validate(def, REQUIRED_UPGRADE, 'upgrade');
     if (registry.upgrades.has(def.id)) throw new Error(`upgrade ${def.id} already registered`);
     const d = { icon: '⚡', desc: '', category: 'general', tier: 1, ...def };
-    d.effect = guard(`upgrade:${def.id}:effect`, def.effect);
-    d.unlock = def.unlock ? guard(`upgrade:${def.id}:unlock`, def.unlock) : null;
+    d.effect = wrap(`upgrade:${def.id}:effect`, def.effect);
+    d.unlock = def.unlock ? wrap(`upgrade:${def.id}:unlock`, def.unlock) : null;
     registry.upgrades.set(d.id, d);
     registry.upgradeOrder.push(d.id);
     return d;
@@ -115,7 +136,7 @@ export function registerTickHandler(name, fn, priority = 100) {
     return;
   }
   registry.tickHandlers = registry.tickHandlers.filter((h) => h.name !== name);
-  registry.tickHandlers.push({ name, fn: guard(`tick:${name}`, fn), priority });
+  registry.tickHandlers.push({ name, fn: wrap(`tick:${name}`, fn), priority });
   registry.tickHandlers.sort((a, b) => a.priority - b.priority);
 }
 
@@ -124,7 +145,7 @@ export function registerAction(name, fn) {
     reportError('registry', new Error(`action ${name} not a function`));
     return;
   }
-  registry.actions.set(name, guard(`action:${name}`, fn));
+  registry.actions.set(name, wrap(`action:${name}`, fn));
 }
 
 export function getBuilding(id) {

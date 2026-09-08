@@ -621,6 +621,7 @@ export function init(game) {
       return performPrestige(state, config, (s) => {
         markFounding(before);
         resetRunBookkeeping(s, derived);
+        registry.resetGuards(); // a fresh city: callbacks disabled by the old run get another go
       });
     });
     registerAction('tap', () => tap(state, derived));

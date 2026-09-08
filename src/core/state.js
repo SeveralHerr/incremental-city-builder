@@ -61,8 +61,10 @@ const BAD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_DEPTH = 16;
 
 // Deep-merge `src` into `dst` for plain objects; arrays and primitives replaced.
-// Prototype-polluting keys are skipped and recursion only follows keys `dst` itself owns, so
-// loadState(JSON.parse(untrusted)) can never reach Object.prototype.
+// Nested objects missing from `dst` are created as fresh `{}` (a nested object `dst` inherits
+// rather than owns is never walked into), prototype-polluting keys are skipped, and recursion
+// stops past MAX_DEPTH (16) nested levels — an object that deep is created but left empty —
+// so loadState(JSON.parse(untrusted)) can never reach Object.prototype or blow the stack.
 function mergeInto(dst, src, depth = 0) {
   if (depth > MAX_DEPTH) return dst;
   for (const k of Object.keys(src)) {

@@ -481,6 +481,8 @@ export async function init(game) {
   function applyState(st) {
     cancelCatchUp();
     loadState(st);
+    // The state that made a callback throw is gone: let disabled guards try again.
+    registry.resetGuards();
     info.loadedAt = Date.now();
   }
 

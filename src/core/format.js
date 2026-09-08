@@ -77,12 +77,17 @@ export function fmtInt(n) {
   return Math.abs(n) < 1e6 ? (Math.trunc(n) || 0).toLocaleString('en-US') : fmt(n);
 }
 
+// `digits` is the decimals shown below 1000%. From 1000% up the value goes through fmt() so a
+// late-game bonus reads "1.00Qa%" / "1.00e38%" like every other big number on screen, never
+// "1000000000000000%" or "1e+38%".
 export function fmtPct(x, digits = 0) {
   if (!Number.isFinite(x)) return '—';
   digits = Number.isInteger(digits) && digits >= 0 ? Math.min(digits, 20) : 0;
+  const pct = Math.abs(x) * 100;
+  if (pct >= 1000) return fmt(x * 100) + '%';
   const neg = x < 0;
   // Floor rule like fmt(): 0.999 -> "99%", never "100%"; -0.001 -> "0%", never "-0%".
-  return signed(neg, floorFixed(Math.abs(x) * 100, digits)) + '%';
+  return signed(neg, floorFixed(pct, digits)) + '%';
 }
 
 export function fmtTime(sec) {

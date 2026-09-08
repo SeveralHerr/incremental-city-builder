@@ -22,7 +22,8 @@
 // browser figures are logs/<tag>.json tickStats, the Node ones logs/sim-*.json ticksPerSec).
 //
 // Bookkeeping that is not part of the saved state (the pending milestone list, the brownout
-// hysteresis, the tap meter, the bank a founding started from) lives in one object per game
+// hysteresis, the tap meter, the bank a founding started from, the milestone carry-over
+// window) lives in one object per game
 // (game._sim, created by init and reused by a second init of the same game — init is
 // idempotent per game object). The exported simulate/tap/recompute/markFounding read the
 // active book, which init points at the game it was last called with, so a second game
@@ -152,20 +153,32 @@ const GATES = [
 // exists and demand outruns it), clear at full power. The entry line is rate-limited (a
 // grid flickering around capacity would otherwise spam the log); the recovery line is
 // logged whenever the entry was, so a logged brownout always resolves in the log. Both
-// transitions emit 'brownout' regardless of the log cooldown, so the UI's grid warning
-// tracks every brownout the milestone or the topbar can show.
+// transitions emit 'brownout' regardless of the log cooldown. The event is emitted for the
+// UI (currently only a render-refresh trigger in ui/index.js REFRESH_EVENTS; nothing
+// renders a grid warning off it — the topbar polls derived.powerRatio).
 const BROWNOUT_LOG_COOLDOWN = 20; // game seconds between logged entries
 
 // Precomputed unlock keys (registry is populated before simulation init).
 let powerBuildingKeys = [];
 let upgradeKeys = [];
 
+// Milestones re-latch every run. The ones a veteran re-collects in the first second of a
+// replay (legacy tiers, founding counts, tap rungs) carry over rather than happen: they latch
+// (the rewards fold, the panel shows them reached) without a log line or a 'milestone' event,
+// so a founding does not announce twelve old trophies again. A tier crossed by *this* founding
+// (the bank just passed it, or the founding count just reached it) is news and still fires.
+// The window opens whenever the state is rebuilt under the sim (recompute: load, import,
+// hard reset, founding, init) and runs CARRY_OVER_WINDOW game seconds from state.time at
+// that moment — not from t = 0, so a save loaded mid-run after a content update that added
+// tiers the mayor already exceeds latches them all as old news instead of toasting each.
+const CARRY_OVER_WINDOW = 1; // game seconds
+
 // Per-game bookkeeping that is not part of the saved state (see the header). The pending
 // list is a fixed array of MILESTONES indices plus a count (list order, compacted in place
 // on latch), rebuilt only when something outside the tick can change state.unlocks — load,
 // import, hard reset, founding — all of which go through resetRunBookkeeping and set
 // pendingDirty. The tap meter fields are documented at tap() below; legacyBefore at
-// markFounding().
+// markFounding(); carryOverUntil at CARRY_OVER_WINDOW above (set by recompute()).
 export function createBookkeeping() {
   return {
     pending: new Int32Array(MILESTONES.length),
@@ -175,6 +188,7 @@ export function createBookkeeping() {
     brownoutLogged: false, // the current brownout got its log line
     lastBrownoutLogAt: -Infinity,
     legacyBefore: 0, // the bank before the latest founding (or at load: the whole bank)
+    carryOverUntil: CARRY_OVER_WINDOW, // state.time until which re-latched tiers are old news
     tapCredit: Infinity, // seconds of output banked; clamped to the cap on the next tap
     tapCreditAt: 0, // state.time the meter was last settled
   };
@@ -302,10 +316,12 @@ function ensurePrestigeExtra(derived) {
 }
 
 // Recompute derived values without advancing time (after load, prestige, init). The state
-// was rebuilt under us, so the milestone bookkeeping resyncs on the next tick too and the
-// tap meter starts full.
+// was rebuilt under us, so the milestone bookkeeping resyncs on the next tick too (with the
+// carry-over window open from now: whatever the rebuilt state already exceeds is old news,
+// see CARRY_OVER_WINDOW) and the tap meter starts full.
 export function recompute(state, derived) {
   book.pendingDirty = true;
+  book.carryOverUntil = (Number.isFinite(state.time) ? state.time : 0) + CARRY_OVER_WINDOW;
   resetTapMeter(book, state);
   return refreshDerived(state, derived);
 }
@@ -379,13 +395,6 @@ function integrate(state, derived, dt) {
 
 // --- milestones & gates --------------------------------------------------------
 
-// Milestones re-latch every run. The ones a veteran re-collects in the first second of a
-// replay (legacy tiers, founding counts) carry over rather than happen: they latch (the
-// rewards fold, the panel shows them reached) without a log line or a 'milestone' event, so
-// a founding does not announce twelve old trophies again. A tier crossed by *this* founding
-// (the bank just passed it, or the founding count just reached it) is news and still fires.
-const CARRY_OVER_WINDOW = 1; // game seconds
-
 // Record the bank a founding started from (book.legacyBefore), so the tiers it crosses
 // are announced.
 export function markFounding(before) {
@@ -404,7 +413,7 @@ function checkMilestones(b, state, derived) {
   if (b.pendingDirty) refreshPending(b, state);
   const unlocks = state.unlocks;
   const pending = b.pending;
-  const replayStart = state.stats.prestiges > 0 && state.time < CARRY_OVER_WINDOW;
+  const replayStart = state.stats.prestiges > 0 && state.time < b.carryOverUntil;
   let rewarded = false;
   for (let i = 0; i < b.pendingCount; i++) {
     const ms = MILESTONES[pending[i]];
@@ -453,8 +462,10 @@ function checkGates(state, derived) {
 
 // The same predicate as the Lights Out milestone (a grid must exist: the first cottage
 // draws power before any generator can be bought, and that is not a brownout worth a log
-// line), so the milestone toast, the log line and the 'brownout' event the UI's grid
-// warning listens for always describe the same tick.
+// line), so the milestone toast, the log line and the 'brownout' event always describe the
+// same tick. The event is emitted for the UI (currently only a render-refresh trigger in
+// ui/index.js REFRESH_EVENTS; nothing renders a grid warning off it — the topbar polls
+// derived.powerRatio).
 function watchGrid(b, state, derived) {
   const ratio = derived.powerRatio;
   if (!b.inBrownout) {

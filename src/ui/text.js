@@ -203,6 +203,53 @@ export function unlockMetLabel(m) {
   }
 }
 
+// A one-line hint derived from the mirror alone, for a locked upgrade teaser whose definition
+// forgot its `unlockHint` (the upgrades module lints for that, so this is a safety net, not
+// the normal path): "Reach 1,000 citizens", "Hold $80", "Build 3 × Corner shop", ... Pure;
+// `nameOf(id)` resolves a building id to its display name and may be omitted.
+export function unlockFallbackHint(at, nameOf) {
+  const generic = 'Grow the city to reveal this idea.';
+  if (!at || typeof at !== 'object') return generic;
+  for (const key of KEY_ORDER) {
+    if (!(key in at)) continue;
+    const t = at[key];
+    switch (key) {
+      case 'pop':
+        if (finitePositive(t)) return `Reach ${num(t)} citizens`;
+        break;
+      case 'powerDemand':
+        if (finitePositive(t)) return t < 1 ? 'Draw any power' : `Draw ${short(t)} MW`;
+        break;
+      case 'money':
+        if (finitePositive(t)) return `Hold ${money(t)}`;
+        break;
+      case 'earned':
+        if (finitePositive(t)) return `Earn ${money(t)} in total`;
+        break;
+      case 'building': {
+        const id = typeof t === 'string' ? t : '';
+        if (!id) break;
+        const count = finitePositive(at.count) ? at.count : 1;
+        const name = (typeof nameOf === 'function' && nameOf(id)) || id;
+        return `Build ${num(count)} × ${name}`;
+      }
+      case 'legacy':
+        if (finitePositive(t)) return `Bank ${LEGACY_GLYPH} ${num(Math.ceil(t))} legacy`;
+        break;
+      case 'legacyAvailable':
+        if (finitePositive(t)) return `Hold ${LEGACY_GLYPH} ${num(Math.ceil(t))} spendable legacy`;
+        break;
+      case 'built':
+        if (finitePositive(t)) return `Build ${num(t)} buildings in total`;
+        break;
+      case 'upgrades':
+        if (finitePositive(t)) return `Fund ${num(t)} upgrades`;
+        break;
+    }
+  }
+  return generic;
+}
+
 // The three quiet lines under a building card's stats — signature synergy, grid strain
 // (`demandGrowth.text`, tier-4 consumers: "draw +12.5% per District owned (up to ×40)") and
 // the power hint — as trimmed strings, '' when the def carries none. Pure.

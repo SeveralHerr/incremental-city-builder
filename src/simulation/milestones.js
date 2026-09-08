@@ -56,8 +56,10 @@ function ownsAnyUpgrade(s) {
 }
 
 // The one definition of a brownout, shared by the Lights Out milestone, the simulation's
-// grid watcher (the log line and the 'brownout' event the UI's grid warning listens for,
-// index.js watchGrid) and the topbar's amber ratio bar: a grid must exist, and demand
+// grid watcher (the log line and the 'brownout' event, index.js watchGrid — the event is
+// emitted for the UI; currently only a render-refresh trigger in ui/index.js, nothing
+// renders a grid warning off it, the topbar polls derived.powerRatio) and the topbar's
+// amber ratio bar: a grid must exist, and demand
 // outruns it (ratio < 1). The windmill only unlocks once something draws power, so the
 // very first cottage always sits on a capacity of zero for a tick or two; that is not a
 // brownout worth a milestone (it would fire Lights Out at t=0 for every player).

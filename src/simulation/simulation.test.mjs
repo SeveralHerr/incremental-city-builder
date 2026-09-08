@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { state, derived, loadState, createInitialState, resetState } from '../core/state.js';
-import { on, off } from '../core/events.js';
+import { on, off, emit } from '../core/events.js';
 import { registerBuilding, registry } from '../core/registry.js';
 import { config } from '../balance/config.js';
 import { DEFAULTS, LEGACY_POWER_MAX, SEED_SECONDS_MAX, prestigeTuning, economyTuning, milestoneTuning, foundingTuning } from './tuning.js';
@@ -1201,6 +1201,41 @@ test('init is idempotent per game object: the bookkeeping lives on game._sim and
   assert.deepEqual(Object.keys(createBookkeeping()).sort(), Object.keys(book).sort());
   init(game); // back to the first game's book for the tests that follow
   assert.equal(bookkeeping(), book);
+  loadState({});
+  markFounding(0);
+});
+
+test('a save loaded mid-run latches the tiers it already exceeds silently (the carry-over window opens at load, not at t = 0)', () => {
+  ensureTestBuildings();
+  loadState({});
+  const game = { state, derived };
+  init(game);
+  // A veteran's save from before these tiers existed: eight cities founded, a bank of 55,
+  // 300 lifetime taps, nothing latched, an hour and a half into the run. The 'load' event
+  // resyncs the book; the first tick latches every tier without a log line or an event —
+  // prestige-8 does not exist, so no founding count "just happened".
+  loadState({ res: { money: 500, pop: 0 }, stats: { prestiges: 8, clicks: 300 }, prestige: { legacy: 55, lifetimeEarned: 1e10 }, time: 5000, tick: 50000 });
+  const seen = [];
+  const onMs = (m) => seen.push(m.id);
+  const logBefore = state.log.length;
+  on('milestone', onMs);
+  emit('load', { source: 'storage', savedAt: 0 });
+  assert.equal(bookkeeping().carryOverUntil, 5001, 'the window runs from the loaded time');
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  const tiers = ['prestige-1', 'prestige-5', 'prestige-6', 'prestige-7', 'legacy-5', 'legacy-15', 'legacy-50', 'taps-25', 'taps-250'];
+  for (const id of tiers) assert.equal(state.unlocks['m:' + id], true, `${id} latched`);
+  assert.deepEqual(seen, [], 'no milestone event');
+  assert.deepEqual(state.log.slice(logBefore).filter((l) => l.kind === 'milestone'), [], 'no log line');
+  // Past the window a tier reached mid-run is news again.
+  state.time = 5002;
+  state.prestige.legacy = 100;
+  seen.length = 0;
+  on('milestone', onMs);
+  simulate(state, derived, 0.1);
+  off('milestone', onMs);
+  assert.deepEqual(seen, ['legacy-100']);
+  assert.match(state.log[state.log.length - 1].msg, /Century Bank/);
   loadState({});
   markFounding(0);
 });

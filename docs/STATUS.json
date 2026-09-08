@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-08T00:54:14.817Z",
+  "updated": "2026-09-07T12:00:00.000Z",
   "iteration": 8,
   "passThreshold": 8.5,
   "modules": {
@@ -241,13 +241,15 @@
         "save": 8.5
       },
       "note": "wrap-up: final fix round stopped early (credits); upgrades+buildings fixes committed, ui+balance fixes not run; see open[]"
+    },
+    {
+      "at": "2026-09-07T12:00:00.000Z",
+      "note": "Integrator batch: 6 workflow branches merged (ui teaser hint, strain card, save multi-tab, layout orphans, core guards/fmtPct, sim carry-over) + panel carry-over bug fix. npm test 9/9, verify PASS, sim default 34 foundings/530,718 legacy PASS, sim saver 35/746,168 PASS."
     }
   ],
   "open": [
-    "balance: saver bot profile (npm run sim -- --saver) exceeds magnitude gate (money ~2.1e18 > 1e18, legacy ~1.46M > 1e6, 14 late cities with nothing new); default profile passes every contract metric (34 foundings, reach 41%, under-power 3.4%, 0 empty cycles)",
-    "balance: cadence margin thin (max cycle ratio ~1.34 vs 1.35 line); balance.test.mjs skips saver assertions when its log is absent",
-    "ui: locked money-upgrade rungs not rendered with unlock hints (data ready in upgrades unlockHint/unlockAt); grid-strain demandGrowth.text not shown on build cards",
-    "upgrades/buildings: earnings doors on Standing Orders/Archives/Memory and Orbital Ring text fix landed after the last critic pass (uncritiqued; tests green)",
+    "balance: cadence margin thin (max cycle ratio ~1.34 vs 1.35 line); balance.test.mjs skips saver assertions when its log is absent. NOTE 2026-09-07: fresh --saver 12h run now PASSES contract (35 foundings, legacy 746k, money 2.79e16) so the magnitude item is closed; keep re-checking both profiles after any income change",
+    "uncritiqued (2026-09-07 batch, tests+verify+both sims green): panel:* dashboard gates survive a founding (stats card no longer vanishes on new city; tutorial step 4 now waits for an open rung); locked-teaser fallback hint from unlockAt; live grid-strain x N now on build cards; save multi-tab storage listener + session id + storage-blocked warning + buy/sell debounced saves; stat-grid orphan tiles fixed (3-col); core registry.resetGuards() after load and on founding, fmtPct compacts >=1000%; milestone carry-over window on load",
     "uncritiqued additions (2026-09-07): mobile layout <900px (single column, 44px targets), Web Audio sfx with settings toggle, six-step state-driven tutorial with dismiss toggle"
   ]
 }

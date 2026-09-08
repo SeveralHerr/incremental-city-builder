@@ -174,13 +174,22 @@ export function createHero(ui) {
   const el = h('section.col.col-hero', [cityPanel, nextPanel, prestigePanel, statsPanel]);
 
   // Called on rebuild frames only (buy/sell/prestige/load/offline events + safety net).
+  let lastRows = [];
+  let ownedUpgrades = [];
   function setBuildings(list) {
-    skyline.update(list);
+    lastRows = list || [];
+    skyline.update(lastRows, ownedUpgrades);
   }
 
-  // Charter perks re-render with the upgrade rows the render loop already fetched.
+  // Charter perks re-render with the upgrade rows the render loop already fetched; owned
+  // upgrades also feed the skyline's landmarks (ferris wheel, monorail, pylons...).
   function rebuild(upgradeRows) {
     charter.rebuild(upgradeRows);
+    const ids = (upgradeRows || []).filter((u) => u && u.owned).map((u) => u.id);
+    if (ids.join('|') !== ownedUpgrades.join('|')) {
+      ownedUpgrades = ids;
+      skyline.update(lastRows, ownedUpgrades);
+    }
   }
 
   // Every frame: the sky, clouds and windmills keep moving between ticks.

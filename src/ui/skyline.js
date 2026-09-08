@@ -9,7 +9,10 @@
 // count-scaled on a log curve so one cottage and a thousand towers both read well, placed with
 // a seeded PRNG so buying more never reshuffles what is already standing.
 //
-// Public shape: createSkyline(host, ui) -> { el, update(rows), tick(dt), setPhase(p), phase() }
+// Landmarks (LANDMARKS) are one-off set pieces keyed by owned upgrade id: a ferris wheel, a
+// monorail, pylons, a ringworld arc.
+//
+// Public shape: createSkyline(host, ui) -> { el, update(rows, ownedUpgradeIds), tick(dt), setPhase(p), phase() }
 import { svg, clear, prefersReducedMotion } from './dom.js';
 
 const W = 480;
@@ -491,6 +494,220 @@ function plan(rows, colorOf) {
   return shapes;
 }
 
+// ---------- landmarks ----------
+// One-off set pieces unlocked by owning an upgrade. Each entry: which depth row it lives in,
+// whether it goes under (`behind`) or over the buildings of that row, and a draw function that
+// receives a light-weight context { g, lights, rnd, motion, rect, path, win, glow, fx }.
+// Keyed by upgrade id; `ui.test.mjs` asserts every key is a real upgrade so a rename can't
+// silently orphan a set piece.
+export const LANDMARKS = {
+  // A roadside billboard on two posts at the town's edge.
+  'welcome-sign': {
+    depth: 2,
+    draw(c) {
+      const x = 22;
+      const y = GROUND - 30;
+      c.rect(x + 3, y + 12, 1.6, GROUND - y - 12, '#22284a');
+      c.rect(x + 27, y + 12, 1.6, GROUND - y - 12, '#22284a');
+      c.rect(x, y, 32, 13, '#f3e7c5', { rx: 1 });
+      c.rect(x + 1, y + 1, 30, 11, '#2b3a7a', { rx: 0.6 });
+      const t = svg('text', { x: f1(x + 16), y: f1(y + 9.2), 'text-anchor': 'middle', 'font-size': 6.4, 'font-weight': 700, 'font-family': 'var(--font)', fill: '#fff2c8', 'letter-spacing': 0.4 });
+      t.textContent = 'WELCOME';
+      c.g.append(t);
+      c.glow(x + 16, y + 6.5, 12, '#ffe4a0', 'sk-sign-glow');
+    },
+  },
+  // Neon strip along the strip: three pulsing tubes in the front row.
+  'neon-signage': {
+    depth: 2,
+    draw(c) {
+      const colors = ['#ff4fa3', '#37e6ff', '#ffe14a'];
+      for (let i = 0; i < 3; i++) {
+        const x = 300 + i * 46 + c.rnd() * 10;
+        const y = GROUND - 32 - c.rnd() * 18;
+        c.rect(x, y, 14, 4.5, '#1a1f3d', { rx: 1 });
+        c.rect(x + 6.5, y + 4.5, 1, GROUND - y - 4.5, '#1a1f3d');
+        const tube = svg('rect', { x: f1(x + 1.5), y: f1(y + 1.5), width: 11, height: 1.5, rx: 0.75, fill: colors[i], class: 'sk-neon' });
+        tube.style.setProperty('--delay', `${(-i * 0.9).toFixed(1)}s`);
+        c.lights.append(tube);
+        c.glow(x + 7, y + 2.2, 7, colors[i], 'sk-neon-glow');
+      }
+    },
+  },
+  // Green belts: a hedgerow of round trees along the front of the plot.
+  'green-belts': {
+    depth: 2,
+    behind: true,
+    draw(c) {
+      for (let i = 0; i < 16; i++) {
+        const x = 8 + i * 30 + c.rnd() * 12;
+        const r = 3 + c.rnd() * 2.2;
+        c.rect(x - 0.6, GROUND - r * 1.6, 1.2, r * 1.6, '#2a3a2e');
+        c.g.append(svg('circle', { cx: f1(x), cy: f1(GROUND - r * 1.7), r: f1(r), fill: mixHex(TREE, '#1d3f36', 0.25 + c.rnd() * 0.3) }));
+      }
+    },
+  },
+  // Elevated monorail across the mid row with a train that glides through.
+  'express-transit': {
+    depth: 1,
+    draw(c) {
+      const y = GROUND - 44;
+      for (let x = 30; x < W; x += 60) c.rect(x - 1.2, y + 2, 2.4, GROUND - y - 2, '#1c2244');
+      c.rect(0, y, W, 2.4, '#2c3568');
+      c.rect(0, y - 0.8, W, 0.8, '#5c6ab3', { opacity: 0.8 });
+      const train = svg('g', { class: 'sk-train' });
+      for (let k = 0; k < 3; k++) {
+        train.append(svg('rect', { x: f1(k * 15), y: f1(y - 6.5), width: 14, height: 6, rx: 1.6, fill: '#d8e2ff' }));
+        for (let w = 0; w < 4; w++) train.append(svg('rect', { x: f1(k * 15 + 1.8 + w * 3.1), y: f1(y - 5), width: 2, height: 2.2, fill: '#3d64c9', opacity: 0.85 }));
+      }
+      train.append(svg('rect', { x: 0, y: f1(y - 3.6), width: 1.6, height: 1.4, fill: '#ffd98a' }));
+      if (!c.motion) train.setAttribute('transform', 'translate(180 0)');
+      c.fx(train);
+    },
+  },
+  // A dockside gantry crane and stacked containers at the right-hand edge.
+  'container-port': {
+    depth: 0,
+    draw(c) {
+      const x = W - 92;
+      const h = 58;
+      c.rect(x + 4, GROUND - h, 2.2, h, '#2a3260');
+      c.rect(x + 42, GROUND - h, 2.2, h, '#2a3260');
+      c.rect(x - 8, GROUND - h - 2, 70, 2.4, '#3a4478');
+      c.rect(x + 20, GROUND - h - 1, 6, 4, '#3a4478');
+      c.rect(x + 22.5, GROUND - h + 2, 1, 22, '#4b5691');
+      c.rect(x + 18, GROUND - h + 24, 10, 4.5, '#ef7a3a');
+      const cols = ['#ef7a3a', '#3d8ef0', '#39b26f', '#e0c341'];
+      for (let i = 0; i < 6; i++) {
+        const cx = x - 6 + i * 11;
+        const stack = 1 + Math.floor(c.rnd() * 3);
+        for (let k = 0; k < stack; k++) c.rect(cx, GROUND - 5 * (k + 1), 10, 4.5, cols[(i + k) % 4], { rx: 0.4 });
+      }
+      c.glow(x + 23, GROUND - h - 3, 1.4, '#ff6b6b', 'sk-beacon');
+    },
+  },
+  // A slowly turning ferris wheel for the tourists.
+  'tourism-board': {
+    depth: 1,
+    draw(c) {
+      const cx = 92;
+      const r = 24;
+      const cy = GROUND - r - 8;
+      c.path(`M${f1(cx - 14)} ${f1(GROUND)} L${f1(cx)} ${f1(cy)} L${f1(cx + 14)} ${f1(GROUND)} Z`, '#2a3260');
+      const wheel = svg('g', { class: 'sk-wheel' });
+      wheel.append(svg('circle', { cx: 0, cy: 0, r, fill: 'none', stroke: '#8a93c9', 'stroke-width': 1.4 }));
+      wheel.append(svg('circle', { cx: 0, cy: 0, r: r * 0.62, fill: 'none', stroke: '#8a93c9', 'stroke-width': 0.8, opacity: 0.7 }));
+      const cars = ['#ff6b6b', '#ffd166', '#06d6a0', '#4cc9f0', '#f78fd0', '#ffa552'];
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2;
+        wheel.append(svg('line', { x1: 0, y1: 0, x2: f1(Math.cos(a) * r), y2: f1(Math.sin(a) * r), stroke: '#8a93c9', 'stroke-width': 0.7 }));
+        wheel.append(svg('rect', { x: f1(Math.cos(a) * r - 2.2), y: f1(Math.sin(a) * r - 1.6), width: 4.4, height: 3.6, rx: 1, fill: cars[i % 6] }));
+      }
+      wheel.append(svg('circle', { cx: 0, cy: 0, r: 2.4, fill: '#c7cdf2' }));
+      wheel.style.setProperty('--spin', '48s');
+      const wrap = svg('g', { transform: `translate(${cx} ${f1(cy)})` });
+      wrap.append(wheel);
+      c.fx(wrap);
+      c.glow(cx, cy, r + 3, '#ffd166', 'sk-wheel-glow');
+    },
+  },
+  // Control tower with a beacon and a small plane on approach across the sky.
+  'regional-airport': {
+    depth: 0,
+    draw(c) {
+      const x = 34;
+      c.rect(x, GROUND - 54, 6, 54, '#2a3260');
+      c.path(`M${f1(x - 6)} ${f1(GROUND - 54)} L${f1(x + 12)} ${f1(GROUND - 54)} L${f1(x + 10)} ${f1(GROUND - 66)} L${f1(x - 4)} ${f1(GROUND - 66)} Z`, '#3a4478');
+      c.win(x - 3, GROUND - 64, 12, 6, 1, '#b8ecff');
+      c.glow(x + 3, GROUND - 68, 1.6, '#ff6b6b', 'sk-beacon');
+      const plane = svg('g', { class: 'sk-plane' });
+      plane.append(svg('path', { d: 'M0 0 L14 0 L17 1.4 L14 2.8 L0 2.8 L-3 1.4 Z', fill: '#e6ecff' }));
+      plane.append(svg('path', { d: 'M5 1.4 L9 -4 L11 -4 L8.5 1.4 Z', fill: '#c3ccf5' }));
+      plane.append(svg('path', { d: 'M5 1.4 L9 6.5 L11 6.5 L8.5 1.4 Z', fill: '#aeb8ea' }));
+      plane.append(svg('circle', { cx: 16.5, cy: 1.4, r: 0.9, fill: '#ff6b6b', class: 'sk-beacon' }));
+      if (!c.motion) plane.setAttribute('transform', 'translate(300 40)');
+      c.fx(plane);
+    },
+  },
+  // Transmission pylons strung across the back row.
+  'grid-substations': {
+    depth: 0,
+    behind: true,
+    draw(c) {
+      const xs = [70, 190, 310, 430];
+      const top = GROUND - 78;
+      for (const x of xs) {
+        c.path(`M${f1(x - 7)} ${f1(GROUND)} L${f1(x - 1.6)} ${f1(top)} L${f1(x + 1.6)} ${f1(top)} L${f1(x + 7)} ${f1(GROUND)} Z`, '#3a4478');
+        c.rect(x - 9, top + 8, 18, 1.2, '#3a4478');
+        c.rect(x - 6, top + 18, 12, 1.2, '#3a4478');
+      }
+      const sag = 9;
+      const d = xs.slice(0, -1).map((x, i) => `M${f1(x - 9)} ${f1(top + 8)} Q ${f1((x + xs[i + 1]) / 2)} ${f1(top + 8 + sag)} ${f1(xs[i + 1] - 9)} ${f1(top + 8)}`).join(' ');
+      c.g.append(svg('path', { d, fill: 'none', stroke: '#5c6ab3', 'stroke-width': 0.6, opacity: 0.8 }));
+    },
+  },
+  // A satellite glinting as it crosses the night sky.
+  'orbital-solar': {
+    depth: 0,
+    draw(c) {
+      const sat = svg('g', { class: 'sk-sat' });
+      sat.append(svg('rect', { x: -7, y: -1, width: 5, height: 2, fill: '#5aa0ff', opacity: 0.9 }));
+      sat.append(svg('rect', { x: 2, y: -1, width: 5, height: 2, fill: '#5aa0ff', opacity: 0.9 }));
+      sat.append(svg('rect', { x: -1.2, y: -1.4, width: 2.4, height: 2.8, rx: 0.5, fill: '#e6ecff' }));
+      if (!c.motion) sat.setAttribute('transform', 'translate(360 40)');
+      c.fx(sat);
+    },
+  },
+  // The ringworld: a vast pale arc spanning the sky behind everything.
+  'ringworld-district': {
+    depth: 0,
+    behind: true,
+    draw(c) {
+      const d = `M-40 ${GROUND + 20} Q ${W / 2} -150 ${W + 40} ${GROUND + 20}`;
+      c.g.append(svg('path', { d, fill: 'none', stroke: '#c9d3ff', 'stroke-width': 4, opacity: 0.22 }));
+      c.g.append(svg('path', { d, fill: 'none', stroke: '#eef2ff', 'stroke-width': 1.2, opacity: 0.35 }));
+      c.lights.append(svg('path', { d, fill: 'none', stroke: '#9fb4ff', 'stroke-width': 1.6, opacity: 0.6 }));
+    },
+  },
+};
+
+function drawLandmarks(ownedUpgrades, layers, rows, lightRows) {
+  const motion = !prefersReducedMotion();
+  for (const id of ownedUpgrades) {
+    const lm = LANDMARKS[id];
+    if (!lm) continue;
+    const g = svg('g', { class: 'sk-lm', 'data-landmark': id });
+    const lights = svg('g');
+    const rnd = prng(hash(id));
+    const c = {
+      g,
+      lights,
+      rnd,
+      motion,
+      rect(rx, ry, rw, rh, fill, extra = null) {
+        g.append(svg('rect', { x: f1(rx), y: f1(ry), width: f1(Math.max(0.5, rw)), height: f1(Math.max(0.5, rh)), fill, ...(extra || {}) }));
+      },
+      path(d, fill, extra = null) {
+        g.append(svg('path', { d, fill, ...(extra || {}) }));
+      },
+      win(wx, wy, ww, wh, prob = 1, color = '#ffd98a') {
+        if (rnd() > prob) return;
+        lights.append(svg('rect', { x: f1(wx), y: f1(wy), width: f1(ww), height: f1(wh), fill: color, opacity: 0.85 }));
+      },
+      glow(cx, cy, r, color, cls = '') {
+        lights.append(svg('circle', { cx: f1(cx), cy: f1(cy), r: f1(r), fill: color, class: cls || null }));
+      },
+      fx(el) {
+        layers.fx.append(el);
+      },
+    };
+    lm.draw(c);
+    if (lm.behind) rows[lm.depth].prepend(g);
+    else rows[lm.depth].append(g);
+    if (lights.childNodes.length) lightRows[lm.depth].append(lights);
+  }
+}
+
 // ---------- component ----------
 export function createSkyline(host, ui) {
   const mk = (cls) => svg('svg', { viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: 'xMidYMax slice', class: `skyline ${cls}`, 'aria-hidden': 'true' });
@@ -587,9 +804,10 @@ export function createSkyline(host, ui) {
 
   // --- rebuild on count change ---
   let signature = '';
-  function update(list) {
+  function update(list, upgradeIds) {
     const owned = (list || []).filter((b) => b && b.count > 0);
-    const sig = owned.map((b) => b.id + ':' + b.count).join('|');
+    const marks = (upgradeIds || []).filter((id) => LANDMARKS[id]);
+    const sig = owned.map((b) => b.id + ':' + b.count).join('|') + '#' + marks.join('|');
     if (sig === signature) return;
     signature = sig;
     for (const r of rows) clear(r);
@@ -608,6 +826,7 @@ export function createSkyline(host, ui) {
       rows[shape.depth].append(ctx.g);
       if (ctx.lights.childNodes.length) lightRows[shape.depth].append(ctx.lights);
     }
+    drawLandmarks(marks, { fx }, rows, lightRows);
     lightRows[0].setAttribute('opacity', 0.55);
     lightRows[1].setAttribute('opacity', 0.8);
     lights.append(lampsGlow, ...lightRows, lamps);

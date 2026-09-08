@@ -828,6 +828,98 @@ ul {
   }
 }
 
+/* Landmark set pieces (owned-upgrade rewards on the skyline). */
+.sk-wheel {
+  animation: sk-spin var(--spin, 48s) linear infinite;
+}
+
+.sk-train {
+  animation: sk-train 26s linear infinite;
+}
+
+@keyframes sk-train {
+  from {
+    transform: translateX(-60px);
+  }
+  to {
+    transform: translateX(520px);
+  }
+}
+
+.sk-plane {
+  animation: sk-plane 38s linear infinite;
+}
+
+@keyframes sk-plane {
+  from {
+    transform: translate(-30px, 92px);
+  }
+  to {
+    transform: translate(520px, 34px);
+  }
+}
+
+.sk-sat {
+  opacity: calc(var(--sk-night, 0) * 0.9);
+  animation: sk-sat 70s linear infinite;
+}
+
+@keyframes sk-sat {
+  from {
+    transform: translate(520px, 22px);
+  }
+  to {
+    transform: translate(-30px, 58px);
+  }
+}
+
+.sk-beacon {
+  animation: sk-blink 1.6s steps(1) infinite;
+}
+
+@keyframes sk-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.15;
+  }
+}
+
+.sk-neon {
+  animation: sk-neon 2.4s ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.sk-neon-glow,
+.sk-sign-glow,
+.sk-wheel-glow {
+  opacity: 0.12;
+}
+
+@keyframes sk-neon {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-wheel,
+  .sk-train,
+  .sk-plane,
+  .sk-sat,
+  .sk-beacon,
+  .sk-neon {
+    animation: none;
+  }
+}
+
 /* Scrim behind the title so it stays legible against a bright noon sky or the sun. */
 .city-view::after {
   content: '';

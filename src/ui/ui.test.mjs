@@ -10,6 +10,8 @@ import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { MAX_VISIBLE } from './toast.js';
+import { LANDMARKS } from './skyline.js';
+import { UPGRADES } from '../upgrades/data.js';
 
 let passed = 0;
 function test(name, fn) {
@@ -409,6 +411,17 @@ test('stat panels are size containers with a 3-across rule and an orphan-span fa
   assert.match(stats, /@container stats \(min-width: 352px\)\s*\{\s*\.stat-grid\s*\{\s*grid-template-columns:\s*repeat\(3, minmax\(0, 1fr\)\);/);
   assert.match(stats, /@container stats \(max-width: 351\.98px\)\s*\{\s*\.stat-grid > \.stat:last-child:nth-child\(odd\)\s*\{\s*grid-column:\s*1 \/ -1;/);
   assert.doesNotMatch(stats, /@media \(min-width: 1400px\)/);
+});
+
+
+test('every skyline landmark is keyed by a real upgrade id', () => {
+  const ids = new Set(UPGRADES.map((u) => u.id));
+  for (const [id, lm] of Object.entries(LANDMARKS)) {
+    assert.ok(ids.has(id), `landmark for unknown upgrade: ${id}`);
+    assert.ok([0, 1, 2].includes(lm.depth), `${id}: depth must be a row index`);
+    assert.equal(typeof lm.draw, 'function', `${id}: draw`);
+  }
+  assert.ok(Object.keys(LANDMARKS).length >= 8);
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

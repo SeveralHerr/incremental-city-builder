@@ -2,7 +2,7 @@
 // teasers with their unlock hint and a progress bar, owned collapsed underneath, the rest of
 // the locked count teased in one line.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num } from './dom.js';
-import { unlockMeasure, unlockLabel, unlockMetLabel, unlockDisplayKey, teaserRungs } from './text.js';
+import { unlockMeasure, unlockLabel, unlockMetLabel, unlockDisplayKey, unlockFallbackHint, teaserRungs } from './text.js';
 
 const VISIBLE_DEFAULT = 6;
 export const TEASERS = 2; // locked rungs shown under the open cards
@@ -71,13 +71,21 @@ export function createUpgradesPanel(ui) {
     return c;
   }
 
+  // Building display name for a fallback hint; reads the rows once, only on that rare path.
+  function buildingName(id) {
+    const r = (game.api.buildings() || []).find((b) => b && b.id === id);
+    return r && r.name ? r.name : '';
+  }
+
   // Locked teaser: the rung's name and price, its unlock hint where the description would
   // be, and a thin bar toward the mirror threshold (money held, earned, citizens, ...).
   function teaser(def) {
     let t = teasers.get(def.id);
     if (t) return t;
     const cat = content.category(def.category);
-    const hint = typeof def.unlockHint === 'string' && def.unlockHint.trim() ? def.unlockHint.trim() : 'Grow the city to reveal this idea.';
+    // A def without a hint (the upgrades lint reports it) still gets a sentence built from
+    // its mirror, so the card never reads as an empty lock.
+    const hint = typeof def.unlockHint === 'string' && def.unlockHint.trim() ? def.unlockHint.trim() : unlockFallbackHint(def.unlockAt, buildingName);
     const fill = h('div.progress-fill');
     const bar = h('div.progress.progress-xs.unlock-bar', { 'aria-hidden': 'true' }, [fill]);
     const meta = h('span.unlock-meta.mono', { text: '' });

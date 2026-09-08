@@ -3,7 +3,7 @@
 // Run: node src/ui/ui.test.mjs
 import assert from 'node:assert/strict';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, buildingLines, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, teaserRungs, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -294,6 +294,27 @@ test('teaser rungs keep Heritage (legacy-gated) rungs back until a founding is o
   ];
   assert.deepEqual(teaserRungs(rows, { count: 2 }).map((r) => r.id), ['franchising', 'green-belts']);
   assert.deepEqual(teaserRungs(rows, { count: 2, prestigeKnown: true }).map((r) => r.id), ['legacy-archive', 'franchising']);
+});
+
+test('fallback teaser hint is a sentence derived from the unlockAt mirror', () => {
+  const nameOf = (id) => ({ shop: 'Corner shop' })[id] || '';
+  assert.equal(unlockFallbackHint({ pop: 1000 }), 'Reach 1,000 citizens');
+  assert.equal(unlockFallbackHint({ money: 80 }), 'Hold $80');
+  assert.equal(unlockFallbackHint({ earned: 5e5 }), 'Earn $500,000 in total');
+  assert.equal(unlockFallbackHint({ building: 'shop', count: 3 }, nameOf), 'Build 3 × Corner shop');
+  assert.equal(unlockFallbackHint({ building: 'mill' }, nameOf), 'Build 1 × mill');
+  assert.equal(unlockFallbackHint({ powerDemand: 0.001 }), 'Draw any power');
+  assert.equal(unlockFallbackHint({ powerDemand: 5 }), 'Draw 5 MW');
+  assert.equal(unlockFallbackHint({ legacy: 2.2 }), `Bank ${LEGACY_GLYPH} 3 legacy`);
+  assert.equal(unlockFallbackHint({ legacyAvailable: 4 }), `Hold ${LEGACY_GLYPH} 4 spendable legacy`);
+  assert.equal(unlockFallbackHint({ built: 25 }), 'Build 25 buildings in total');
+  assert.equal(unlockFallbackHint({ upgrades: 6 }), 'Fund 6 upgrades');
+  // Unmeasurable or missing mirrors fall back to the generic line rather than a broken sentence.
+  const generic = 'Grow the city to reveal this idea.';
+  assert.equal(unlockFallbackHint(null), generic);
+  assert.equal(unlockFallbackHint({}), generic);
+  assert.equal(unlockFallbackHint({ pop: -5 }), generic);
+  assert.equal(unlockFallbackHint({ building: '' }), generic);
 });
 
 test('met teaser labels drop the treasury figure and tick the clause', () => {

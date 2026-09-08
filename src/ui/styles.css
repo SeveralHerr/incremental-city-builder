@@ -2851,15 +2851,17 @@ input[type='checkbox'] {
   }
   .tab {
     flex: 0 0 auto;
-    min-height: 40px;
+    min-height: 44px;
   }
   .btn,
   .bcard-buy,
   .ucard-buy,
-  .onboard-close {
+  .onboard-close,
+  .icon-btn {
     min-height: 44px;
   }
-  .onboard-close {
+  .onboard-close,
+  .icon-btn {
     min-width: 44px;
   }
   .bcard {

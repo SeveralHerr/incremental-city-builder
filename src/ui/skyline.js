@@ -500,8 +500,8 @@ function plan(rows, colorOf) {
 // receives a light-weight context { g, lights, rnd, motion, rect, path, win, glow, fx }.
 // Keyed by upgrade id; `ui.test.mjs` asserts every key is a real upgrade so a rename can't
 // silently orphan a set piece.
-// Airport flights: cycle length, stagger, altitude offset, size, heading. Cycles are mutually
-// prime-ish so pairings drift and the sky never settles into a pattern.
+// Airport flights: cycle length, stagger, altitude offset, size, heading. Cycle lengths share
+// no factor beyond 10 (15/19/23 × 10), so pairings drift and the sky never settles into a pattern.
 export const PLANE_FLIGHTS = [
   { dur: 150, delay: 20, dy: 0, scale: 1, west: false },
   { dur: 190, delay: 95, dy: -18, scale: 0.85, west: true },

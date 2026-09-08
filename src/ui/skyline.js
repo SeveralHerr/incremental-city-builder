@@ -523,7 +523,7 @@ export const LANDMARKS = {
       c.rect(x + 2, y + 22, 32, 1, '#22284a');
       c.rect(x, y, 36, 15, '#f3e7c5', { rx: 1.2 });
       c.rect(x + 1.4, y + 1.4, 33.2, 12.2, '#2b3a7a', { rx: 0.8 });
-      const t = svg('text', { x: f1(x + 18), y: f1(y + 10.4), 'text-anchor': 'middle', 'font-size': 6.8, 'font-weight': 700, 'font-family': 'var(--font)', fill: '#fff2c8', 'letter-spacing': 0.5 });
+      const t = svg('text', { x: f1(x + 18), y: f1(y + 10.2), 'text-anchor': 'middle', 'font-size': 6.2, 'font-weight': 700, 'font-family': 'var(--font)', fill: '#fff2c8', textLength: 29, lengthAdjust: 'spacingAndGlyphs' });
       t.textContent = 'WELCOME';
       c.g.append(t);
       for (let i = 0; i < 8; i++) {
@@ -572,8 +572,13 @@ export const LANDMARKS = {
         const y = spot.onRoof ? spot.top - h - 2.5 * k : spot.top;
         c.at(spot.depth);
         if (spot.onRoof) {
-          c.rect(x + 2 * k, y + h, 1.2 * k, 2.5 * k, '#1a1f3d');
-          c.rect(x + w - 3.2 * k, y + h, 1.2 * k, 2.5 * k, '#1a1f3d');
+          // Legs stand inside the building's footprint and run a fifth of the way down into it,
+          // so stepped or parapeted roofs (the shop's narrow crown) still visibly carry the sign.
+          const legLen = 2.5 * k + (spot.gy - spot.top) * 0.2;
+          const lx1 = Math.max(x + 2 * k, spot.x + 1);
+          const lx2 = Math.min(x + w - 3.2 * k, spot.x + spot.w - 1 - 1.2 * k);
+          c.rect(lx1, y + h, 1.2 * k, legLen, '#1a1f3d');
+          c.rect(lx2, y + h, 1.2 * k, legLen, '#1a1f3d');
         } else {
           c.rect(x + w / 2 - 0.9, y + h, 1.8, spot.gy - y - h, '#1a1f3d');
         }

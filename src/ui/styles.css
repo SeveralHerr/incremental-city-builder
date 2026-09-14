@@ -3531,6 +3531,23 @@ button.gauge-happy:hover {
   }
 }
 
+/* ---------- Short and wide (itch.io's 960x640 frame, landscape tablets, small windows) ---------- */
+/* On a 2:1 drawing the bottom-left corner is the front row — the welcome sign, the trees, the
+   ferris wheel — and on a short screen the goal pill sat right on the sign. Under the treasury
+   it stands on the top scrim over empty sky instead. Capped narrow enough (the toasts are a
+   430px column in the middle) that the two never meet. */
+@media (max-height: 700px) and (min-width: 621px) {
+  .hud-goal {
+    grid-row: 2;
+    align-self: start;
+    max-width: min(300px, max(180px, 50vw - 230px));
+    padding: 5px 10px 6px;
+    gap: 8px;
+  }
+  .goal-name {
+    font-size: 12px;
+  }
+}
 /* ---------- Short viewports (landscape phones, small windows) ---------- */
 @media (max-height: 560px) {
   :root {

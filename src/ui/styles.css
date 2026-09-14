@@ -3548,6 +3548,27 @@ button.gauge-happy:hover {
     font-size: 12px;
   }
 }
+/* The bottom sheet gets more of a short frame: at 640px tall the 62dvh sheet left ~170px of
+   card list under the title row and the build bar. Taller, and a tighter grip and head; the
+   HUD's top row stays clear above it. (Under 721px the phone sheet rules apply instead.) */
+@media (max-height: 700px) and (min-width: 721px) {
+  :root {
+    --sheet-h: min(72dvh, 560px);
+  }
+  .sheet-grip {
+    padding: 6px 0 2px;
+  }
+  .sheet-head {
+    padding: 0 16px 8px;
+  }
+  /* The taller sheet's top edge would sit under the toast column (two toasts reach ~210px
+     from clamp(96px, …)); higher up, the middle of the sky is clear of the purse (left) and
+     the gauges (right) at every width this block covers. */
+  .toast-stack {
+    top: 56px;
+  }
+}
+
 /* ---------- Short viewports (landscape phones, small windows) ---------- */
 @media (max-height: 560px) {
   :root {

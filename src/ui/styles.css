@@ -2795,6 +2795,12 @@ ul {
 }
 
 /* ---------- Modal ---------- */
+/* createModal() latches .modal-open on <html>; the sheet body is the only scroller, so lock it
+   or a drag on the backdrop scrolls the sheet out from under the dialog. */
+.modal-open .sheet-body {
+  overflow: hidden;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

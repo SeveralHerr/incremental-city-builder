@@ -431,6 +431,23 @@ test('no rule uses a custom property that nothing defines', () => {
   }
 });
 
+// itch.io frames the game in <iframe scrolling="no">, which freezes the framed document's
+// viewport against wheel and touch (window.scrollTo still moves it, so headless tooling never
+// noticed). The stage layout never scrolls the document: html/body/#app stay overflow hidden at
+// every width and the sheet body is the one scroller, which works inside such a frame.
+test('the document never scrolls; the sheet body is the scroller', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\nbody\s*\{[^}]*overflow:\s*hidden;/);
+  assert.match(css, /#app\s*\{[^}]*overflow:\s*hidden;/);
+  assert.match(css, /\.sheet-body\s*\{[^}]*overflow-y:\s*auto;/);
+  // No responsive block may hand scrolling back to the document.
+  assert.doesNotMatch(css, /html,\s*body\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
+  assert.doesNotMatch(css, /\nbody\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
+  assert.doesNotMatch(css, /#app\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
+  // The dialog locks the sheet scroller; createModal() latches .modal-open on <html>.
+  assert.match(css, /\.modal-open \.sheet-body\s*\{\s*overflow:\s*hidden;\s*\}/);
+});
+
 test('every skyline landmark is keyed by a real upgrade id', () => {
   const ids = new Set(UPGRADES.map((u) => u.id));
   for (const [id, lm] of Object.entries(LANDMARKS)) {

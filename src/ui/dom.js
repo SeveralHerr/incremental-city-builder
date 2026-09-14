@@ -1,5 +1,5 @@
 // Tiny DOM helpers + number tweening. UI-only (this module may touch the DOM).
-import { fmt, fmtMoney, fmtInt, fmtPct, fmtRate, fmtTime } from '../core/format.js';
+import { fmt, fmtMoney, fmtInt, fmtPct, fmtTime } from '../core/format.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -153,10 +153,6 @@ let numFormat = 'short';
 export function setNumFormat(mode) {
   numFormat = mode === 'full' ? 'full' : 'short';
 }
-export function getNumFormat() {
-  return numFormat;
-}
-
 function locale(n) {
   return Math.floor(Math.abs(n)).toLocaleString('en-US');
 }
@@ -179,11 +175,6 @@ export function short(n, digits = 2) {
   return fmt(n, digits);
 }
 
-export function rate(n, unit = '') {
-  if (!Number.isFinite(n)) return '—';
-  return fmtRate(n, unit);
-}
-
 export function moneyRate(n) {
   if (!Number.isFinite(n)) return '—';
   const s = fmt(Math.abs(n));
@@ -199,7 +190,19 @@ export const ICONS = {
   check: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7"/></svg>',
   lock: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   flag: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
-  logo: '<svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0f172a"/><path d="M6 26V14h6v12zm8 0V8h6v18zm8 0V17h4v9z" fill="#38bdf8"/><path d="M8 17h2M8 20h2M8 23h2M16 11h2M16 14h2M16 17h2M16 20h2M16 23h2M24 20h1M24 23h1" stroke="#0f172a" stroke-width="1.2"/></svg>',
+  people:
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20v-1.6a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4V20"/><circle cx="9" cy="7.5" r="3.4"/><path d="M17 4.2a3.4 3.4 0 0 1 0 6.6M22 20v-1.6a4 4 0 0 0-3-3.8"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M13.6 2 5 13.2h5.1L9.5 22 19 10.4h-5.4z"/></svg>',
+  smile:
+    '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"/><path d="M8.2 14.2a4.6 4.6 0 0 0 7.6 0"/><path d="M9 9.4h.01M15 9.4h.01" stroke-width="2.6"/></svg>',
+  build:
+    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V9.5L12 4l7 5.5V21"/><path d="M10 21v-5.5h4V21"/><path d="M9 10.5h1.5M13.5 10.5H15"/></svg>',
+  spark:
+    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 14 9l5.8 2-5.8 2-2 5.8-2-5.8L4.2 11 10 9z"/></svg>',
+  hall:
+    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M4 21V10h16v11"/><path d="M12 3 21 8H3z"/><path d="M8 21v-6h3v6M14 15h2v6"/></svg>',
+  goal:
+    '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V3.6"/><path d="M5 4.4h11.6l-2.2 4.2 2.2 4.2H5"/></svg>',
 };
 
 export function icon(name) {

@@ -904,6 +904,10 @@ export function createSkyline(host, ui) {
     const lit = smooth(clamp((c.night - 0.2) / 0.5, 0, 1));
     lights.setAttribute('opacity', lit.toFixed(3));
     stars.setAttribute('opacity', Math.pow(c.night, 1.6).toFixed(3));
+    // The stage is taller than the art on most screens, so the strip above the SVG is painted
+    // with the sky's own current top colour (see .skyline-host): the seam is invisible because
+    // the gradient's first stop is exactly this value.
+    host.style.setProperty('--sk-top', c.top);
     host.style.setProperty('--sk-cloud', c.cloud);
     host.style.setProperty('--sk-night', c.night.toFixed(3));
     // Sun: up between 0.20 and 0.76. Moon: up between 0.74 and 1.22 (wrapping).

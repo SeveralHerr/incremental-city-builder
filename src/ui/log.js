@@ -9,6 +9,7 @@ export function createLogPanel(ui) {
   const empty = h('p.empty-note', { text: 'Nothing has happened yet. Every city starts quiet.' });
   const el = h('section.panel.panel-log', [h('div.panel-head', [h('h2.panel-title', { text: 'City log' })]), list, empty]);
 
+
   const known = new WeakMap(); // entry object -> li
   let lastLen = -1;
   let lastHead = null;

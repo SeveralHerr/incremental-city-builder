@@ -414,6 +414,23 @@ test('stat panels are size containers with a 3-across rule and an orphan-span fa
 });
 
 
+// A rewrite once deleted the --c-* category block from :root and left 23 references behind:
+// every one of those declarations silently dropped, so the 'Found a new city' button looked
+// identical whether or not founding was available. A token used without a fallback must exist.
+test('no rule uses a custom property that nothing defines', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/gi)].map((m) => m[1]));
+  // A var() with a fallback is fine: those are the handful of properties JS sets at runtime
+  // (--accent per category, --sk-night / --sk-top from the day cycle, animation timings).
+  const missing = new Set();
+  for (const m of css.matchAll(/var\((--[a-z0-9-]+)\s*(,)?/gi)) if (!m[2] && !defined.has(m[1])) missing.add(m[1]);
+  assert.deepEqual([...missing], [], 'custom properties used with no definition and no fallback');
+  // The category colours in particular: content.js paints cards and the skyline from them.
+  for (const c of ['residential', 'commercial', 'industrial', 'power', 'civic', 'global', 'prestige', 'general']) {
+    assert.ok(defined.has('--c-' + c), `--c-${c} must be defined in :root`);
+  }
+});
+
 test('every skyline landmark is keyed by a real upgrade id', () => {
   const ids = new Set(UPGRADES.map((u) => u.id));
   for (const [id, lm] of Object.entries(LANDMARKS)) {

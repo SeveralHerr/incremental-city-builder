@@ -39,7 +39,7 @@ export function createBuildPanel(ui) {
   }
 
   const tabBar = h('div.tabs', { role: 'tablist', 'aria-label': 'Building categories' });
-  const list = h('div#build-cards.cards', { role: 'tabpanel' });
+  const list = h('div#build-cards.cards', { role: 'tabpanel', 'aria-labelledby': 'build-tab-residential' });
   // ARIA tabs pattern: a roving tabindex (only the active tab is in the tab order) and
   // Left/Right/Home/End move the focus and the selection together.
   tabBar.addEventListener('keydown', (e) => {
@@ -108,14 +108,13 @@ export function createBuildPanel(ui) {
     }
     return null;
   }
-  const el = h('section.col.col-build', [
-    h('section.panel.panel-build', [
-      h('div.panel-head', [h('h2.panel-title', { text: 'Build' }), modeGroup]),
-      tabBar,
-      onboarding,
-      list,
-      empty,
-    ]),
+  // Sheet page: a sticky control row (categories + buy amount) over a scrolling card list.
+  // The page title lives on the sheet header, so there is no second 'Build' heading here.
+  const el = h('div.page-body.page-build', [
+    h('div.build-bar', [tabBar, modeGroup]),
+    onboarding,
+    list,
+    empty,
   ]);
   let onboardingShown = 0;
 
@@ -132,7 +131,7 @@ export function createBuildPanel(ui) {
       const dot = h('span.tab-dot', { 'aria-hidden': 'true' });
       const count = h('span.tab-count.mono', { text: '' });
       // Name as title + aria-label too: in a narrow column inactive tabs collapse to icon + count.
-      const btn = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-controls': 'build-cards', tabindex: '-1', 'aria-label': cat.name, title: cat.name, dataset: { cat: cat.id } }, [
+      const btn = h(`button#build-tab-${cat.id}.tab`, { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-controls': 'build-cards', tabindex: '-1', 'aria-label': cat.name, title: cat.name, dataset: { cat: cat.id } }, [
         h('span.tab-icon', { text: cat.icon, 'aria-hidden': 'true' }),
         h('span.tab-label', { text: cat.name }),
         count,
@@ -153,7 +152,10 @@ export function createBuildPanel(ui) {
       setAttr(t.el, 'aria-selected', on ? 'true' : 'false');
       setAttr(t.el, 'tabindex', on ? '0' : '-1');
       setClass(t.el, 'is-active', on);
-      if (on) t.el.classList.remove('is-new');
+      if (on) {
+        t.el.classList.remove('is-new');
+        setAttr(list, 'aria-labelledby', t.el.id);
+      }
     }
     for (const c of cards.values()) setHidden(c.el, c.def.category !== catId);
     for (const lc of lockedCards.values()) setHidden(lc.el, lc.cat !== catId);

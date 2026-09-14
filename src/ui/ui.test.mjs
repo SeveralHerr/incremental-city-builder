@@ -414,6 +414,28 @@ test('stat panels are size containers with a 3-across rule and an orphan-span fa
 });
 
 
+// itch.io frames the game in <iframe scrolling="no">, which freezes the framed document's
+// viewport against wheel and touch (window.scrollTo still moves it, so headless tooling never
+// noticed). Both responsive blocks must therefore scroll #app, never html/body: the phone and
+// landscape layouts stack every panel down the page, so a frozen document hides the build list.
+test('phone and short-viewport layouts scroll #app, not the document', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  const blocks = [
+    css.slice(css.indexOf('/* ---------- Mobile (< 900px)')),
+    css.slice(css.indexOf('/* ---------- Short viewports')),
+  ].map((b) => b.slice(0, b.indexOf('\n}\n') + 3));
+  assert.equal(blocks.length, 2);
+  for (const b of blocks) {
+    assert.ok(b.length > 40, 'responsive block not found');
+    assert.match(b, /html,\s*body\s*\{\s*height:\s*100%;\s*overflow:\s*hidden;\s*\}/);
+    assert.match(b, /#app\s*\{[^}]*overflow-y:\s*auto;/);
+    assert.doesNotMatch(b, /#app\s*\{[^}]*overflow:\s*visible;/);
+    assert.doesNotMatch(b, /html,\s*body\s*\{[^}]*overflow-y:\s*auto;/);
+  }
+  // The dialog locks that scroller; createModal() latches .modal-open on <html>.
+  assert.match(css, /\.modal-open #app\s*\{\s*overflow:\s*hidden;\s*\}/);
+});
+
 test('every skyline landmark is keyed by a real upgrade id', () => {
   const ids = new Set(UPGRADES.map((u) => u.id));
   for (const [id, lm] of Object.entries(LANDMARKS)) {

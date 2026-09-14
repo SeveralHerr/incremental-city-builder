@@ -4,7 +4,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, LEGACY_GLYPH } from './text.js';
+import { HAPPINESS_LIMITS } from '../resources/index.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -554,6 +555,60 @@ test('trade count: the segment serves buy and sell, modifiers override, sell flo
   // The rule the tooltips and Settings print names both keys.
   assert.match(MODIFIER_HELP, /Shift/);
   assert.match(MODIFIER_HELP, /Ctrl/);
+});
+
+// F4: the City Hall happiness panel lists every term of derived.extra.happiness with its
+// sign, sums to the total, says what it does to income, and hints from capReason.
+test('happiness breakdown: every term signed, the clamp only when active, total and income factor', () => {
+  // The worked example from the resources header (12 parks + 4 schools, 20 factories …).
+  const hb = { base: 1, civic: 0.513, civicCap: 1.12, civicSaturation: 0.458, pollution: -0.193, pollutionCap: 1.1, unemployment: -0.035, overcrowd: 0, brownout: 0, mods: 0.1, raw: 1.385, clamp: 0, min: 0.25, max: 3, total: 1.385, incomeMult: 1.1925, capReason: 'pollution' };
+  const rows = happinessRows(hb, { unemployment: 0.1 });
+  assert.deepEqual(rows.map((r) => r.key), ['base', 'civic', 'pollution', 'unemployment', 'overcrowd', 'brownout', 'mods'], 'every term, formula order, no clamp row while it is idle');
+  const by = Object.fromEntries(rows.map((r) => [r.key, r]));
+  assert.equal(by.base.value, 1);
+  assert.equal(by.civic.value, 0.513);
+  assert.equal(by.civic.note, '45% of the +112% cap');
+  assert.equal(by.pollution.value, -0.193);
+  assert.equal(by.pollution.note, 'at most -110%');
+  assert.equal(by.unemployment.value, -0.035);
+  assert.equal(by.unemployment.note, '10.0% jobless');
+  assert.equal(by.overcrowd.value, 0);
+  assert.equal(by.mods.value, 0.1);
+  // The rows sum to the total (the panel's promise to the player).
+  const sum = rows.reduce((a, r) => a + r.value, 0);
+  assert.ok(Math.abs(sum - hb.total) < 1e-9, `rows sum to the total, got ${sum}`);
+  const tot = happinessTotal(hb);
+  assert.equal(tot.text, '138%');
+  assert.equal(tot.incomeText, 'income ×1.19');
+  // A drag reported with the wrong sign still prints as a drag; the clamp row appears when active.
+  const pinned = happinessRows({ base: 1, civic: 2.5, pollution: 0.02, unemployment: 0, overcrowd: 0, brownout: 0, mods: 0.6, clamp: -1.08, min: 0.25, max: 3, total: 3 });
+  assert.equal(pinned.find((r) => r.key === 'pollution').value, -0.02);
+  const clamp = pinned.find((r) => r.key === 'clamp');
+  assert.ok(clamp && clamp.value === -1.08);
+  assert.equal(clamp.note, 'held within 25% – 300%');
+  assert.ok(Math.abs(pinned.reduce((a, r) => a + r.value, 0) - 3) < 1e-9);
+  // No snapshot at all still draws the shape (base 100 %, everything else 0).
+  assert.equal(happinessRows(null).length, 7);
+  assert.equal(happinessTotal(undefined).text, '100%');
+  assert.equal(happinessTotal({ total: 0.5 }).incomeText, 'income ×0.75', 'falls back to 0.5 + 0.5 × happiness');
+  // Signed percentages keep one decimal so a 1.5 % smog cost never rounds away.
+  assert.equal(signedPct(0.513), '+51.3%');
+  assert.equal(signedPct(-0.015), '-1.5%');
+  assert.equal(signedPct(0), '0%');
+  assert.equal(signedPct(-0.0001), '0%');
+  assert.equal(signedPct(NaN), '—');
+});
+
+test('happiness hint: every capReason the resources module can emit has a line', () => {
+  for (const reason of Object.values(HAPPINESS_LIMITS)) {
+    assert.ok(happinessHint(reason).length > 20, `hint for '${reason}'`);
+  }
+  assert.match(happinessHint('civic cap'), /parks barely help/);
+  assert.match(happinessHint('pollution'), /Smog is the biggest drag/);
+  assert.match(happinessHint('max', { max: 3 }), /maximum \(300%\)/);
+  assert.match(happinessHint('min', { min: 0.25 }), /minimum \(25%\)/);
+  assert.equal(happinessHint('nonsense'), '');
+  assert.equal(happinessHint(undefined), '');
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -205,7 +205,8 @@ export function createBuildPanel(ui) {
     { key: 'income', label: 'Income', fmt: (v) => '+$' + short(v) + '/s' },
     { key: 'powerGen', label: 'Power', fmt: (v) => '+' + short(v) + ' MW' },
     { key: 'powerUse', label: 'Draw', fmt: (v) => short(v) + ' MW' },
-    { key: 'happiness', label: 'Joy', fmt: (v) => (v > 0 ? '+' : '') + fmtPct(v) },
+    // One decimal under 10 % so a factory's −1.5 % never prints as −1 %.
+    { key: 'happiness', label: 'Joy', fmt: (v) => (v > 0 ? '+' : '') + fmtPct(v, Math.abs(v) < 0.1 ? 1 : 0) },
     { key: 'upkeep', label: 'Upkeep', fmt: (v) => '-$' + short(v) + '/s' },
   ];
 
@@ -241,7 +242,12 @@ export function createBuildPanel(ui) {
     for (const sd of STAT_DEFS) {
       if (!(def[sd.key] > 0 || (sd.key === 'happiness' && def.happiness < 0))) continue;
       const val = h('span.stat-val.mono', { text: '' });
-      const pill = h(`span.pill.pill-${sd.key}`, [h('span.stat-key', { text: sd.label }), val]);
+      // A joy-reducing building says so (F4): the pill reads '−Joy −1.5%' in the danger colour
+      // and its tooltip names the cost, since happiness multiplies every dollar the city earns.
+      const joyCost = sd.key === 'happiness' && def.happiness < 0;
+      const pill = h(`span.pill.pill-${sd.key}${joyCost ? '.pill-joy-cost' : ''}`, {
+        title: joyCost ? `Each one lowers city happiness by ${fmtPct(Math.abs(def.happiness), 1)} (smog). Happiness multiplies all income — see City hall › Happiness.` : sd.key === 'happiness' ? 'Raises city happiness, which multiplies all income (with diminishing returns — see City hall › Happiness).' : null,
+      }, [h('span.stat-key', { text: joyCost ? '−Joy' : sd.label }), val]);
       stats.push({ ...sd, val, pill });
       statsEl.append(pill);
     }

@@ -302,6 +302,88 @@ export function strainNow(live, base, cap) {
   return `×${n.toLocaleString('en-US')} now${capped ? ' (cap)' : ''}`;
 }
 
+// ---- Happiness breakdown (docs/FEEDBACK.md F4) ----
+//
+// derived.extra.happiness (resources) carries one signed entry per term of the formula plus
+// the clamp, the total and the income factor. These helpers turn it into the rows the City
+// Hall panel prints — every term with its sign, even the zero ones, so the player can see
+// which levers exist — and the one-line hint keyed by capReason (what most limits happiness
+// right now). `hb` may be missing or partial (an older snapshot): absent terms read as 0.
+
+// '+51.3%' / '-19.3%' / '0%': one decimal so a 1.5 % smog cost never rounds to nothing.
+export function signedPct(v) {
+  if (!Number.isFinite(v)) return '—';
+  if (Math.abs(v) < 5e-4) return '0%';
+  return (v > 0 ? '+' : '') + fmtPct(v, 1);
+}
+
+const HAPPINESS_HINTS = {
+  none: 'Nothing is holding it back: parks, schools and plazas still pay in full.',
+  'civic cap': 'More parks barely help now — cut smog or joblessness instead.',
+  pollution: 'Smog is the biggest drag: scrubbers, clean power, fewer factories.',
+  unemployment: 'Joblessness is the biggest drag: shops and offices put people to work.',
+  overcrowding: 'Overcrowding is the biggest drag: build housing.',
+  brownout: 'The brownout is the biggest drag: build power before anything else.',
+  max: 'Pinned at the maximum — nothing more can raise it.',
+  min: 'Pinned at the minimum — smog, joblessness, overcrowding or a brownout, all at once.',
+};
+
+export function happinessHint(capReason, hb) {
+  let text = HAPPINESS_HINTS[capReason];
+  if (!text) return '';
+  if (capReason === 'max' && hb && Number.isFinite(hb.max)) text = text.replace('the maximum', `the maximum (${fmtPct(hb.max)})`);
+  if (capReason === 'min' && hb && Number.isFinite(hb.min)) text = text.replace('the minimum', `the minimum (${fmtPct(hb.min)})`);
+  return text;
+}
+
+// Rows in formula order: [{ key, label, value, note }]; value is the signed term (1 = 100 %),
+// note is the small print beside it ('' when there is nothing to add). The clamp row only
+// appears while the clamp is doing something. `unemployment` is the rate (derived.extra),
+// only used for the note.
+export function happinessRows(hb, { unemployment } = {}) {
+  const b = hb && typeof hb === 'object' ? hb : {};
+  const n = (v) => (Number.isFinite(v) ? v : 0);
+  // A drag is always printed as a drag whatever sign the snapshot used; zero stays +0, not -0.
+  const drag = (v) => (Math.abs(n(v)) < 5e-4 ? 0 : -Math.abs(n(v)));
+  const rows = [
+    { key: 'base', label: 'Base', value: Number.isFinite(b.base) ? b.base : 1, note: '' },
+    {
+      key: 'civic',
+      label: 'Civic buildings',
+      value: n(b.civic),
+      note: Number.isFinite(b.civicCap) && b.civicCap > 0 ? `${fmtPct(n(b.civicSaturation))} of the +${fmtPct(b.civicCap)} cap` : '',
+    },
+    {
+      key: 'pollution',
+      label: 'Smog',
+      value: drag(b.pollution),
+      note: Number.isFinite(b.pollutionCap) && b.pollutionCap > 0 ? `at most -${fmtPct(b.pollutionCap)}` : '',
+    },
+    {
+      key: 'unemployment',
+      label: 'Unemployment',
+      value: drag(b.unemployment),
+      note: Number.isFinite(unemployment) && unemployment > 0.0005 ? `${fmtPct(unemployment, 1)} jobless` : '',
+    },
+    { key: 'overcrowd', label: 'Overcrowding', value: drag(b.overcrowd), note: '' },
+    { key: 'brownout', label: 'Brownout', value: drag(b.brownout), note: '' },
+    { key: 'mods', label: 'Upgrades & perks', value: n(b.mods), note: '' },
+  ];
+  const clamp = n(b.clamp);
+  if (Math.abs(clamp) >= 5e-4) {
+    rows.push({ key: 'clamp', label: 'Clamp', value: clamp, note: `held within ${fmtPct(n(b.min))} – ${fmtPct(n(b.max))}` });
+  }
+  return rows;
+}
+
+// The total line: happiness itself and what it does to income (0.5 + 0.5 × happiness).
+export function happinessTotal(hb) {
+  const b = hb && typeof hb === 'object' ? hb : {};
+  const total = Number.isFinite(b.total) ? b.total : 1;
+  const mult = Number.isFinite(b.incomeMult) ? b.incomeMult : 0.5 + 0.5 * total;
+  return { total, mult, text: fmtPct(total), incomeText: `income ×${mult.toFixed(2)}` };
+}
+
 // ---- Buy / sell amount for one click on a building card (docs/FEEDBACK.md F14) ----
 //
 // The ×1 / ×10 / Max segment sets the default amount and applies to Sell as much as to Buy;

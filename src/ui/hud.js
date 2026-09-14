@@ -4,7 +4,7 @@
 // whole skyline behind it stays one large tap target (see city.js).
 import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
 import { tierTitle, moodWord } from './content.js';
-import { powerChipText } from './text.js';
+import { powerChipText, happinessHint } from './text.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 
 export function createHud(ui) {
@@ -37,10 +37,13 @@ export function createHud(ui) {
 
   const happyVal = h('span.gauge-value', { text: '' });
   const happySub = h('span.gauge-sub', { text: '' });
-  const happyEl = h('div.gauge.gauge-happy', { role: 'group', 'aria-label': 'Happiness', hidden: true }, [
+  // The mood gauge is the one readout that opens something: City Hall's happiness breakdown
+  // (F4), where every term of the number is listed with its sign.
+  const happyEl = h('button.gauge.gauge-happy', { type: 'button', 'aria-label': 'Happiness: open the breakdown', title: 'Why this number? Open the happiness breakdown', hidden: true }, [
     h('div.gauge-row', [icon('smile'), happyVal]),
     happySub,
   ]);
+  happyEl.addEventListener('click', () => ui.openSheet && ui.openSheet('city'));
 
   // Meta row and gauges are separate children of the grid: on a phone the gauges drop to their
   // own full-width row instead of squeezing the treasury into a third of the screen.
@@ -109,6 +112,9 @@ export function createHud(ui) {
       const hp = d.happiness ?? 1;
       setText(happyVal, fmtPct(hp));
       setText(happySub, moodWord(hp));
+      const hb = d.extra && d.extra.happiness;
+      const hint = hb && typeof hb.capReason === 'string' ? happinessHint(hb.capReason, hb) : '';
+      setAttr(happyEl, 'title', (hint ? hint + ' ' : '') + `Income ×${(hb && Number.isFinite(hb.incomeMult) ? hb.incomeMult : 0.5 + 0.5 * hp).toFixed(2)}. Open the breakdown.`);
       setClass(happyEl, 'is-warn', hp < 0.9 && hp >= 0.7);
       setClass(happyEl, 'is-bad', hp < 0.7);
     }

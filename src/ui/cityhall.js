@@ -3,7 +3,7 @@
 // here changes every frame, which is exactly why it lives one tap away instead of on the sky.
 import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtInt } from './dom.js';
 import { createCharterSection } from './charter.js';
-import { unemploymentLevel, legacyPointBar, LEGACY_GLYPH } from './text.js';
+import { unemploymentLevel, legacyPointBar, happinessRows, happinessTotal, happinessHint, signedPct, LEGACY_GLYPH } from './text.js';
 
 export function createCityHall(ui) {
   const { game } = ui;
@@ -83,8 +83,37 @@ export function createCityHall(ui) {
     ]),
   ]);
 
+  // ---- Happiness (gated by panel:civic, like the HUD gauge) ----
+  // Every term of the formula with its sign (resources: derived.extra.happiness), the total,
+  // what it does to income, and a one-line hint keyed by capReason (F4). Rows are built once
+  // and only their text changes; the clamp row shows while the clamp is doing something.
+  const happyRows = new Map(); // key -> { el, val, note }
+  const happyList = h('div.happy-rows');
+  const happyRow = (key, label) => {
+    const val = h('span.happy-val.mono', { text: '' });
+    const note = h('span.happy-note', { text: '' });
+    const row = h('div.happy-row', { dataset: { term: key } }, [h('span.happy-label', { text: label }), note, val]);
+    happyRows.set(key, { el: row, val, note });
+    happyList.append(row);
+    return row;
+  };
+  for (const r of happinessRows({})) happyRow(r.key, r.label);
+  happyRow('clamp', 'Clamp').hidden = true;
+  const happyTotal = h('span.happy-val.mono', { text: '' });
+  const happyMult = h('span.happy-mult.mono', { text: '' });
+  const happyTotalRow = h('div.happy-row.happy-total', [h('span.happy-label', { text: 'Happiness' }), happyMult, happyTotal]);
+  const happyHint = h('p.happy-hint', { text: '' });
+  const happyMeta = h('span.panel-meta', { text: '' });
+  const happyPanel = h('section#hall-happiness.panel.panel-happy', { hidden: true }, [
+    h('div.panel-head', [h('h2.panel-title', { text: 'Happiness' }), happyMeta]),
+    h('p.panel-lead', { text: 'Every dollar the city earns is multiplied by 0.5 + 0.5 × happiness. The terms below add up to it.' }),
+    happyList,
+    happyTotalRow,
+    happyHint,
+  ]);
+
   const waiting = h('p.empty-note', { text: 'The clerk’s office opens once the city keeps books worth reading. Build, and the ledger fills in.' });
-  const el = h('div.hall', [prestigePanel, statsPanel, waiting]);
+  const el = h('div.hall', [prestigePanel, happyPanel, statsPanel, waiting]);
 
   function rebuild(upgradeRows) {
     charter.rebuild(upgradeRows);
@@ -156,10 +185,39 @@ export function createCityHall(ui) {
       charter.update(upgradeRows);
     }
 
+    // Happiness
+    const showHappy = !!s.unlocks['panel:civic'];
+    setHidden(happyPanel, !showHappy);
+    if (showHappy) {
+      const x = d.extra || {};
+      const hb = x.happiness && typeof x.happiness === 'object' ? x.happiness : null;
+      const rows = happinessRows(hb, { unemployment: x.unemployment });
+      let sawClamp = false;
+      for (const r of rows) {
+        const row = happyRows.get(r.key);
+        if (!row) continue;
+        if (r.key === 'clamp') sawClamp = true;
+        setHidden(row.el, false);
+        setText(row.val, signedPct(r.value));
+        setText(row.note, r.note);
+        setClass(row.el, 'is-neg', r.value < -5e-4);
+        setClass(row.el, 'is-pos', r.value > 5e-4);
+        setClass(row.el, 'is-zero', Math.abs(r.value) <= 5e-4);
+      }
+      if (!sawClamp) setHidden(happyRows.get('clamp').el, true);
+      const tot = happinessTotal(hb);
+      setText(happyTotal, tot.text);
+      setText(happyMult, tot.incomeText);
+      setText(happyMeta, tot.incomeText);
+      const reason = hb ? hb.capReason : 'none';
+      setText(happyHint, happinessHint(reason, hb));
+      setAttr(happyPanel, 'data-limit', typeof reason === 'string' ? reason : 'none');
+    }
+
     // Stats
     const showStats = !!s.unlocks['panel:stats'];
     setHidden(statsPanel, !showStats);
-    setHidden(waiting, showStats || showPrestige);
+    setHidden(waiting, showStats || showPrestige || showHappy);
     if (showStats) {
       const x = d.extra || {};
       const br = x.incomeBreakdown || {};

@@ -32,14 +32,15 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   unemployment cannot drop below ~40 % (screenshot: 43 %). No comparable Commercial or
   Industrial jobs upgrade at that point. Arcology Gardens pushes it to ~70 %. Later upgrades
   fix it, but the middle stretch is off.
-- [ ] **F4 resources/ui — happiness is opaque (P2).** The max-happiness formula cannot be worked
+- [x] **F4 resources/ui — happiness is opaque (P2).** The max-happiness formula cannot be worked
   out in play: civic buildings stop raising it past some count, something (pollution?) lowers
   it, and more civics do not raise it again. The tooltip does not say what happiness does
   (it is a `0.5 + 0.5·happiness` income multiplier, `src/resources/index.js`). Player found
   they earned more late by *not* buying joy-reducing buildings: their income bonus did not
   cover the happiness loss. Needs a legible breakdown in the UI and a look at whether that
   trade-off is intended.
-  → resources half done in `8797eab`: `derived.extra.happiness` carries every signed term, the caps, `civicSaturation`, `incomeMult` and `capReason` (what most limits happiness now). UI breakdown still open (wave 3). The joy-reducing trade-off is intended: the break-even is in the resources header (a marginal factory is a net loss above ≈ $4k/s gross until smog saturates).
+  → resources half done in `8797eab`: `derived.extra.happiness` carries every signed term, the caps, `civicSaturation`, `incomeMult` and `capReason` (what most limits happiness now). The joy-reducing trade-off is intended: the break-even is in the resources header (a marginal factory is a net loss above ≈ $4k/s gross until smog saturates).
+  → UI half done: City Hall › Happiness lists every term with its sign (base, civic "N % of the +112 % cap", smog with its cap, unemployment "N % jobless", overcrowding, brownout, upgrades & perks, clamp when active), the total, "income ×M", and a one-line hint from `capReason`; the HUD mood gauge opens it. Joy-reducing build cards wear a "−Joy −2.0%" pill with the cost in the tooltip. `text.js happinessRows / happinessTotal / happinessHint`, tested against every `HAPPINESS_LIMITS` value.
 - [ ] **F5 simulation/balance — legacy has no choice (P2).** Charter purchases are always "the
   next one or two you can afford"; there is no real decision. Consider parallel tracks or
   branching perks.

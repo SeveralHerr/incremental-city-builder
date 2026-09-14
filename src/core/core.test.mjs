@@ -8,11 +8,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { state, derived, errors, loadState, resetState, sanitize, createInitialState, MAX_COUNT } from './state.js';
 import { registry, registerBuilding, registerUpgrade, registerTickHandler, registerAction, resetGuards } from './registry.js';
-import { buildingCost, buildingCap, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
+import { api, buildingCost, buildingCap, sellRefund, maxAffordable, buy, sell, buildings, upgrades } from './api.js';
 import { fmt, fmtMoney, fmtRate, fmtInt, fmtPct } from './format.js';
 import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from './safe.js';
 import { on, off, emit, isListenerDisabled, listenerCount } from './events.js';
 import { loop, step, start, stop, TICK_MS } from './loop.js';
+import { botStep } from './bot.js';
 
 function clearErrors() {
   errors.length = 0;
@@ -718,4 +719,152 @@ test('browser frame accumulator: drift-free, catch-up capped, skippedMs parked/c
     delete g.requestAnimationFrame;
     delete g.cancelAnimationFrame;
   }
+});
+
+// ---------------------------------------------------------------- bot profiles
+// The human profile is pinned on the ORDER of its purchases (api.buy is wrapped to record
+// them, and the profile's `trace` option names the rule behind each batch) because every rule
+// is about what it buys before what: homes ahead of jobs, the grid ahead of the draw, a civic
+// ahead of the rotation — all judged on this step's own purchases, not on the stale derived
+// snapshot — and on what it does NOT do: it never ends a step to save for a jobs building.
+function recordBuys(fn) {
+  const orig = api.buy;
+  const log = [];
+  api.buy = (id, n) => {
+    const ok = orig(id, n);
+    if (ok) log.push({ id, n });
+    return ok;
+  };
+  try {
+    fn();
+  } finally {
+    api.buy = orig;
+  }
+  return log;
+}
+function freshPlot(money = 1e6) {
+  resetState();
+  state.res.money = money;
+  state.res.pop = 0;
+  derived.housing = 0;
+  derived.jobs = 0;
+  derived.employed = 0;
+  derived.powerCap = 0;
+  derived.powerDemand = 0;
+  derived.powerRatio = 1;
+  derived.happiness = 1;
+  derived.income = 5; // no tap
+  derived.mods = null;
+}
+// Run one human step, returning the buy log and the rule behind each building batch.
+function humanRun(opts = {}) {
+  const reasons = [];
+  const log = recordBuys(() => botStep({ profile: 'human', maxBuys: 25, trace: (why) => reasons.push(why), ...opts }));
+  return { log, reasons };
+}
+
+test('botStep human profile: generators ahead of the draw, batches, pending bookkeeping; unknown profile is greedy', () => {
+  clearErrors();
+  const res = registerBuilding({ id: 'h-res', name: 'Human house', baseCost: 30, costGrowth: 1.15, tier: 1, category: 'residential', housing: 4, powerUse: 1 });
+  const gen = registerBuilding({ id: 'h-gen', name: 'Human mill', baseCost: 40, costGrowth: 1.15, tier: 1, category: 'power', powerGen: 4 });
+  assert.ok(res && gen);
+  freshPlot();
+  let n = 0;
+  const reasons = [];
+  const log = recordBuys(() => (n = botStep({ profile: 'human', maxBuys: 25, trace: (why) => reasons.push(why) })));
+  assert.ok(n > 0 && n <= 25);
+  // (the registry also holds a couple of test upgrades the profile buys first; they count as
+  // buys but not as api.buy calls)
+  assert.equal(log.length, n - Object.keys(state.upgrades).length, 'every building buy is one batch');
+  assert.equal(reasons.length, log.length, 'trace names every batch');
+  const houses = state.buildings['h-res'] || 0;
+  const mills = state.buildings['h-gen'] || 0;
+  assert.ok(houses > 0 && mills > 0, `houses=${houses} mills=${mills}`);
+  assert.ok(log.some((b) => b.n > 1), 'the rotation buys ×Max batches, not single units');
+  assert.ok(reasons.includes('power') && reasons.includes('rotation'), `reasons: ${reasons.join(' ')}`);
+  assert.ok(log.some((b, i) => b.id === 'h-gen' && reasons[i] === 'rotation'), 'generators are also bought by the rotation (the F2 surplus)');
+  // Replay: before any draw is added the grid (as this step has already changed it) is within
+  // the 0.98 trigger of the demand, so the profile never walks into a brownout inside one step.
+  let demand = 0;
+  let cap = 0;
+  for (const b of log) {
+    if (b.id === 'h-res') {
+      assert.ok(demand === 0 || cap * 0.98 >= demand - 1e-9, `house batch at demand=${demand} cap=${cap}`);
+      demand += b.n;
+    } else if (b.id === 'h-gen') cap += 4 * b.n;
+  }
+  assert.equal(errors.length, 0);
+  // Broke: nothing to buy, no throw, zero buys.
+  state.res.money = 0;
+  assert.equal(botStep({ profile: 'human' }), 0);
+  // An unknown profile falls back to the greedy policy and returns a count.
+  assert.equal(typeof botStep({ profile: 'nope' }), 'number');
+  resetState();
+});
+
+test('botStep human profile: homes before jobs on the stale population, a civic before the rotation, never saves for jobs', () => {
+  clearErrors();
+  const flat = registerBuilding({ id: 'h-flat', name: 'Human flat', baseCost: 30, costGrowth: 1.15, tier: 2, category: 'residential', housing: 10 });
+  const job = registerBuilding({ id: 'h-job', name: 'Human shop', baseCost: 50, costGrowth: 1.15, tier: 1, category: 'commercial', jobs: 5 });
+  const civ = registerBuilding({ id: 'h-civ', name: 'Human park', baseCost: 20, costGrowth: 1.15, tier: 1, category: 'civic', happiness: 0.1 });
+  assert.ok(flat && job && civ);
+  // The first test's house / mill are priced out of reach so the replay below reads one
+  // residential and one jobs building.
+  const bury = () => {
+    state.buildings['h-res'] = 400;
+    state.buildings['h-gen'] = 400;
+  };
+  // Fresh plot: one home to seed it, then the rotation — nobody lives here yet, so no jobs
+  // rule fires (the people who will move in are not projected: housing leads).
+  freshPlot();
+  bury();
+  let { log, reasons } = humanRun();
+  assert.ok(log.length >= 3);
+  assert.deepEqual(log[0], { id: 'h-flat', n: 1 }, 'an empty plot gets one home first');
+  assert.equal(reasons[0], 'housing');
+  assert.ok(!reasons.includes('jobs'), `no jobs rule on an empty plot: ${reasons.join(' ')}`);
+  assert.ok(log.some((b) => b.id === 'h-job'), 'the rotation still buys the jobs building');
+  // Stale derived: housing full (vacancy 0) and half the people jobless. Homes first — the
+  // units that open 5 % vacancy — then the jobs for the people already here (pop − jobs, one
+  // category's share of the wallet), on this step's own numbers.
+  freshPlot();
+  bury();
+  state.res.pop = 1000;
+  derived.housing = 1000;
+  derived.jobs = 500;
+  derived.employed = 500;
+  ({ log, reasons } = humanRun());
+  assert.equal(log[0].id, 'h-flat');
+  assert.equal(reasons[0], 'housing');
+  assert.equal(log[0].n, 6, 'vacancy need: ceil((1000 / 0.95 − 1000) / 10) homes');
+  assert.equal(log[1].id, 'h-job');
+  assert.equal(reasons[1], 'jobs');
+  assert.ok(log[1].n >= 1 && log[1].n <= 100, `jobs batch covers up to the 500 jobless: ${log[1].n}`);
+  // Jobs short by 90 % with the jobs building out of reach: the step does NOT save toward it —
+  // the wallet goes to the rotation (the second cut's `if (jobsShort) break` is gone; this is
+  // what lets unemployment float, the F3 signal).
+  freshPlot(1e3);
+  bury();
+  state.res.pop = 1000;
+  derived.housing = 2000; // vacancy 50 %: no housing need
+  derived.jobs = 100;
+  derived.employed = 100;
+  state.buildings['h-job'] = 400; // 50 · 1.15^400: out of reach
+  ({ log, reasons } = humanRun());
+  assert.ok(log.length > 0, 'never saves for jobs: the rotation runs');
+  assert.ok(!reasons.includes('jobs') && !log.some((b) => b.id === 'h-job'), reasons.join(' '));
+  assert.ok(reasons.every((r) => r === 'rotation'), `rotation only: ${reasons.join(' ')}`);
+  // Happiness below 1: enough civics to cover the gap come before anything else.
+  freshPlot();
+  bury();
+  state.res.pop = 100;
+  derived.housing = 200; // vacancy 50 %: no housing need
+  derived.jobs = 100;
+  derived.employed = 100;
+  derived.happiness = 0.75;
+  ({ log, reasons } = humanRun());
+  assert.deepEqual(log[0], { id: 'h-civ', n: 3 }, 'ceil((1 − 0.75) / 0.1) parks first');
+  assert.equal(reasons[0], 'civic');
+  assert.equal(errors.length, 0);
+  resetState();
 });

@@ -39,6 +39,7 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   they earned more late by *not* buying joy-reducing buildings: their income bonus did not
   cover the happiness loss. Needs a legible breakdown in the UI and a look at whether that
   trade-off is intended.
+  → resources half done in `8797eab`: `derived.extra.happiness` carries every signed term, the caps, `civicSaturation`, `incomeMult` and `capReason` (what most limits happiness now). UI breakdown still open (wave 3). The joy-reducing trade-off is intended: the break-even is in the resources header (a marginal factory is a net loss above ≈ $4k/s gross until smog saturates).
 - [ ] **F5 simulation/balance — legacy has no choice (P2).** Charter purchases are always "the
   next one or two you can afford"; there is no real decision. Consider parallel tracks or
   branching perks.
@@ -55,37 +56,43 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   Factories; same across Residential (not Orbital Ring), Power, Civic. Lower tiers should
   scale less steeply since their effect is negligible late. Cosmetic to overall balance but
   reads as wrong.
-- [ ] **F9 simulation — "max banked legacy" looks unreachable (P3).** Player believes the top of
+- [x] **F9 simulation — "max banked legacy" looks unreachable (P3).** Player believes the top of
   the legacy bank cannot be hit and suggests removing the cap (most incrementals do not cap
   meta currency, they scale costs). Needs a code check: the player had 1.66M legacy, above
   the 1M `Bank a million` milestone, so find what they read as a cap (charter tally, a
   milestone, or the config "legacy ceiling" used only by the sim gate) and clarify or remove.
-- [ ] **F10 simulation — Endless Skyline milestone unreachable (P3).** 10,000 buildings. With every
+  → Wrong on inspection, closed in `725f292`: nothing caps the bank (legacyFor is an unbounded floor of (lifetime/threshold)^exponent; sanitize only requires finite ≥ 0; 1.66M points stay finite in every snapshot field). What reads as a cap is the tier ladder ending at Millionfold Legacy (1,000,000): after it the founding line stopped naming a next tier. The snapshot now says `nextTierName: null`, `capped: false` so the card reads "every tier reached", never "max legacy".
+- [x] **F10 simulation — Endless Skyline milestone unreachable (P3).** 10,000 buildings. With every
   charter, 1.66M legacy (~25,000 % income) and buying everything affordable, the player was
   under halfway and every building was going exponential. Lower the target or make it a
   lifetime count.
+  → Done in `005183f`: lifetime count across every city (`stats.buildingsBuiltPrior + buildingsBuilt`); every profile crosses it in city 9 at ~125 min. Reward is now "taps pay 2×" — a reachable +10 % income pushed both 12 h profiles past the 1e18 ceiling; balance may re-grant an income reward in the F1 retune.
 - [ ] **F11 simulation — offline legacy (info).** Overnight idle earned ~5k legacy; feels
   logarithmic and acceptable. No action, but keep it that way.
 
 ## UI
 
-- [ ] **F12 ui — legacy progress bar fills from 0, not from the last point (P1).** "Next legacy
+- [x] **F12 ui — legacy progress bar fills from 0, not from the last point (P1).** "Next legacy
   point" bar reads as % of the whole target instead of last-point → next-point, so late
   game it looks permanently full. Fix in the Legacy / City Hall panel using
   `derived.extra.prestige.nextAt` and the previous point's threshold.
+  → Done: simulation exposes `prevAt` / `pointProgress` (`aab56b0`), City Hall bar draws the point N → N+1 segment (`84dc64b`).
 - [ ] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
   much better once discovered. Check the embed viewport size on the itch page and make the
   layout fit it, or surface a fullscreen prompt on first load inside an iframe.
 - [ ] **F14 ui — no bulk sell (P2).** Sell is one at a time. Add a modifier key (shift/ctrl/alt,
   the genre standard) and/or let the ×10 / Max segment apply to Sell.
-- [ ] **F15 ui — planes fly backwards (P3).** The skyline plane sprite faces opposite its travel
+- [x] **F15 ui — planes fly backwards (P3).** The skyline plane sprite faces opposite its travel
   direction (`sk-plane` keyframes in `src/ui/styles.css`, sprite in `src/ui/skyline.js`).
   Player: "game unplayable, ragequit".
 
+  → Done in `b337f1e` (sprite nose is its +x extreme; test pins it against the keyframes).
 ## Cross-cutting
 
-- [ ] **F16 docs — DESIGN.md late-game contract vs the play.** F2, F3 and F7 all say the
+- [x] **F16 docs — DESIGN.md late-game contract vs the play.** F2, F3 and F7 all say the
   mid/late game lost its tension even though the sim contract passes. The greedy bot does
   not play like a human (it buys everything, so it never over-builds one category). Add a
   sim profile or probe that reproduces the human's power surplus and unemployment cliff, and
   add those as contract metrics before re-tuning.
+
+  → Done: `--profile human` bot (`757a244`), deep-push founding rule + five human-only contract gates in the sim (`877437c`; power cap/demand ≤ 4 by hour, first ≥ 3× city ≥ 8, unemployment ≤ 20 % per city / ≤ 15 % by hour, Lights Out after city 1). Reproduces the playtest on the shipped balance: cap/demand 6.4–16.6× from hour 3, unemployment 24–34 % in hours 6–7, Lights Out 0/9 — the gates FAIL until F2/F3 are fixed. Lever map: `docs/feedback/2026-09-14-levers.md`.

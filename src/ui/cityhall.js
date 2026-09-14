@@ -3,7 +3,7 @@
 // here changes every frame, which is exactly why it lives one tap away instead of on the sky.
 import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtInt } from './dom.js';
 import { createCharterSection } from './charter.js';
-import { unemploymentLevel, legacyPointBar, happinessRows, happinessTotal, happinessHint, signedPct, LEGACY_GLYPH } from './text.js';
+import { unemploymentLevel, legacyPointBar, happinessRows, happinessTotal, happinessHint, signedPct, foundingRule, LEGACY_GLYPH } from './text.js';
 
 export function createCityHall(ui) {
   const { game } = ui;
@@ -22,6 +22,11 @@ export function createCityHall(ui) {
   const charter = createCharterSection(ui);
   const prestigeBtn = h('button.btn.btn-prestige', { type: 'button' }, [icon('flag'), h('span', { text: 'Found a new city' })]);
   const prestigeNote = h('p.prestige-note', { text: '' });
+  // The founding rule in plain words (F6): what a founding must bank and that the gate is on
+  // this city's earnings, not on the city count. Two lines, text.js foundingRule.
+  const ruleLine = h('span.prestige-rule-line', { text: '' });
+  const gateLine = h('span.prestige-rule-line', { text: '' });
+  const prestigeRule = h('p.prestige-rule', [ruleLine, gateLine]);
   const confirmText = h('span.confirm-text', { text: '' });
   const prestigeConfirm = h('div.confirm-row', { hidden: true }, [
     confirmText,
@@ -50,6 +55,7 @@ export function createCityHall(ui) {
     prestigeBarLabel,
     prestigeBar,
     h('div.stat-grid', [legacyStat, gainStat, bonusStat]),
+    prestigeRule,
     prestigeBtn,
     prestigeConfirm,
     prestigeNote,
@@ -172,6 +178,11 @@ export function createCityHall(ui) {
       setClass(prestigePanel, 'is-ready', can && gain > 0);
       setDisabled(prestigeBtn, !can);
       setClass(prestigeBtn, 'is-ready', can && gain > 0);
+      const share = ui.content.config?.prestige?.minGainShare ?? 0.4;
+      const fr = foundingRule({ gain, minGain, legacy, share, earned, unlockAt, can });
+      setText(ruleLine, fr.rule);
+      setText(gateLine, fr.gate);
+      setClass(prestigeRule, 'is-met', can);
       setText(
         prestigeNote,
         can
@@ -179,8 +190,8 @@ export function createCityHall(ui) {
             ? `Founding now banks ${LEGACY_GLYPH} ${num(gain)}: income +${fmtPct(mult - 1)} → +${fmtPct(multAfter - 1)}, a bigger treasury, and legacy to spend on charter clauses.`
             : 'Founding now would not earn legacy yet. Keep the treasury flowing a little longer.'
           : legacy > 0
-            ? `Earn ${money(unlockAt)} this city to found again (${num(minGain)} legacy minimum). The bonus below is permanent; new legacy also buys charter clauses.`
-            : `Earn ${money(unlockAt)} in total to found a new city. Every legacy point raises income forever and can be spent on charter clauses.`
+            ? 'The bonus below is permanent; new legacy also buys charter clauses.'
+            : 'Every legacy point raises income forever and can be spent on charter clauses.'
       );
       charter.update(upgradeRows);
     }

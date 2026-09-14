@@ -302,6 +302,40 @@ export function strainNow(live, base, cap) {
   return `×${n.toLocaleString('en-US')} now${capped ? ' (cap)' : ''}`;
 }
 
+// ---- The founding rule in plain words (docs/FEEDBACK.md F6) ----
+//
+// simulation/prestige.js: founding is allowed once gain ≥ max(minGain, ceil(legacy ×
+// minGainShare)), and gain comes from THIS city's earnings (lifetime worth minus the bank),
+// so the gate is on how far this city is pushed, never on how many cities came before.
+// derived.extra.prestige gives the resolved gate (minGain), the bank (legacy), the points a
+// founding banks now (gain), whether it is allowed (can) and this run's earnings at which
+// it arms (unlockAt). `share` is config.prestige.minGainShare (0.4). Two lines, pure.
+export function foundingRule({ gain = 0, minGain = 1, legacy = 0, share = 0.4, earned = 0, unlockAt = 0, can = false } = {}) {
+  const fin = (v, d = 0) => (Number.isFinite(v) && v >= 0 ? v : d);
+  gain = Math.floor(fin(gain));
+  minGain = Math.max(1, Math.ceil(fin(minGain, 1)));
+  legacy = Math.floor(fin(legacy));
+  share = fin(share, 0.4);
+  earned = fin(earned);
+  unlockAt = fin(unlockAt);
+  const need = `${LEGACY_GLYPH} ${num(minGain)}`;
+  const rule = legacy > 0
+    ? `Found needs +${need} legacy (≥ ${fmtPct(share)} of your bank of ${LEGACY_GLYPH} ${num(legacy)}).`
+    : `Found needs +${need} legacy.`;
+  let gate;
+  if (can || gain >= minGain) {
+    gate = unlockAt > 0
+      ? `This city has earned ${money(earned)}, past the ${money(unlockAt)} gate. The gate is on this city's earnings, never on how many cities you have founded.`
+      : `The gate is on this city's earnings, never on how many cities you have founded.`;
+  } else {
+    const more = unlockAt > earned ? unlockAt - earned : 0;
+    gate = unlockAt > 0
+      ? `That takes ${money(unlockAt)} earned in this city — ${money(more)} more. The gate is on this city's earnings, never on how many cities you have founded.`
+      : `The gate is on this city's earnings, never on how many cities you have founded.`;
+  }
+  return { rule, gate, text: `${rule} ${gate}` };
+}
+
 // ---- Happiness breakdown (docs/FEEDBACK.md F4) ----
 //
 // derived.extra.happiness (resources) carries one signed entry per term of the formula plus

@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, foundingRule, LEGACY_GLYPH } from './text.js';
 import { HAPPINESS_LIMITS } from '../resources/index.js';
 import { isFramed, shouldOfferFullscreen, STORAGE_KEY } from './embed.js';
 import { TEASERS } from './upgrades.js';
@@ -629,6 +629,33 @@ test('fullscreen offer: framed or forced, not dismissed, not already full, brows
   assert.equal(shouldOfferFullscreen({ framed: true, canFullscreen: false }), false, 'no API, no chip');
   assert.equal(shouldOfferFullscreen(), false);
   assert.match(STORAGE_KEY, /^metropolis\./, 'namespaced localStorage key');
+});
+
+// F6: the founding rule in plain words — what a founding must bank (max(minGain, ceil(bank ×
+// share))) and that the gate is on this city's earnings, never on the city count.
+test('founding rule text: the +N gate as a share of the bank, and the earnings it takes', () => {
+  // A 100-point mayor: the gate is ceil(100 × 0.4) = 40 points, this city has $2.5M of $7M.
+  const mid = foundingRule({ gain: 12, minGain: 40, legacy: 100, share: 0.4, earned: 2.5e6, unlockAt: 7e6, can: false });
+  assert.equal(mid.rule, `Found needs +${LEGACY_GLYPH} 40 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 100).`);
+  assert.match(mid.gate, /^That takes \$7\.00M earned in this city — \$4\.50M more\./);
+  assert.match(mid.gate, /this city's earnings, never on how many cities you have founded/);
+  assert.equal(mid.text, `${mid.rule} ${mid.gate}`);
+  // Gate met: says so with the figures, keeps the "not the city count" line.
+  const ready = foundingRule({ gain: 45, minGain: 40, legacy: 100, share: 0.4, earned: 8.2e6, unlockAt: 7e6, can: true });
+  assert.equal(ready.rule, mid.rule);
+  assert.match(ready.gate, /^This city has earned \$8\.20M, past the \$7\.00M gate\./);
+  assert.match(ready.gate, /never on how many cities/);
+  // First founding: no bank to take a share of, so no percentage clause.
+  const first = foundingRule({ gain: 0, minGain: 1, legacy: 0, share: 0.4, earned: 5e5, unlockAt: 1.1e7 });
+  assert.equal(first.rule, `Found needs +${LEGACY_GLYPH} 1 legacy.`);
+  assert.match(first.gate, /^That takes \$11\.0M earned in this city — \$10\.5M more\./);
+  // A tiny bank whose share rounds up to the floor still reads as the resolved gate.
+  assert.equal(foundingRule({ minGain: 1, legacy: 1, share: 0.4 }).rule, `Found needs +${LEGACY_GLYPH} 1 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 1).`);
+  // Garbage never prints NaN or a negative "more".
+  const junk = foundingRule({ gain: NaN, minGain: -3, legacy: 'x', share: Infinity, earned: 9e6, unlockAt: 7e6, can: false });
+  assert.doesNotMatch(junk.text, /NaN|-\$/);
+  assert.match(junk.gate, /\$0 more/);
+  assert.equal(foundingRule().rule, `Found needs +${LEGACY_GLYPH} 1 legacy.`);
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

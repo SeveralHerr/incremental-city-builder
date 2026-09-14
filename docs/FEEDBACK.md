@@ -49,6 +49,7 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   penalised. Either way the player cannot reset early to farm legacy, which is a hallmark
   of incrementals (short resets vs a long push). Document the rule in-game and consider
   allowing an early founding at a reduced gain.
+  → UI half done: the Legacy panel states the rule in plain words from `derived.extra.prestige` — "Found needs +◆ N legacy (≥ 40 % of your bank of ◆ M)." and "That takes $U earned in this city — $D more. The gate is on this city's earnings, never on how many cities you have founded." (past the gate: "This city has earned $E, past the $U gate…"). `text.js foundingRule`, tested. The early-founding-at-reduced-gain question is the simulation/balance half, still open.
 - [ ] **F7 upgrades/balance — "population grows faster" rungs are dead (P2).** Every time one
   unlocked the player was already at full population (housing-capped). Either re-time them
   or change their effect.

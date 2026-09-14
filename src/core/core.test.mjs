@@ -13,7 +13,7 @@ import { fmt, fmtMoney, fmtRate, fmtInt, fmtPct } from './format.js';
 import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from './safe.js';
 import { on, off, emit, isListenerDisabled, listenerCount } from './events.js';
 import { loop, step, start, stop, TICK_MS } from './loop.js';
-import { botStep } from './bot.js';
+import { botStep, humanShouldFound } from './bot.js';
 
 function clearErrors() {
   errors.length = 0;
@@ -867,4 +867,75 @@ test('botStep human profile: homes before jobs on the stale population, a civic 
   assert.equal(reasons[0], 'civic');
   assert.equal(errors.length, 0);
   resetState();
+});
+
+// The deep-push founding rule (docs/FEEDBACK.md F16): the game's gate is necessary, not
+// sufficient. The prestige actions are the simulation module's, so they are stubbed here.
+test('humanShouldFound: waits past an open gate until the haul is foundShare × the bank, then founds', () => {
+  clearErrors();
+  let can = true;
+  let gain = 0;
+  registerAction('canPrestige', () => can);
+  registerAction('prestigeGain', () => gain);
+  const owned = registerUpgrade({ id: 'hf-owned', name: 'Owned rung', cost: 100, effect: () => {} });
+  const far = registerUpgrade({ id: 'hf-far', name: 'Far rung', cost: 1e6, effect: () => {} });
+  assert.ok(owned && far);
+  try {
+    resetState();
+    // Every registered money upgrade but the far rung is owned, so it is the cheapest target.
+    for (const id of registry.upgradeOrder) state.upgrades[id] = true;
+    delete state.upgrades['hf-far'];
+    state.prestige.legacy = 100;
+    state.res.money = 0;
+    derived.income = 1;
+    // Gate open, haul 41 (the game's own 0.4 × bank floor): the rule says wait at share 2.0.
+    gain = 41;
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 0 }), false, 'haul below 2 × bank');
+    assert.equal(humanShouldFound({ foundShare: 1.0, foundReachMinutes: 0 }), false, 'haul below 1 × bank');
+    assert.equal(humanShouldFound({ foundShare: 0.1, foundReachMinutes: 0 }), true, 'the gate rule founds at the gate');
+    // Haul 200 = 2 × bank: founds.
+    gain = 200;
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 0 }), true);
+    assert.equal(humanShouldFound({ foundShare: 2.0 + 1e-9, foundReachMinutes: 0 }), false, 'ceil(bank × share) is the floor');
+    // The gate itself is never bypassed, whatever the haul.
+    can = false;
+    assert.equal(humanShouldFound({ foundShare: 0, foundReachMinutes: 0 }), false);
+    can = true;
+    // Out-of-targets check: the far rung is 1e6 s of income away → founds; with the rung
+    // within 20 min of income → waits; owned or affordable → waits / founds accordingly.
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 20 }), true, 'no rung within 20 min: found');
+    derived.income = 1e6 / 60; // one minute away
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 20 }), false, 'a rung one minute away: keep playing');
+    state.res.money = 1e6;
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 20 }), false, 'an affordable rung is bought first, not founded past');
+    state.upgrades['hf-far'] = true;
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 20 }), true, 'nothing left to buy: found');
+    // The gate rule + reach: still a target in reach → waits even at the gate.
+    delete state.upgrades['hf-far'];
+    state.res.money = 0;
+    assert.equal(humanShouldFound({ foundShare: 0.1, foundReachMinutes: 20 }), false);
+    // Absurd prestigeMin floor still applies with a tiny bank.
+    state.prestige.legacy = 0;
+    gain = 4;
+    assert.equal(humanShouldFound({ prestigeMin: 5, foundShare: 2.0, foundReachMinutes: 0 }), false);
+    gain = 5;
+    assert.equal(humanShouldFound({ prestigeMin: 5, foundShare: 2.0, foundReachMinutes: 0 }), true);
+    // The profile's own step founds through api.prestige when the rule says so (the prestige
+    // action is stubbed to count; nothing else is bought because the wallet is empty).
+    let founded = 0;
+    registerAction('prestige', () => (founded++, true));
+    state.prestige.legacy = 100;
+    gain = 41;
+    botStep({ profile: 'human', maxBuys: 5, foundShare: 2.0, foundReachMinutes: 0 });
+    assert.equal(founded, 0, 'step: gate open, rule says wait');
+    gain = 200;
+    botStep({ profile: 'human', maxBuys: 5, foundShare: 2.0, foundReachMinutes: 0 });
+    assert.equal(founded, 1, 'step: rule says found');
+    assert.equal(errors.length, 0);
+  } finally {
+    registerAction('canPrestige', () => false);
+    registerAction('prestigeGain', () => 0);
+    registerAction('prestige', () => false);
+    resetState();
+  }
 });

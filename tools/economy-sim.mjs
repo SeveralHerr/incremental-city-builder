@@ -78,7 +78,30 @@ const trace = (reason, row, n) => {
   if (reason === 'rotation') rotationCount[row.id] = (rotationCount[row.id] || 0) + n;
   if (row.powerGen > 0) genUnits[reason === 'rotation' ? 'rotation' : 'need'] += n;
 };
-const BOT_OPTS = SAVER ? { saveSeconds: 30 } : PROFILE === 'human' ? { profile: 'human', trace } : {};
+// --found <rule> (human profile only): the founding rule under test, see src/core/bot.js
+// humanShouldFound. Omitted → the profile's own default (the measured pick). The named rules are
+// the 2026-09-14 candidates; `share:S,reach:M` sets the two knobs directly.
+const FOUND_RULES = {
+  gate: { foundShare: 0.1, foundReachMinutes: 0 }, // found at the game's gate (F16 first cut)
+  double: { foundShare: 1.0, foundReachMinutes: 0 }, // haul ≥ 1.0 × bank
+  triple: { foundShare: 2.0, foundReachMinutes: 0 }, // haul ≥ 2.0 × bank
+  targets: { foundShare: 0.1, foundReachMinutes: 20 }, // gate + no upgrade within 20 min of income
+  deep: { foundShare: 1.0, foundReachMinutes: 20 }, // double + out of targets
+};
+const FOUND_ARG = opt('--found', '');
+const FOUND = (() => {
+  if (!FOUND_ARG) return null;
+  if (FOUND_RULES[FOUND_ARG]) return { name: FOUND_ARG, ...FOUND_RULES[FOUND_ARG] };
+  const m = /^share:([\d.]+),reach:([\d.]+)$/.exec(FOUND_ARG);
+  if (m) return { name: FOUND_ARG, foundShare: Number(m[1]), foundReachMinutes: Number(m[2]) };
+  console.error(`[sim] unknown --found "${FOUND_ARG}" (${Object.keys(FOUND_RULES).join(' | ')} | share:S,reach:M)`);
+  process.exit(2);
+})();
+if (FOUND && PROFILE !== 'human') {
+  console.error('[sim] --found applies to --profile human only');
+  process.exit(2);
+}
+const BOT_OPTS = SAVER ? { saveSeconds: 30 } : PROFILE === 'human' ? { profile: 'human', trace, ...(FOUND ? { foundShare: FOUND.foundShare, foundReachMinutes: FOUND.foundReachMinutes } : {}) } : {};
 
 const { boot, game } = await import(path.join(ROOT, 'src/boot.js').replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:'));
 await boot();
@@ -483,6 +506,17 @@ const f3Split = (group) => {
   };
 };
 const f3 = { midCity: f3Split('midCity'), replay: f3Split('replay'), granted: f3Split('granted') };
+// First city that BOUGHT the F3 rung itself (a --grant city does not count): the city, the
+// run-minute inside it (purchase log) and the playtime minute (city start + run-minute).
+const firstUnassisted = (key) => {
+  const c = cityStats.find((c) => c[key] !== null && !c.granted);
+  if (!c) return null;
+  const cyc = cycles[c.city - 1];
+  const startMin = cyc ? cyc.startMin : cur.startMin;
+  return { city: c.city, runMin: c[key], min: +(startMin + c[key]).toFixed(1) };
+};
+const megastructuresFirst = firstUnassisted('megastructuresAt');
+const arcologyGardensFirst = firstUnassisted('arcologyGardensAt');
 
 // ---- player checkpoint (docs/feedback/2026-09-14-idle-stats.png; see the header) ----
 // Reported, not gated: the screenshot against (a) the sample nearest the same playtime, (b) the
@@ -565,6 +599,50 @@ if (hours >= 12 && (neverPurchased.buildings.length || neverPurchased.upgrades.l
   issues.push({ tick: 0, kind: 'content', msg: `never purchased in ${hours}h: ${[...neverPurchased.buildings, ...neverPurchased.upgrades].join(', ')}` });
 }
 
+// ---- human-profile contract gates (docs/FEEDBACK.md F2/F3/F16; --profile human, no --grant) ----
+// The reproduction of F2 (power runaway) and F3 (unemployment cliff) as gates, fed into `issues`
+// so contractPass reflects them. They are MEANT to fail on the 2026-09-14 balance (numbers in
+// the header); a later balance wave makes them pass. Hours are 1-based game-hours of playtime
+// (hour 1 = array index 0); city medians are the warmed-up per-city samples (cityStats).
+//   power-surplus  median cap/demand ≤ 4.0 in hours 3–12 and ≥ 1.0 in hours 2–12;
+//                  firstCityWithSurplus3x ≥ 8 or none
+//   unemployment   per-city median ≤ 0.20 for every city ≥ 4; by-hour median ≤ 0.15 in hours 2–12
+//   lights-out     the Lights Out milestone latched in ≥ 1 city after city 1
+// nextLegacyMinutesByHour stays report-only.
+const HUMAN_GATED = PROFILE === 'human' && !GRANT;
+const humanGates = [];
+const hourIdx = (h) => h - 1; // 1-based hour → array index
+const pc = (v) => (v * 100).toFixed(0) + '%';
+const gateLine = (kind, ok, msg) => {
+  humanGates.push({ kind, ok, msg });
+  if (!ok) issues.push({ tick: 0, kind, msg });
+};
+if (HUMAN_GATED) {
+  const lastHour = Math.min(HOURS, 12);
+  const over = [];
+  const under = [];
+  for (let h = 2; h <= lastHour; h++) {
+    const v = powerRatioByHour[hourIdx(h)];
+    if (v === null) continue;
+    if (h >= 3 && v > 4.0) over.push(`h${h} ${v.toFixed(2)}`);
+    if (v < 1.0) under.push(`h${h} ${v.toFixed(2)}`);
+  }
+  gateLine('power-surplus', !over.length && !under.length, `median cap/demand by hour: ${over.length ? `> 4.0 in ${over.join(', ')}` : 'none > 4.0 (hours 3–12)'}; ${under.length ? `< 1.0 in ${under.join(', ')}` : 'none < 1.0 (hours 2–12)'}`);
+  const fs3 = firstSurplusCity ? firstSurplusCity.city : null;
+  gateLine('power-surplus', fs3 === null || fs3 >= 8, `first city with median cap/demand ≥ 3×: ${fs3 ?? 'none'} (contract ≥ 8 or none)`);
+  const badCities = cityStats.filter((c) => c.city >= 4 && c.medianUnemployment !== null && c.medianUnemployment > 0.2).map((c) => `city ${c.city} ${pc(c.medianUnemployment)}`);
+  gateLine('unemployment', !badCities.length, `per-city median unemployment > 20 % (cities ≥ 4): ${badCities.length ? badCities.join(', ') : 'none'}`);
+  const badHours = [];
+  for (let h = 2; h <= lastHour; h++) {
+    const v = unemploymentByHour[hourIdx(h)];
+    if (v !== null && v > 0.15) badHours.push(`h${h} ${pc(v)}`);
+  }
+  gateLine('unemployment', !badHours.length, `median unemployment by hour > 15 % (hours 2–12): ${badHours.length ? badHours.join(', ') : 'none'}`);
+  const latchedLater = cycles.filter((c) => c.n >= 1 && c.lightsOut).length + (cur.n >= 1 && cur.lightsOut ? 1 : 0);
+  const citiesAfterFirst = Math.max(0, cycles.length + 1 - 1);
+  gateLine('lights-out', hours < 6 || latchedLater >= 1, `Lights Out latched in ${latchedLater}/${citiesAfterFirst} cities after city 1 (contract ≥ 1)`);
+}
+
 const HARD = new Set(['overflow', 'stall', 'magnitude']);
 const report = {
   profile: PROFILE,
@@ -615,6 +693,11 @@ const report = {
     firstCityWithSurplus3x: firstSurplusCity ? firstSurplusCity.city : null,
     megastructuresCity: megaSample ? megaSample.prestiges + 1 : null,
     megastructuresMin: megaSample ? megaSample.min : null,
+    // First city that bought the F3 rungs itself ({ city, runMin, min }; null when never).
+    megastructuresFirst,
+    arcologyGardensFirst,
+    // Human-profile contract gates ({ kind, ok, msg }; empty for the other profiles / --grant).
+    humanGates,
     unemploymentWithMegastructures: r3(unempWithMega),
     unemploymentBeforeMegastructures: r3(unempBeforeMega),
     unemp40ShareWithMegastructures: r3(unemp40WithMega),
@@ -629,6 +712,7 @@ const report = {
     powerRatioWithoutRotationByCity: cityStats.map((c) => c.medianPowerRatioWithoutRotation),
   },
   grant: GRANT,
+  found: FOUND ? FOUND.name : 'default',
   playerCheckpoint,
   cityStats,
   cycles,
@@ -667,6 +751,14 @@ if (PROFILE === 'human') {
   console.log(
     `[sim] human F2 attribution by city: generator units need/rotation ${gu.map((g) => `${g.need}/${g.rotation}`).join(' ')} | median cap/demand without the rotation's generators ${hourly(m.powerRatioWithoutRotationByCity, (v) => v.toFixed(2))}`
   );
+}
+if (HUMAN_GATED) {
+  const c6 = playerCheckpoint.atCityEnd;
+  const fmtFirst = (f) => (f ? `city ${f.city} @ run-min ${f.runMin} (${f.min} min)` : 'never');
+  console.log(
+    `[sim] human founding rule ${report.found}: ${cycles.length} foundings in ${report.gameHours}h, legacy at end of city 6 ${c6 ? c6.legacy : '-'} (player 415), Megastructures ${fmtFirst(megastructuresFirst)}, Arcology Gardens ${fmtFirst(arcologyGardensFirst)}, lightsOutReachable ${(lightsOutReachable * 100).toFixed(1)}%`
+  );
+  for (const g of humanGates) console.log(`[sim] human gate ${g.ok ? 'PASS' : 'FAIL'} [${g.kind}] ${g.msg}`);
 }
 const cp = playerCheckpoint;
 const cpFmt = (s) => (s ? `city ${s.city} @ ${s.min} min: income ${s.income.toExponential(2)}/s (×${s.ratioToPlayer.income}), pop ${s.pop} (×${s.ratioToPlayer.pop}), legacy ${s.legacy} (×${s.ratioToPlayer.legacy}), ${s.buildings} bldg, unemployment ${pct(s.unemployment)}, cap/demand ${s.powerRatio ?? '-'}, Megastructures ${s.megastructures ? 'yes' : 'no'}` : 'not reached');

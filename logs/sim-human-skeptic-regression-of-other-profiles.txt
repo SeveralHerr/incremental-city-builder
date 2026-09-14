@@ -1,0 +1,10 @@
+[sim] PASS (contract PASS) 4h game in 4325ms (33295 t/s) money=2.25e+9 income=1.09e+9/s pop=627420 prestiges=13 legacy=451 (spent 235) issues=0 errors=0
+[sim] cycles(min): 46.2 14.3 13.6 9.0 8.0 9.7 12.4 14.4 17.2 21.1 22.9 25.0 19.8
+[sim] profile=human reach=49% bigRatio=41% (next-step 5%) underPower=0.2% minRatio=0.60 happyDips=13/13 emptyLate=0
+[sim] human by hour: power cap/demand 1.14 1.57 6.47 15.96 | unemployment 21% 0% 0% 0% | next legacy (min) 44.1 0.5 0.3 0.1 | lightsOut 0.0% 0.0% 0.0% 0.0% of grid samples (0.0% overall, latched in 0/13 cities)
+[sim] human by city (≥ 2 min in): median cap/demand 1.16 1.13 1.12 1.19 1.03 3.75 7.20 6.91 6.61 6.38 6.37 16.75 16.33 5.88 | median unemployment 0% 52% 55% 10% 0% 0% 0% 0% 0% 0% 0% 0% 0% 0% | first city with median ≥ 3×: 6 | Megastructures: never bought
+[sim] human F3 by how Megastructures arrived: mid-city no city | replay no city | granted no city
+[sim] human F2 attribution by city: generator units need/rotation 101/34 140/35 142/50 152/55 140/95 125/126 35/239 5/296 6/317 7/340 5/367 4/388 3/411 7/320 | median cap/demand without the rotation's generators 0.93 1.07 1.06 1.09 0.66 2.09 0.52 0.04 0.03 0.04 0.10 0.18 0.18 0.18
+[sim] human vs the player's screenshot (city 6 @ 92 min: $7.89e9/s, 1.53M pop, legacy 415, 1,727 bldg, 43% unemployment, cap/demand 3.52, Megastructures yes): at 92 min → city 6 @ 92.2 min: income 5.24e+4/s (×0), pop 5243 (×0.0034), legacy 30 (×0.0723), 151 bldg, unemployment 37%, cap/demand 1.9, Megastructures no | end of city 6 → city 6 @ 100.2 min: income 3.04e+7/s (×0.0039), pop 346781 (×0.2267), legacy 30 (×0.0723), 1295 bldg, unemployment 0%, cap/demand 3.81, Megastructures no | first at the player's income → not reached
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-human-skeptic-regression-of-other-profiles.json
+exit 0

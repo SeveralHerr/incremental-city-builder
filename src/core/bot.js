@@ -21,7 +21,9 @@
 //   'human'            — plays the way the 2026-09-14 playtest did (docs/FEEDBACK.md F16):
 //                        every lit-up card, homes → jobs → power to demand → civic as the
 //                        exception, then "comparable amounts of everything" in ×Max batches;
-//                        never saves, never sells, founds as soon as allowed. See humanStep().
+//                        never saves, never sells, founds on the deep-push rule
+//                        (humanShouldFound: haul ≥ foundShare × bank and no upgrade in reach).
+//                        See humanStep().
 import { state, derived } from './state.js';
 import { api } from './api.js';
 
@@ -166,8 +168,12 @@ function greedyStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, tapBe
 //      what a fifth of the wallet (one category's share) affords, a need buys the units that
 //      cover it up to that same share (the grid takes its full need); at least one unit either
 //      way. Never sells.
-//   3. founds a new city as soon as it is allowed and the haul is ≥ max(5, 10 % of the bank)
-//      (the game's own gate, ceil(0.4 × bank), is the binding one — same cadence as greedy);
+//   3. founds a new city on the deep-push rule below (`foundShare` / `foundReachMinutes`): the
+//      player pushed cities far past the gate (415 legacy in city 6 vs 30 for a found-at-the-gate
+//      bot), so the profile waits until the haul would at least `foundShare` × the bank AND — when
+//      `foundReachMinutes` > 0 — the city has run out of targets (no unlocked, unowned money
+//      upgrade within that many minutes of income). Measured 2026-09-14 (12 h, see the constants
+//      above humanShouldFound); the shipped default is share 2.0 with the reach check off;
 //   4. taps while income is tiny, like the other profiles.
 // Within a category the newest (highest tier) affordable building wins a need, cheapest on a
 // tie; the rotation takes the lowest count (ties: newest). The rotation pointer and the jobs
@@ -179,7 +185,51 @@ const CATEGORY_ROTATION = ['residential', 'commercial', 'industrial', 'power', '
 const HUMAN_POWER_TRIGGER = 0.98; // power need once demand > 0.98 × cap
 const HUMAN_POWER_HEADROOM = 1.2; // ...and the fix puts the grid 1.2 × demand ahead
 const HUMAN_VACANCY = 0.05; // housing need: fewer than 5 % of homes empty
+// Deep-push founding rule (docs/FEEDBACK.md F16, second pass). The player pushed cities far past
+// the gate (415 legacy at the end of city 6, Megastructures owned there); a bot that founds at
+// the gate holds 30 and first buys Megastructures in city 18. Candidates measured 2026-09-14 on
+// the current balance (`node tools/economy-sim.mjs --ticks 432000 --profile human --found <rule>`;
+// city-6 legacy vs the player's 415, the city that first buys Megastructures on its own):
+//   share 0.1 reach 0  (gate)     28 foundings, city-6 legacy 30,   Megastructures city 18 @ 338 min
+//   share 1.0 reach 0  (double)   14 foundings, city-6 legacy 80,   Megastructures city 10 @ 303 min
+//   share 1.5 reach 0             10 foundings, city-6 legacy 208,  Megastructures city 8 @ 309 min
+//   share 2.0 reach 0  (triple)    9 foundings, city-6 legacy 405,  Megastructures city 7 @ 315 min
+//   share 3.0 reach 0              6 foundings, city-6 legacy 1280, Megastructures city 6 @ 331 min
+//   share 0.1 reach 20 (targets)   3 foundings, city 6 never,       Megastructures city 4 @ 472 min
+//   share 0.1 reach 5              6 foundings, city-6 legacy 87,   Megastructures city 7 @ 352 min
+//   share 1.0 reach 20 (deep)      2 foundings, city 6 never,       Megastructures city 3 @ 500 min
+// "Out of targets" never fires at this income (some rung is always within minutes), so the
+// reach knob alone only stretches cities. The pick is share 2.0 (the haul triples the bank):
+// city-6 legacy 405 (0.98× the player) and Megastructures unassisted in city 7 — the only
+// candidate inside 0.5–2× of 415 that also owns the rung by city 8. Its cost is cadence: 9
+// foundings in 12 h, cycles 46 · 18 · 22 · 61 · 74 · 64 · 91 · 143 · 146 min.
+const HUMAN_FOUND_SHARE = 2.0; // found once the haul would be ≥ this × the bank (0 = the game's gate)
+const HUMAN_FOUND_REACH_MIN = 0; // ...and no unlocked, unowned money upgrade is within this many minutes of income (0 = ignore)
 const human = { rotation: 0, jobsIndustrial: false };
+
+// The deep-push founding decision (exported for tests and the sim): the game's own gate, then
+// the haul against the bank, then the "out of targets" check — a player founds when the city
+// has nothing left to aim at, not the moment the button lights up.
+export function humanShouldFound({ prestigeMin = 5, foundShare = HUMAN_FOUND_SHARE, foundReachMinutes = HUMAN_FOUND_REACH_MIN } = {}) {
+  if (!api.canPrestige()) return false;
+  const legacy = state.prestige && Number.isFinite(state.prestige.legacy) ? state.prestige.legacy : 0;
+  const share = Number.isFinite(foundShare) && foundShare > 0 ? foundShare : 0;
+  const minGain = Math.max(prestigeMin, Math.ceil(legacy * share));
+  if (api.prestigeGain() < minGain) return false;
+  if (!(foundReachMinutes > 0)) return true;
+  // Cheapest unlocked, unowned money upgrade: within reach → keep playing this city.
+  let cheapest = Infinity;
+  for (const u of api.upgrades()) {
+    if (!u.unlocked || u.owned || u.currency === 'legacy') continue;
+    if (u.cost < cheapest) cheapest = u.cost;
+  }
+  if (!Number.isFinite(cheapest)) return true; // no target left at all
+  const money = Number.isFinite(state.res.money) ? state.res.money : 0;
+  if (cheapest <= money) return false;
+  const income = Number.isFinite(derived.income) ? derived.income : 0;
+  if (!(income > 0)) return true; // nothing coming in: the target is unreachable
+  return (cheapest - money) / income > foundReachMinutes * 60;
+}
 
 // Highest tier first, then cheapest.
 function newestFirst(a, b) {
@@ -196,7 +246,7 @@ function humanMods(id) {
   return { demand: mods ? pos(mods.demand) : 1, power: both('power'), housing: both('housing'), jobs: both('jobs') };
 }
 
-function humanStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.1, tapBelow = 1, trace = null } = {}) {
+function humanStep({ maxBuys = 25, prestigeMin = 5, foundShare = HUMAN_FOUND_SHARE, foundReachMinutes = HUMAN_FOUND_REACH_MIN, tapBelow = 1, trace = null } = {}) {
   let buys = 0;
   let bought = true;
   const pending = { demand: 0, cap: 0, housing: 0, jobs: 0, joy: 0 };
@@ -272,10 +322,8 @@ function humanStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.1, tapBelo
   while (bought && buys < maxBuys) {
     bought = false;
 
-    // 3. Found as soon as allowed and the haul is meaningful.
-    const legacy = state.prestige && Number.isFinite(state.prestige.legacy) ? state.prestige.legacy : 0;
-    const minGain = Math.max(prestigeMin, Math.ceil(legacy * prestigeScale));
-    if (api.canPrestige() && api.prestigeGain() >= minGain) {
+    // 3. Found on the deep-push rule (humanShouldFound).
+    if (humanShouldFound({ prestigeMin, foundShare, foundReachMinutes })) {
       if (api.prestige()) {
         buys++;
         for (const k of Object.keys(pending)) pending[k] = 0;

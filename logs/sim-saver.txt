@@ -1,4 +1,4 @@
-[sim] PASS (contract PASS) 12h game in 16663ms (25926 t/s) money=2.79e+16 income=6.21e+15/s pop=108340425 prestiges=35 legacy=746168 (spent 213186) issues=0 errors=0
+[sim] PASS (contract PASS) 12h game in 24567ms (17585 t/s) money=2.79e+16 income=6.21e+15/s pop=108340425 prestiges=35 legacy=746168 (spent 213186) issues=0 errors=0
 [sim] cycles(min): 38.1 14.5 13.8 7.1 8.5 10.5 13.2 14.9 17.3 19.8 21.8 21.3 5.5 7.2 8.8 11.7 15.4 16.1 16.2 20.5 25.5 32.1 43.4 23.6 30.1 25.3 29.1 20.0 22.0 20.1 24.6 30.6 16.6 21.5 27.8
 [sim] profile=saver reach=62% bigRatio=34% (next-step 10%) underPower=2.8% minRatio=0.60 happyDips=20/35 emptyLate=9
 [sim] saver by hour: power cap/demand 1.07 4.27 6.91 14.64 12.50 11.05 10.42 10.01 22.88 332.72 318.16 739.39 | unemployment 41% 0% 0% 0% 3% 0% 0% 0% 13% 6% 6% 0% | next legacy (min) 81.1 0.5 0.2 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 | lightsOut 30.5% 5.2% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% of grid samples (3.0% overall, latched in 20/35 cities)

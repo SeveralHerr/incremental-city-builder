@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -524,6 +524,36 @@ test('airport planes fly nose first', () => {
   }
   assert.ok(P.beacon.cx < Math.min(...xs(P.wingTop)), 'the beacon rides the tail');
   assert.ok(Math.min(...xs(P.cockpit)) > Math.max(...xs(P.wingTop)), 'the cockpit sits ahead of the wings');
+});
+
+// F14: the ×1 / ×10 / Max segment applies to Sell, Shift = ×10 and Ctrl / ⌘ = Max override it
+// for one click, and a sell never goes below zero owned.
+test('trade count: the segment serves buy and sell, modifiers override, sell floors at zero', () => {
+  // Buy follows the segment; Max is whatever core said is affordable.
+  assert.deepEqual(tradeCount({ mode: 1, affordable: 99 }), { n: 1, amount: 1, all: false });
+  assert.deepEqual(tradeCount({ mode: 10, affordable: 99 }), { n: 10, amount: 10, all: false });
+  assert.deepEqual(tradeCount({ mode: 'max', affordable: 37 }), { n: 37, amount: 'max', all: false });
+  assert.equal(tradeCount({ mode: 'max', affordable: 0 }).n, 0, 'nothing affordable buys nothing');
+  // Sell obeys the same segment, clipped to what is owned.
+  assert.deepEqual(tradeCount({ mode: 1, sell: true, owned: 7 }), { n: 1, amount: 1, all: false });
+  assert.deepEqual(tradeCount({ mode: 10, sell: true, owned: 7 }), { n: 7, amount: 10, all: true });
+  assert.deepEqual(tradeCount({ mode: 10, sell: true, owned: 25 }), { n: 10, amount: 10, all: false });
+  assert.deepEqual(tradeCount({ mode: 'max', sell: true, owned: 25 }), { n: 25, amount: 'max', all: true });
+  assert.deepEqual(tradeCount({ mode: 'max', sell: true, owned: 0 }), { n: 0, amount: 'max', all: false });
+  assert.equal(tradeCount({ mode: 1, sell: true, owned: 0 }).n, 0, 'none owned sells nothing');
+  // Modifier keys: Shift = ×10, Ctrl / ⌘ = Max, Ctrl wins when both are down.
+  assert.deepEqual(tradeCount({ mode: 1, shift: true, affordable: 99 }), { n: 10, amount: 10, all: false });
+  assert.deepEqual(tradeCount({ mode: 1, ctrl: true, affordable: 42 }), { n: 42, amount: 'max', all: false });
+  assert.equal(tradeCount({ mode: 1, shift: true, ctrl: true, affordable: 42 }).amount, 'max');
+  assert.deepEqual(tradeCount({ mode: 1, sell: true, owned: 3, shift: true }), { n: 3, amount: 10, all: true });
+  assert.deepEqual(tradeCount({ mode: 10, sell: true, owned: 300, ctrl: true }), { n: 300, amount: 'max', all: true });
+  // Garbage reads as ×1 / nothing owned; a fractional count floors.
+  assert.deepEqual(tradeCount({ mode: NaN, owned: 'x', affordable: -4 }), { n: 1, amount: 1, all: false });
+  assert.equal(tradeCount({ mode: 'max', sell: true, owned: 4.7 }).n, 4);
+  assert.equal(tradeCount().n, 1);
+  // The rule the tooltips and Settings print names both keys.
+  assert.match(MODIFIER_HELP, /Shift/);
+  assert.match(MODIFIER_HELP, /Ctrl/);
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

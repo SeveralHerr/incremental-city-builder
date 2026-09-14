@@ -1,18 +1,23 @@
-// Build panel: category tabs + building cards with buy ×1 / ×10 / ×max / sell modes.
+// Build panel: category tabs + building cards with a ×1 / ×10 / ×max amount that serves both
+// Buy and Sell (a Sell toggle flips the cards), plus Shift = ×10 / Ctrl = max on any click.
 import { h, icon, setText, setHidden, setClass, setDisabled, setProgress, setAttr, money, num, short, fmtPct, prefersReducedMotion } from './dom.js';
 import { CATEGORY_GATES } from './content.js';
-import { unlockMeasure, unlockLabel, unlockDisplayKey, buildingLines, strainNow } from './text.js';
+import { unlockMeasure, unlockLabel, unlockDisplayKey, buildingLines, strainNow, tradeCount, MODIFIER_HELP } from './text.js';
 
 const MODES = [
-  { id: 1, label: '×1', title: 'Buy one at a time' },
-  { id: 10, label: '×10', title: 'Buy ten at a time' },
-  { id: 'max', label: 'Max', title: 'Buy as many as you can afford' },
-  { id: 'sell', label: 'Sell', title: 'Sell one at a time (half refund)' },
+  { id: 1, label: '×1', title: 'One at a time' },
+  { id: 10, label: '×10', title: 'Ten at a time (or Shift-click any Buy / Sell button)' },
+  { id: 'max', label: 'Max', title: 'As many as you can afford — or, selling, every one you own (or Ctrl-click any Buy / Sell button)' },
 ];
+const SELL_TITLE = 'Sell instead of buy: half refund, the amount switch and the modifier keys apply. ' + MODIFIER_HELP;
 
 export function createBuildPanel(ui) {
   const { game, content } = ui;
   let mode = 1;
+  let selling = false;
+  // Modifier keys held right now, so the buttons show the amount and refund a click would use
+  // before it lands (F14: the refund shown must equal what api.sell pays).
+  const held = { shift: false, ctrl: false };
   let activeCat = null;
   let rows = [];
   const cards = new Map(); // building id -> card
@@ -22,20 +27,51 @@ export function createBuildPanel(ui) {
   const seenCats = new Set();
   let firstBuild = true;
 
-  // ---- header + mode toggle ----
-  const modeGroup = h('div.seg', { role: 'group', 'aria-label': 'Purchase amount' });
+  // ---- header + amount / sell toggles ----
+  const modeGroup = h('div.seg', { role: 'group', 'aria-label': 'Buy or sell amount' });
   const modeBtns = new Map();
   for (const m of MODES) {
-    const b = h(`button.seg-btn${m.id === 'sell' ? '.seg-sell' : ''}`, { type: 'button', text: m.label, title: m.title, 'aria-pressed': m.id === mode ? 'true' : 'false' });
+    const b = h('button.seg-btn', { type: 'button', text: m.label, title: m.title, 'aria-pressed': m.id === mode ? 'true' : 'false' });
     b.addEventListener('click', () => setMode(m.id));
     modeBtns.set(m.id, b);
     modeGroup.append(b);
   }
+  const sellBtn = h('button.seg-btn.seg-sell', { type: 'button', text: 'Sell', title: SELL_TITLE, 'aria-pressed': 'false' });
+  sellBtn.addEventListener('click', () => setSelling(!selling));
+  const modes = h('div.build-modes', [modeGroup, h('div.seg', { role: 'group', 'aria-label': 'Sell mode' }, [sellBtn])]);
   function setMode(m) {
     mode = m;
     for (const [id, b] of modeBtns) setAttr(b, 'aria-pressed', id === m ? 'true' : 'false');
-    setClass(el, 'is-sell-mode', m === 'sell');
     updateCards(true);
+  }
+  function setSelling(on) {
+    selling = !!on;
+    setAttr(sellBtn, 'aria-pressed', selling ? 'true' : 'false');
+    setClass(el, 'is-sell-mode', selling);
+    updateCards(true);
+  }
+  // Shift / Ctrl / ⌘ held: the visible cards re-label ('Buy ×10', 'Sell ×7 +$…') while the
+  // key is down and fall back when it lifts or the window loses focus.
+  function setHeld(shift, ctrl) {
+    shift = !!shift;
+    ctrl = !!ctrl;
+    if (held.shift === shift && held.ctrl === ctrl) return;
+    held.shift = shift;
+    held.ctrl = ctrl;
+    if (el.isConnected && !el.hidden) updateCards(true);
+  }
+  const onKey = (e) => setHeld(e.shiftKey, e.ctrlKey || e.metaKey);
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('keyup', onKey);
+  window.addEventListener('blur', () => setHeld(false, false));
+  // The amount one click on `c` would trade right now (a click passes its own event so a
+  // modifier held only for that click is honoured even if no keydown reached the document).
+  function planFor(c, e) {
+    const shift = e ? e.shiftKey : held.shift;
+    const ctrl = e ? e.ctrlKey || e.metaKey : held.ctrl;
+    const wantsMax = ctrl || (!shift && mode === 'max');
+    const affordable = !selling && wantsMax ? game.api.maxAffordable(c.def) : 0;
+    return tradeCount({ mode, sell: selling, owned: c.row ? c.row.count : 0, affordable, shift, ctrl });
   }
 
   const tabBar = h('div.tabs', { role: 'tablist', 'aria-label': 'Building categories' });
@@ -111,7 +147,7 @@ export function createBuildPanel(ui) {
   // Sheet page: a sticky control row (categories + buy amount) over a scrolling card list.
   // The page title lives on the sheet header, so there is no second 'Build' heading here.
   const el = h('div.page-body.page-build', [
-    h('div.build-bar', [tabBar, modeGroup]),
+    h('div.build-bar', [tabBar, modes]),
     onboarding,
     list,
     empty,
@@ -242,10 +278,13 @@ export function createBuildPanel(ui) {
       h('div.bcard-buy', [btn, bar]),
     ]);
     elc.style.setProperty('--accent', cat.color);
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
       let ok = false;
-      if (mode === 'sell') ok = game.api.sell(def.id, 1);
-      else ok = game.api.buy(def.id, mode === 'max' ? 'max' : mode);
+      const plan = planFor(c, e);
+      // One api call per click whatever the amount: core emits one 'sell' / 'buy' event, and
+      // the save module debounces those, so selling 500 units is one write, not 500.
+      if (selling) ok = plan.n > 0 && game.api.sell(def.id, plan.n);
+      else ok = plan.amount === 'max' ? game.api.buy(def.id, 'max') : game.api.buy(def.id, plan.n);
       if (ok && !prefersReducedMotion()) {
         count.classList.remove('bump');
         void count.offsetWidth;
@@ -338,7 +377,7 @@ export function createBuildPanel(ui) {
     let enabled;
     // A capped-out building (core: row.maxed, def.maxCount — the windmill retires at 12) is
     // not for sale: the button reads "Retired 12/12 built" instead of a greyed price.
-    const maxed = mode !== 'sell' && row.maxed === true;
+    const maxed = !selling && row.maxed === true;
     setClass(c.el, 'is-maxed', maxed);
     if (maxed) {
       const cap = Number.isInteger(row.maxCount) ? row.maxCount : row.count;
@@ -351,35 +390,42 @@ export function createBuildPanel(ui) {
       updateTotals(c, row, mods);
       return;
     }
-    if (mode === 'sell') {
-      n = 1;
-      enabled = row.count > 0;
-      cost = enabled ? game.api.buildingCost(def, row.count - 1, 1) * (def.sellRefund ?? 0.5) : 0;
-      label = 'Sell';
-    } else if (mode === 'max') {
-      n = game.api.maxAffordable(def);
-      if (n <= 0) {
+    // The amount the segment (or a held modifier key) says one click trades: text.js
+    // tradeCount, the same rule the click handler uses, so the label and the refund shown are
+    // exactly what api.buy / api.sell will do.
+    const plan = planFor(c, null);
+    if (selling) {
+      n = plan.n;
+      enabled = n > 0;
+      // core's own refund formula (sellRefund of the replacement cost, cost multiplier
+      // clamped ≤ 1): what api.sell pays, to the cent.
+      cost = enabled ? game.api.sellRefund(def, row.count, n) : 0;
+      label = n > 1 ? 'Sell ×' + num(n) : 'Sell';
+    } else if (plan.amount === 'max') {
+      if (plan.n <= 0) {
         n = 1;
         cost = row.cost;
         enabled = false;
       } else {
+        n = plan.n;
         cost = game.api.buildingCost(def, row.count, n);
         enabled = true;
       }
       label = 'Buy ×' + num(n);
     } else {
-      n = mode;
+      n = plan.n;
       cost = n === 1 ? row.cost : game.api.buildingCost(def, row.count, n);
       enabled = s.res.money >= cost;
-      label = n === 1 ? 'Buy' : 'Buy ×' + n;
+      label = n === 1 ? 'Buy' : 'Buy ×' + num(n);
     }
     setText(c.btnLabel, label);
-    setText(c.btnCost, mode === 'sell' ? (enabled ? '+' + money(cost) : 'none owned') : money(cost));
+    setText(c.btnCost, selling ? (enabled ? '+' + money(cost) : 'none owned') : money(cost));
     // Screen readers hear the building, not just 'Buy $218': "Buy ×10 Cottage for $2,180".
-    setAttr(c.btn, 'aria-label', mode === 'sell' ? (enabled ? `Sell ${def.name} for ${money(cost)}` : `Sell ${def.name}: none owned`) : `${label} ${def.name} for ${money(cost)}`);
+    setAttr(c.btn, 'aria-label', selling ? (enabled ? `Sell ${num(n)} ${def.name} for ${money(cost)}` : `Sell ${def.name}: none owned`) : `${label} ${def.name} for ${money(cost)}`);
+    setAttr(c.btn, 'title', selling && enabled && plan.all && n > 1 ? `Sells every ${def.name} you own` : null);
     setDisabled(c.btn, !enabled);
-    setClass(c.el, 'is-affordable', enabled && mode !== 'sell');
-    setProgress(c.fill, mode === 'sell' ? (enabled ? 1 : 0) : cost > 0 ? Math.min(1, s.res.money / cost) : 1);
+    setClass(c.el, 'is-affordable', enabled && !selling);
+    setProgress(c.fill, selling ? (enabled ? 1 : 0) : cost > 0 ? Math.min(1, s.res.money / cost) : 1);
     updateTotals(c, row, mods);
   }
 
@@ -524,5 +570,5 @@ export function createBuildPanel(ui) {
   }
 
   setMode(1);
-  return { el, update, rebuild, setMode, getMode: () => mode };
+  return { el, update, rebuild, setMode, setSelling, getMode: () => mode, isSelling: () => selling };
 }

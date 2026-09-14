@@ -80,8 +80,9 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
 - [ ] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
   much better once discovered. Check the embed viewport size on the itch page and make the
   layout fit it, or surface a fullscreen prompt on first load inside an iframe.
-- [ ] **F14 ui — no bulk sell (P2).** Sell is one at a time. Add a modifier key (shift/ctrl/alt,
+- [x] **F14 ui — no bulk sell (P2).** Sell is one at a time. Add a modifier key (shift/ctrl/alt,
   the genre standard) and/or let the ×10 / Max segment apply to Sell.
+  → Done: Sell is a toggle beside the ×1 / ×10 / Max switch and obeys it (×10 with 7 owned sells 7, Max sells all, never below 0); Shift-click = ×10, Ctrl/⌘-click = Max on any Buy or Sell button (rule on the tooltips and in Settings). The button shows core's own `api.sellRefund` for the exact amount, one `api.sell(id, n)` call per click (one debounced save). `text.js tradeCount`, tested.
 - [x] **F15 ui — planes fly backwards (P3).** The skyline plane sprite faces opposite its travel
   direction (`sk-plane` keyframes in `src/ui/styles.css`, sprite in `src/ui/skyline.js`).
   Player: "game unplayable, ragequit".

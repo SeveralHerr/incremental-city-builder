@@ -958,7 +958,13 @@ ul {
   gap: 8px;
 }
 
-/* Segmented control (buy amount) */
+/* Segmented control (buy amount) + the Sell toggle beside it (one row, never wraps apart). */
+.build-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 .seg {
   display: inline-flex;
   padding: 3px;
@@ -3209,7 +3215,7 @@ ul {
     min-height: 44px;
   }
   .seg-btn {
-    min-height: 40px;
+    min-height: 44px;
     padding: 4px 12px;
   }
   .form-row input[type='checkbox'] {

@@ -7,6 +7,7 @@
 // save module has parked an unreadable save (saveStatus().hasCorrupt), a "Previous save" section
 // offers api.action('recoverSave') and shows its raw bytes via api.action('exportCorrupt').
 import { h, icon, setText, setHidden, money, num, fmtTime, fmtPct } from './dom.js';
+import { MODIFIER_HELP } from './text.js';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -237,6 +238,7 @@ export function createSettingsModal(ui, modal) {
         storageNote,
         h('label.form-row', [h('span', { text: 'Sound effects' }), sfx]),
         h('label.form-row', [h('span', { text: 'Tutorial tips' }), tutorial]),
+        h('p.form-help', { text: `Shortcuts: ${MODIFIER_HELP} The ×1 / ×10 / Max switch applies to Sell too.` }),
       ]),
       h('section.form-section', [
         h('h3.form-title', { text: 'Save data' }),

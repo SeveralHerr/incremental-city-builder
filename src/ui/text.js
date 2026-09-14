@@ -302,6 +302,28 @@ export function strainNow(live, base, cap) {
   return `×${n.toLocaleString('en-US')} now${capped ? ' (cap)' : ''}`;
 }
 
+// ---- Buy / sell amount for one click on a building card (docs/FEEDBACK.md F14) ----
+//
+// The ×1 / ×10 / Max segment sets the default amount and applies to Sell as much as to Buy;
+// a modifier key overrides it for one click — Shift = ×10, Ctrl (⌘ on a Mac) = Max — the
+// genre standard, stated on the segment's tooltips and in Settings (MODIFIER_HELP). Sell
+// never goes below zero owned: ×10 with 7 owned sells 7, Max sells every unit, nothing owned
+// sells nothing. Buy Max is whatever core's api.maxAffordable said (0 → n 0, the button
+// disables). `amount` is the resolved segment value so a label can read 'Buy ×10' / 'Sell
+// ×7', and `all` says a sell would empty the stack. Pure.
+export const MODIFIER_HELP = 'Shift-click a Buy or Sell button for ×10, Ctrl-click (⌘ on a Mac) for the maximum.';
+
+export function tradeCount({ mode = 1, sell = false, owned = 0, affordable = 0, shift = false, ctrl = false } = {}) {
+  let amount = ctrl ? 'max' : shift ? 10 : mode;
+  if (amount !== 'max') amount = Number.isFinite(amount) && amount >= 1 ? Math.floor(amount) : 1;
+  owned = Number.isFinite(owned) && owned > 0 ? Math.floor(owned) : 0;
+  affordable = Number.isFinite(affordable) && affordable > 0 ? Math.floor(affordable) : 0;
+  let n;
+  if (sell) n = amount === 'max' ? owned : Math.min(amount, owned);
+  else n = amount === 'max' ? affordable : amount;
+  return { n, amount, all: sell && owned > 0 && n === owned };
+}
+
 export function unlockProgress(at, state, derived, api) {
   const m = unlockMeasure(at, state, derived, api);
   if (!m) return null;

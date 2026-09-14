@@ -636,7 +636,7 @@ test('fullscreen offer: framed or forced, not dismissed, not already full, brows
 test('founding rule text: the +N gate as a share of the bank, and the earnings it takes', () => {
   // A 100-point mayor: the gate is ceil(100 × 0.4) = 40 points, this city has $2.5M of $7M.
   const mid = foundingRule({ gain: 12, minGain: 40, legacy: 100, share: 0.4, earned: 2.5e6, unlockAt: 7e6, can: false });
-  assert.equal(mid.rule, `Found needs +${LEGACY_GLYPH} 40 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 100).`);
+  assert.equal(mid.rule, `Founding needs +${LEGACY_GLYPH} 40 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 100).`);
   assert.match(mid.gate, /^That takes \$7\.00M earned in this city — \$4\.50M more\./);
   assert.match(mid.gate, /this city's earnings, never on how many cities you have founded/);
   assert.equal(mid.text, `${mid.rule} ${mid.gate}`);
@@ -647,15 +647,25 @@ test('founding rule text: the +N gate as a share of the bank, and the earnings i
   assert.match(ready.gate, /never on how many cities/);
   // First founding: no bank to take a share of, so no percentage clause.
   const first = foundingRule({ gain: 0, minGain: 1, legacy: 0, share: 0.4, earned: 5e5, unlockAt: 1.1e7 });
-  assert.equal(first.rule, `Found needs +${LEGACY_GLYPH} 1 legacy.`);
+  assert.equal(first.rule, `Founding needs +${LEGACY_GLYPH} 1 legacy.`);
   assert.match(first.gate, /^That takes \$11\.0M earned in this city — \$10\.5M more\./);
   // A tiny bank whose share rounds up to the floor still reads as the resolved gate.
-  assert.equal(foundingRule({ minGain: 1, legacy: 1, share: 0.4 }).rule, `Found needs +${LEGACY_GLYPH} 1 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 1).`);
+  assert.equal(foundingRule({ minGain: 1, legacy: 1, share: 0.4 }).rule, `Founding needs +${LEGACY_GLYPH} 1 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 1).`);
   // Garbage never prints NaN or a negative "more".
   const junk = foundingRule({ gain: NaN, minGain: -3, legacy: 'x', share: Infinity, earned: 9e6, unlockAt: 7e6, can: false });
   assert.doesNotMatch(junk.text, /NaN|-\$/);
   assert.match(junk.gate, /\$0 more/);
-  assert.equal(foundingRule().rule, `Found needs +${LEGACY_GLYPH} 1 legacy.`);
+  assert.equal(foundingRule().rule, `Founding needs +${LEGACY_GLYPH} 1 legacy.`);
+  // Right after a founding nothing is earned yet: "— $290M more" would only repeat the figure.
+  const fresh = foundingRule({ gain: 0, minGain: 2, legacy: 5, share: 0.4, earned: 0, unlockAt: 2.9e8, can: false });
+  assert.equal(fresh.rule, `Founding needs +${LEGACY_GLYPH} 2 legacy (≥ 40% of your bank of ${LEGACY_GLYPH} 5).`);
+  assert.match(fresh.gate, /^That takes \$290M earned in this city\. The gate is on/);
+  assert.doesNotMatch(fresh.gate, /more/);
+  // The clause returns once the remainder is under 98 % of the gate; at the line it is still out.
+  assert.doesNotMatch(foundingRule({ earned: 2.9e8 * 0.02, unlockAt: 2.9e8 }).gate, /more/);
+  assert.match(foundingRule({ earned: 2.9e8 * 0.03, unlockAt: 2.9e8 }).gate, / — \$281M more\. /);
+  // 'Found' is a verb; the noun is 'Founding'.
+  assert.doesNotMatch(foundingRule({ legacy: 5, minGain: 2 }).text, /Found needs/);
 });
 
 // The strip of sky above the drawing is painted by .skyline-host's gradient. It once ended at

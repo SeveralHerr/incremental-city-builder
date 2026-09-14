@@ -310,6 +310,9 @@ export function strainNow(live, base, cap) {
 // derived.extra.prestige gives the resolved gate (minGain), the bank (legacy), the points a
 // founding banks now (gain), whether it is allowed (can) and this run's earnings at which
 // it arms (unlockAt). `share` is config.prestige.minGainShare (0.4). Two lines, pure.
+// Right after a founding the city has earned nothing yet, so "— $290M more" would only repeat
+// the figure; the clause is dropped while the remainder is (near) the whole gate.
+const MORE_CLAUSE_BELOW = 0.98; // of unlockAt
 export function foundingRule({ gain = 0, minGain = 1, legacy = 0, share = 0.4, earned = 0, unlockAt = 0, can = false } = {}) {
   const fin = (v, d = 0) => (Number.isFinite(v) && v >= 0 ? v : d);
   gain = Math.floor(fin(gain));
@@ -320,8 +323,8 @@ export function foundingRule({ gain = 0, minGain = 1, legacy = 0, share = 0.4, e
   unlockAt = fin(unlockAt);
   const need = `${LEGACY_GLYPH} ${num(minGain)}`;
   const rule = legacy > 0
-    ? `Found needs +${need} legacy (≥ ${fmtPct(share)} of your bank of ${LEGACY_GLYPH} ${num(legacy)}).`
-    : `Found needs +${need} legacy.`;
+    ? `Founding needs +${need} legacy (≥ ${fmtPct(share)} of your bank of ${LEGACY_GLYPH} ${num(legacy)}).`
+    : `Founding needs +${need} legacy.`;
   let gate;
   if (can || gain >= minGain) {
     gate = unlockAt > 0
@@ -329,8 +332,9 @@ export function foundingRule({ gain = 0, minGain = 1, legacy = 0, share = 0.4, e
       : `The gate is on this city's earnings, never on how many cities you have founded.`;
   } else {
     const more = unlockAt > earned ? unlockAt - earned : 0;
+    const moreClause = more < MORE_CLAUSE_BELOW * unlockAt ? ` — ${money(more)} more` : '';
     gate = unlockAt > 0
-      ? `That takes ${money(unlockAt)} earned in this city — ${money(more)} more. The gate is on this city's earnings, never on how many cities you have founded.`
+      ? `That takes ${money(unlockAt)} earned in this city${moreClause}. The gate is on this city's earnings, never on how many cities you have founded.`
       : `The gate is on this city's earnings, never on how many cities you have founded.`;
   }
   return { rule, gate, text: `${rule} ${gate}` };

@@ -317,6 +317,7 @@ button.gauge-happy:hover {
   margin-top: 4px;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap; /* one line: hud.js prints the short form where the purse is narrow */
 }
 .hud-pop .ico {
   display: flex;

@@ -2,13 +2,30 @@
 // money, citizens, power, mood and the next goal are set as bare type over the city, the way a
 // scoreboard reads. Everything here is pointer-events:none except the settings button, so the
 // whole skyline behind it stays one large tap target (see city.js).
-import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
+import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, num, short, moneyRate, fmtPct, fmtTime } from './dom.js';
 import { tierTitle, moodWord } from './content.js';
 import { powerChipText, happinessHint } from './text.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 
+// The citizens line under the treasury: `shown` is the tweened count on screen, `pop` the real
+// figure the housing test reads. 'of 16 housing' reads as a warning to someone who has not met
+// housing yet, so the plain wording holds until the town is actually filling up. On a phone the
+// purse column is ~165px wide (the tier, clock and gear take the rest of the row) and
+// '303,455 of 303,455 housing' wrapped to three lines, so `compact` prints the short form
+// '303K / 303K homes' and shortens an eight-digit count. Pure.
+export function popLine(shown, housing, compact = false, pop = shown) {
+  const filling = housing > 0 && pop > housing * 0.8;
+  if (compact && filling) return { count: short(shown), sub: `/ ${short(housing)} homes` };
+  if (compact && shown >= 1e7) return { count: short(shown), sub: 'citizens' };
+  return { count: num(shown), sub: filling ? `of ${num(housing)} housing` : shown === 1 ? 'citizen' : 'citizens' };
+}
+
+// The phone breakpoint, as the stylesheet draws it (the purse is narrowest there).
+const NARROW_QUERY = '(max-width: 720px)';
+
 export function createHud(ui) {
   const { game } = ui;
+  const narrow = typeof matchMedia === 'function' ? matchMedia(NARROW_QUERY) : null;
 
   // ---- treasury (top left, the one big number) ----
   const moneyEl = h('span.hud-money', { text: '$0' });
@@ -81,10 +98,9 @@ export function createHud(ui) {
 
     const pop = Math.floor(tw.pop.update(s.res.pop, dt));
     const housing = Math.floor(d.housing || 0);
-    setText(popEl, num(pop));
-    // 'of 16 housing' reads as a warning to someone who has not met housing yet, so the plain
-    // wording holds until the town is actually filling up.
-    setText(popSub, housing > 0 && s.res.pop > housing * 0.8 ? `of ${num(housing)} housing` : pop === 1 ? 'citizen' : 'citizens');
+    const line = popLine(pop, housing, !!(narrow && narrow.matches), s.res.pop);
+    setText(popEl, line.count);
+    setText(popSub, line.sub);
     setClass(popRow, 'is-warn', housing > 0 && s.res.pop > housing * 1.02);
 
     const tier = tierTitle(s.res.pop);

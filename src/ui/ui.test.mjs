@@ -11,6 +11,8 @@ import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
+import { popLine } from './hud.js';
+import { setNumFormat } from './dom.js';
 import { MAX_VISIBLE } from './toast.js';
 import { LANDMARKS, PLANE_FLIGHTS, PLANE_SPRITE } from './skyline.js';
 import { UPGRADES } from '../upgrades/data.js';
@@ -683,6 +685,30 @@ test('the sky gradient ends where the drawing starts: one --sky-h token for both
   const heights = [...css.matchAll(/\.skyline\s*\{[^}]*height:\s*([^;]+);/g)].map((m) => m[1].trim());
   assert.deepEqual(heights, ['var(--sky-h)'], 'every .skyline height must be the token');
   assert.ok(css.match(/--sky-h:\s*max\(/g).length >= 2, ':root and the phone block each define --sky-h');
+});
+
+// '303,455 of 303,455 housing' wrapped to three lines under the treasury on a 390px phone,
+// where the purse column is ~165px. The compact form is the short count over short housing.
+test('population line: full wording on a wide purse, the short form where it is narrow', () => {
+  assert.deepEqual(popLine(174, 174), { count: '174', sub: 'of 174 housing' });
+  assert.deepEqual(popLine(1, 0), { count: '1', sub: 'citizen' });
+  assert.deepEqual(popLine(120, 300), { count: '120', sub: 'citizens' }, 'plain wording until the town fills up');
+  assert.deepEqual(popLine(303455, 303455, true), { count: '303K', sub: '/ 303K homes' });
+  assert.deepEqual(popLine(1234567, 1234567, true), { count: '1.23M', sub: '/ 1.23M homes' });
+  assert.deepEqual(popLine(303455, 303455, false), { count: '303,455', sub: 'of 303,455 housing' });
+  // Not filling up: the short number format already abbreviates from a million; the full
+  // format keeps the count exact on a phone until eight digits ('12,345,678 citizens' wraps).
+  assert.deepEqual(popLine(1234567, 9e6, true), { count: '1.23M', sub: 'citizens' });
+  setNumFormat('full');
+  try {
+    assert.deepEqual(popLine(1234567, 9e6, true), { count: '1,234,567', sub: 'citizens' });
+    assert.deepEqual(popLine(12345678, 9e7, true), { count: '12.3M', sub: 'citizens' });
+    assert.deepEqual(popLine(12345678, 9e7, false), { count: '12,345,678', sub: 'citizens' });
+  } finally {
+    setNumFormat('short');
+  }
+  // The housing test reads the real figure, the count the tweened one.
+  assert.deepEqual(popLine(100, 300, true, 290), { count: '100', sub: '/ 300 homes' });
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

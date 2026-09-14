@@ -525,6 +525,22 @@ export const PLANE_FLIGHTS = [
   { dur: 190, delay: 95, dy: -18, scale: 0.85, west: true },
   { dur: 230, delay: 160, dy: -44, scale: 0.6, west: false },
 ];
+// The plane sprite (plan view, local units): the nose points at +x, which is the way the
+// sk-plane keyframes fly it (left to right); a westbound flight is mirrored by its wrapper.
+// The nose is the sharpest point, the wings and tailplane sweep back toward the tail and the
+// beacon rides the tail, so the nose leads on every crossing. ui.test.mjs checks the geometry
+// (nose = max x of the fuselage, wing tips behind their roots, beacon behind the wings).
+export const PLANE_SPRITE = {
+  noseX: 17,
+  tailX: -2,
+  fuselage: 'M-2 0.5 L12 0 L17 1.4 L12 2.8 L-2 2.3 Z',
+  cockpit: 'M12.5 0.55 L15 1 L15 1.8 L12.5 2.25 Z',
+  wingTop: 'M11 1.4 L6.5 -4.2 L4 -4.2 L8 1.4 Z',
+  wingBottom: 'M11 1.4 L6.5 7 L4 7 L8 1.4 Z',
+  tailTop: 'M2 1.4 L0 -1.8 L-1.5 -1.8 L0.5 1.4 Z',
+  tailBottom: 'M2 1.4 L0 4.6 L-1.5 4.6 L0.5 1.4 Z',
+  beacon: { cx: -1.2, cy: 1.4, r: 0.9 },
+};
 
 export const LANDMARKS = {
   // A roadside billboard on two posts at the town's edge: cream frame, blue face, a row of
@@ -646,16 +662,21 @@ export const LANDMARKS = {
       const flights = c.motion ? PLANE_FLIGHTS : PLANE_FLIGHTS.slice(0, 1);
       for (const f of flights) {
         const sprite = svg('g', { transform: `scale(${f.scale})` });
-        sprite.append(svg('path', { d: 'M0 0 L14 0 L17 1.4 L14 2.8 L0 2.8 L-3 1.4 Z', fill: '#e6ecff' }));
-        sprite.append(svg('path', { d: 'M5 1.4 L9 -4 L11 -4 L8.5 1.4 Z', fill: '#c3ccf5' }));
-        sprite.append(svg('path', { d: 'M5 1.4 L9 6.5 L11 6.5 L8.5 1.4 Z', fill: '#aeb8ea' }));
-        sprite.append(svg('circle', { cx: 16.5, cy: 1.4, r: 0.9, fill: '#ff6b6b', class: 'sk-beacon' }));
+        const P = PLANE_SPRITE;
+        sprite.append(svg('path', { d: P.wingTop, fill: '#c3ccf5' }));
+        sprite.append(svg('path', { d: P.tailTop, fill: '#c3ccf5' }));
+        sprite.append(svg('path', { d: P.fuselage, fill: '#e6ecff' }));
+        sprite.append(svg('path', { d: P.cockpit, fill: '#5b6aa8' }));
+        sprite.append(svg('path', { d: P.wingBottom, fill: '#aeb8ea' }));
+        sprite.append(svg('path', { d: P.tailBottom, fill: '#aeb8ea' }));
+        sprite.append(svg('circle', { cx: P.beacon.cx, cy: P.beacon.cy, r: P.beacon.r, fill: '#ff6b6b', class: 'sk-beacon' }));
         const plane = svg('g', { class: 'sk-plane' });
         plane.style.setProperty('--dur', `${f.dur}s`);
         plane.style.setProperty('--delay', `${-f.delay}s`);
         if (!c.motion) plane.setAttribute('transform', 'translate(300 40)');
         plane.append(sprite);
-        // Wrapper offsets altitude and mirrors westbound flights so one keyframe serves all.
+        // Wrapper offsets altitude and mirrors westbound flights (nose and all) so one
+        // eastbound keyframe serves every heading.
         const wrap = svg('g', { transform: f.west ? `translate(${W} ${f.dy}) scale(-1 1)` : `translate(0 ${f.dy})` });
         wrap.append(plane);
         c.fx(wrap);

@@ -10,7 +10,7 @@ import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
 import { MAX_VISIBLE } from './toast.js';
-import { LANDMARKS, PLANE_FLIGHTS } from './skyline.js';
+import { LANDMARKS, PLANE_FLIGHTS, PLANE_SPRITE } from './skyline.js';
 import { UPGRADES } from '../upgrades/data.js';
 
 let passed = 0;
@@ -468,6 +468,30 @@ test('airport flights are staggered, distinct and park between crossings', () =>
   assert.equal(new Set(PLANE_FLIGHTS.map((f) => f.dur)).size, PLANE_FLIGHTS.length);
   assert.ok(PLANE_FLIGHTS.every((f) => f.dur >= 120 && f.delay >= 0 && f.scale > 0));
   assert.ok(PLANE_FLIGHTS.some((f) => f.west));
+});
+
+// F15: planes fly nose first. The keyframes carry a flight left to right (x rises from the
+// 0% frame to the 22% frame), so the sprite's nose must be its +x extreme, the wings and
+// tailplane must sweep back from it, and the beacon must ride the tail, not the nose.
+test('airport planes fly nose first', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  const kf = css.match(/@keyframes sk-plane\s*\{([\s\S]*?)\n\}/)[1];
+  const at = (pct) => {
+    const m = kf.match(new RegExp(pct + '%\\s*\\{[^}]*translate\\((-?[\\d.]+)px,\\s*(-?[\\d.]+)px\\)'));
+    assert.ok(m, `keyframe ${pct}%`);
+    return { x: Number(m[1]), y: Number(m[2]) };
+  };
+  assert.ok(at(0).x < 0 && at(22).x > 480, 'a crossing starts off the left edge and ends off the right');
+  const xs = (d) => [...d.matchAll(/(-?[\d.]+)\s+(-?[\d.]+)/g)].map((m) => Number(m[1]));
+  const P = PLANE_SPRITE;
+  assert.equal(Math.max(...xs(P.fuselage)), P.noseX, 'the nose is the fuselage tip on the +x side');
+  assert.equal(Math.min(...xs(P.fuselage)), P.tailX);
+  for (const key of ['wingTop', 'wingBottom', 'tailTop', 'tailBottom']) {
+    const [rootA, tipA, tipB, rootB] = xs(P[key]);
+    assert.ok(Math.max(tipA, tipB) < Math.min(rootA, rootB), `${key} sweeps back (tips behind the root)`);
+  }
+  assert.ok(P.beacon.cx < Math.min(...xs(P.wingTop)), 'the beacon rides the tail');
+  assert.ok(Math.min(...xs(P.cockpit)) > Math.max(...xs(P.wingTop)), 'the cockpit sits ahead of the wings');
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -106,6 +106,9 @@
   --dock-h: 78px;
   --sheet-h: min(62dvh, 560px); /* the sheet's ceiling; toasts clear it (see .toast-stack) */
   --sky-lift: 0px; /* how far the drawing sits above the bottom edge; the apron fills the rest */
+  /* The drawing's height: bottom-anchored, at least half as tall as it is wide (see .skyline).
+     The host's sky gradient reads the same token so it ends exactly where the art begins. */
+  --sky-h: max(50vw, 52%);
   --gap: 14px;
   --pad: 16px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -1220,8 +1223,13 @@ button.gauge-happy:hover {
   position: absolute;
   inset: 0;
   transform-origin: 50% 100%;
-  /* Continues the SVG's sky gradient upward: its first stop is exactly --sk-top (skyline.js). */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--sk-top, #2456a8) 84%, #05070f), var(--sk-top, #2456a8));
+  /* Continues the SVG's sky gradient upward. The art's top edge is its first stop, --sk-top,
+     under the night rect (#03061a at night × 0.58, skyline.js) — so the host paints that same
+     colour from the art's top edge (the host's bottom minus the lift minus the drawing's
+     height) downward, and only darkens above it. Anything else is a hard seam where the SVG
+     starts. */
+  --sk-base: color-mix(in srgb, #03061a calc(var(--sk-night, 0) * 58%), var(--sk-top, #2456a8));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--sk-base) 84%, #05070f), var(--sk-base) calc(100% - var(--sky-lift) - var(--sky-h)), var(--sk-base));
 }
 
 /* Stacked SVGs: sky (animated clouds), then per depth row a static city layer and an animated
@@ -1238,7 +1246,7 @@ button.gauge-happy:hover {
   top: auto;
   display: block;
   width: 100%;
-  height: max(50vw, 52%);
+  height: var(--sky-h);
 }
 
 /* Road apron: where the drawing is lifted clear of the dock, this continues its asphalt to the
@@ -3389,9 +3397,7 @@ button.gauge-happy:hover {
      still read at 390px) but lifts clear of the dock, and the apron carries the road down. */
   :root {
     --sky-lift: calc(var(--dock-h) - 14px);
-  }
-  .skyline {
-    height: max(50vw, 62%);
+    --sky-h: max(50vw, 62%);
   }
 
   .hud {

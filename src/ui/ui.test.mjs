@@ -658,4 +658,22 @@ test('founding rule text: the +N gate as a share of the bank, and the earnings i
   assert.equal(foundingRule().rule, `Found needs +${LEGACY_GLYPH} 1 legacy.`);
 });
 
+// The strip of sky above the drawing is painted by .skyline-host's gradient. It once ended at
+// the host's bottom edge while the art (its first stop) began max(50vw, 52%) up, so a hard
+// seam ran across the sky wherever the SVG started. Both rules must read one height token,
+// and the host must reach the art's own top colour (--sk-top under the night rect) exactly at
+// that edge.
+test('the sky gradient ends where the drawing starts: one --sky-h token for both rules', () => {
+  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  assert.match(css, /
+\.skyline\s*\{[^}]*height:\s*var\(--sky-h\);/, '.skyline height must be var(--sky-h)');
+  assert.match(css, /\.skyline-host\s*\{[^}]*calc\(100% - var\(--sky-lift\) - var\(--sky-h\)\)/, 'the host gradient must end at the art top');
+  // The art's top pixel is --sk-top under the night rect (#03061a at night × 0.58, skyline.js).
+  assert.match(css, /--sk-base:\s*color-mix\(in srgb, #03061a calc\(var\(--sk-night, 0\) \* 58%\), var\(--sk-top, #2456a8\)\)/);
+  // No responsive block may set the drawing's height directly: it changes the token instead.
+  const heights = [...css.matchAll(/\.skyline\s*\{[^}]*height:\s*([^;]+);/g)].map((m) => m[1].trim());
+  assert.deepEqual(heights, ['var(--sky-h)'], 'every .skyline height must be the token');
+  assert.ok(css.match(/--sky-h:\s*max\(/g).length >= 2, ':root and the phone block each define --sky-h');
+});
+
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

@@ -367,7 +367,7 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   const cfg = withPrestige({ firstBonus: 0.5 });
   const s = fakeState({ legacy: 3, spent: 1, totalEarned: 55e6, lifetimeEarned: 64e6 });
   const out = prestigeStatus(s, {}, cfg);
-  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextIn', 'nextTierAt', 'nextTierName', 'pointProgress', 'prevAt', 'spent', 'startMoneyAfter', 'unlockAt', 'unlockIn']);
+  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'capped', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextIn', 'nextTierAt', 'nextTierName', 'pointProgress', 'prevAt', 'spent', 'startMoneyAfter', 'unlockAt', 'unlockIn']);
   assert.equal(out.legacy, 3);
   assert.equal(out.spent, 1);
   assert.equal(out.available, 2);
@@ -399,6 +399,40 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   prestigeStatus(s, keep, cfg);
   assert.notEqual(keep.nextAt, 123);
   assert.notEqual(keep.unlockAt, 45);
+});
+
+test('the bank has no ceiling: past the last tier the snapshot says so (nextTierName null, capped false) and every rule keeps working', () => {
+  const cfg = withPrestige({ minGainShare: 0.4 });
+  // 1.66M banked — the playtester's figure, above the 1,000,000 Millionfold Legacy tier.
+  const bank = 1660000;
+  const life = earningsForLegacy(bank, cfg);
+  const s = fakeState({ legacy: bank, spent: 200000, totalEarned: 0, lifetimeEarned: life });
+  const out = prestigeStatus(s, {}, cfg, 1e12);
+  assert.equal(out.legacy, bank);
+  assert.equal(out.nextTierName, null, 'no next tier');
+  assert.equal(out.nextTierAt, Infinity, 'no tier target');
+  assert.equal(out.capped, false, 'and no cap');
+  assert.equal(nextLegacyMilestone(bank), null);
+  // The rules are unbounded: the next point, the gate and the bonus all continue past 1e6.
+  assert.ok(Number.isFinite(out.nextAt) && out.nextAt > 0, 'a next point exists');
+  assert.equal(out.minGain, Math.ceil(bank * 0.4), 'the gate is still 40% of the bank');
+  assert.ok(Number.isFinite(out.unlockAt) && out.unlockAt > out.nextAt, 'founding still arms at a finite target');
+  assert.ok(out.mult > legacyIncomeMult(1e6, cfg), 'the bonus keeps growing past a million');
+  assert.equal(legacyFor(earningsForLegacy(2e6, cfg), cfg), 2e6, 'two million points are worth two million');
+  // Founding past the tier ladder banks the gain like any other founding.
+  s.stats.totalEarned = out.unlockAt;
+  s.prestige.lifetimeEarned = life + out.unlockAt;
+  assert.equal(canPrestige(s, cfg), true);
+  const gain = prestigeGain(s, cfg);
+  assert.ok(gain >= out.minGain);
+  const line = foundingLine(gain, bank + gain, out.mult, legacyIncomeMult(bank + gain, cfg), 1e6);
+  assert.doesNotMatch(line, /Next tier/, 'no tier to advertise, no cap either');
+  assert.doesNotMatch(line, /max/i);
+  // Below the last tier the fields are the tier, and capped is still false.
+  const under = prestigeStatus(fakeState({ legacy: 999999, lifetimeEarned: earningsForLegacy(999999, cfg) }), {}, cfg);
+  assert.equal(under.nextTierName, 'Millionfold Legacy');
+  assert.equal(under.nextTierAt, 1e6);
+  assert.equal(under.capped, false);
 });
 
 test('prevAt / pointProgress: the "next legacy point" bar runs from the last point to the next, not from zero', () => {

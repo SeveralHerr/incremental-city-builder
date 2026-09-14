@@ -249,7 +249,18 @@ export function prestigeUnlockAt(state, cfg = config) {
 //                              point, never 0 → next (which reads permanently full late,
 //                              when a point is a fraction of a percent of the run's total)
 //   mult, multAfter            the real income multiplier now / after founding
-//   lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt
+//   lifetimeEarned, startMoneyAfter
+//   nextTierName, nextTierAt   the next legacy tier (milestones.js) and its target; null /
+//                              Infinity once the bank is past the last tier (1,000,000,
+//                              Millionfold Legacy). A missing tier is NOT a ceiling: see
+//                              `capped` — the tier ladder simply ends, the bank does not
+//   capped                     always false. The bank has no maximum: legacyFor is
+//                              unbounded, the income bonus is an unbounded root, nothing
+//                              clamps state.prestige.legacy (the "legacy ≤ 1e6 at 12 h"
+//                              line in docs/DESIGN.md is a magnitude gate on the bot's
+//                              12 h session in tools/economy-sim.mjs, not a rule the game
+//                              runs). The flag exists so a UI that finds no next tier
+//                              prints "every tier reached", never "max legacy"
 //   nextIn, unlockIn           seconds at the given earning rate (index.js earningRate: the
 //                              gross output a solvent city scores) until nextAt / unlockAt
 //                              (0 once reached, Infinity with no income or no target), so a
@@ -279,8 +290,9 @@ export function prestigeStatus(state, out, cfg = config, incomePerSec = 0) {
   out.multAfter = legacyIncomeMult(legacy + gain, cfg);
   out.startMoneyAfter = startMoneyFor(legacy + gain, cfg, peakIncomeOf(state));
   const tier = nextLegacyMilestone(legacy);
-  out.nextTierName = tier ? tier.name : '';
-  out.nextTierAt = tier ? tier.target : 0;
+  out.nextTierName = tier ? tier.name : null;
+  out.nextTierAt = tier ? tier.target : Infinity;
+  out.capped = false;
   return out;
 }
 

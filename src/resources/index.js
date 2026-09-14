@@ -36,10 +36,44 @@
 //   vacancy = max(0, housing − pop), openJobs = max(0, jobs − employed), powerSurplus = cap − demand,
 //   penalties: { unemployment, overcrowd, brownout, pollution }             (all ≥ 0, subtracted)
 //   incomeBreakdown: { tax, wages, buildings, upkeep, multiplier }         (tax+wages+buildings == gross)
-//   happinessBreakdown: { base: 1, civic, mods, unemployment, overcrowd, brownout, pollution, raw, clamped }
-//     — signed terms that sum to `raw`; `clamped` is derived.happiness. `civic` and `pollution`
-//     at the top level of extra are aliases of happinessBreakdown.civic / penalties.pollution kept
-//     for one release so ui keeps reading; new consumers should use the breakdown.
+//   happiness: the formula above, one signed entry per term, for the UI (docs/FEEDBACK.md F4):
+//     { base: 1,
+//       civic,            civicCap·(1 − exp(−civicSum/civicScale)) ≥ 0     ← parks, schools, …
+//       civicSum,         Σ count·(+joy) — the raw civic input
+//       civicCap,         the asymptote the civic term can never exceed (config.happiness.civicCap)
+//       civicSaturation,  civic / civicCap in 0..1 (0.9 = "more civics barely move it")
+//       pollution,        −pollutionCap·(1 − exp(−pollutionRaw/pollutionCurve)) ≤ 0 ← factories, coal, …
+//       pollutionRaw,     Σ count·|−joy| · pollutionScale — the raw smog input
+//       pollutionCap,     the most smog can ever subtract (config.happiness.pollutionCap)
+//       unemployment,     −unemployment·unemploymentPenalty ≤ 0
+//       overcrowd,        −overcrowd·overcrowdPenalty ≤ 0
+//       brownout,         −(1 − powerRatio)·brownoutPenalty ≤ 0
+//       mods,             + mods.happiness (upgrades, milestone rewards, legacy tiers; any sign)
+//       raw,              base + civic + pollution + unemployment + overcrowd + brownout + mods
+//       clamp,            total − raw: 0 while min ≤ raw ≤ max, otherwise the correction the clamp applied
+//       min, max,         the clamp range (config.happiness.min / max)
+//       total,            == derived.happiness; base + …terms… + mods + clamp sums to it exactly
+//       incomeMult,       happinessIncomeCurve(total) = 0.5 + 0.5·total — the income factor happiness is
+//       capReason }       one of HAPPINESS_LIMITS: what most limits happiness right now (see below)
+//     capReason: 'max' / 'min' when the clamp is active; else the largest of the four drags
+//     (pollution / unemployment / overcrowd / brownout) when it costs ≥ HAPPINESS_LIMIT_MIN (0.05);
+//     else 'civic cap' when civicSaturation ≥ 0.9 (another park adds < 10 % of one park's worth);
+//     else 'none'. Strings are constants, so the object is allocation-free after the first tick.
+//   happinessBreakdown: alias of extra.happiness (the pre-F4 name; `clamped` == `total`). `civic`
+//     and `pollution` at the top level of extra alias extra.happiness.civic / penalties.pollution.
+//
+// Worked example (real buildings, shipped config): a first city 20 minutes in with 12 parks
+// (+0.05) + 4 schools (+0.08), 20 factories (−0.02) + 6 coal (−0.015) + 2 refineries (−0.03),
+// 10 % unemployment, no brownout, Community Events (+0.1 mods):
+//   civicSum      = 12·0.05 + 4·0.08 = 0.92     → civic = 1.12·(1 − e^(−0.92/1.5)) = +0.513 (46 % of cap)
+//   pollutionRaw  = (0.40 + 0.09 + 0.06)·0.35 = 0.1925 → pollution = −1.1·(1 − e^(−0.1925)) = −0.193
+//   unemployment  = −0.10·0.35 = −0.035;  overcrowd = brownout = 0;  mods = +0.100
+//   raw = total   = 1 + 0.513 − 0.193 − 0.035 + 0.100 = 1.386 (inside 0.25..3 so clamp = 0)
+//   incomeMult    = 0.5 + 0.5·1.386 = ×1.193;  capReason = 'pollution' (0.193 is the largest drag)
+// What one more factory does to that city: pollutionRaw +0.007 → pollution −0.0058 → income ×0.9976
+// on everything the city earns, against the factory's own $3.3/s (+ $7/s of wages if it fills
+// jobs). Break-even is a pre-multiplier gross of ≈ $4k/s; above it the marginal factory is a
+// net loss until smog saturates (at raw 2.4 the same factory costs 11× less happiness).
 //
 // Measured (logs/gauntlet.json, 10,000 bot ticks, 2026-09-07): final city 3,917 pop, happiness
 // 1.556 (civic +0.762, pollution −0.216 on raw 0.219, unemployment −0.140), $3.2k/s at ×2.20;
@@ -185,6 +219,37 @@ const NEUTRAL_MODS = Object.freeze({
 });
 const NO_BUILDINGS = Object.freeze({});
 
+// Vocabulary of extra.happiness.capReason — what most limits happiness right now. Exported so
+// the UI can map each to a hint ("more parks won't help, cut smog") and the tests can pin it.
+export const HAPPINESS_LIMITS = Object.freeze({
+  NONE: 'none', // nothing meaningful in the way; civics still pay
+  CIVIC_CAP: 'civic cap', // civic bonus ≥ 90 % saturated; more civics barely move it
+  POLLUTION: 'pollution', // smog is the largest drag
+  UNEMPLOYMENT: 'unemployment', // joblessness is the largest drag
+  OVERCROWD: 'overcrowding', // pop over housing is the largest drag
+  BROWNOUT: 'brownout', // under-power is the largest drag
+  MAX: 'max', // pinned at config.happiness.max
+  MIN: 'min', // pinned at config.happiness.min
+});
+// A drag smaller than this is not worth naming (a tenth of a park's civic value).
+export const HAPPINESS_LIMIT_MIN = 0.05;
+// civic / civicCap at which another civic building is "barely" felt (see header).
+export const CIVIC_SATURATED = 0.9;
+
+// Decide capReason from the finished terms (all penalties ≥ 0). Pure; returns a constant string.
+function happinessLimit(total, min, max, civicSaturation, pollution, unemployment, overcrowd, brownout) {
+  if (total >= max) return HAPPINESS_LIMITS.MAX;
+  if (total <= min) return HAPPINESS_LIMITS.MIN;
+  let worst = HAPPINESS_LIMIT_MIN;
+  let reason = HAPPINESS_LIMITS.NONE;
+  if (pollution >= worst) (worst = pollution), (reason = HAPPINESS_LIMITS.POLLUTION);
+  if (unemployment > worst) (worst = unemployment), (reason = HAPPINESS_LIMITS.UNEMPLOYMENT);
+  if (overcrowd > worst) (worst = overcrowd), (reason = HAPPINESS_LIMITS.OVERCROWD);
+  if (brownout > worst) (worst = brownout), (reason = HAPPINESS_LIMITS.BROWNOUT);
+  if (reason === HAPPINESS_LIMITS.NONE && civicSaturation >= CIVIC_SATURATED) return HAPPINESS_LIMITS.CIVIC_CAP;
+  return reason;
+}
+
 // Make sure derived.extra has its breakdown objects (allocated once, mutated after).
 function ensureExtra(derived) {
   let x = derived.extra;
@@ -195,9 +260,31 @@ function ensureExtra(derived) {
   if (!x.incomeBreakdown || typeof x.incomeBreakdown !== 'object') {
     x.incomeBreakdown = { tax: 0, wages: 0, buildings: 0, upkeep: 0, multiplier: 1 };
   }
-  if (!x.happinessBreakdown || typeof x.happinessBreakdown !== 'object') {
-    x.happinessBreakdown = { base: 1, civic: 0, mods: 0, unemployment: 0, overcrowd: 0, brownout: 0, pollution: 0, raw: 1, clamped: 1 };
+  if (!x.happiness || typeof x.happiness !== 'object') {
+    x.happiness = {
+      base: 1,
+      civic: 0,
+      civicSum: 0,
+      civicCap: DEFAULTS.happiness.civicCap,
+      civicSaturation: 0,
+      pollution: 0,
+      pollutionRaw: 0,
+      pollutionCap: DEFAULTS.happiness.pollutionCap,
+      unemployment: 0,
+      overcrowd: 0,
+      brownout: 0,
+      mods: 0,
+      raw: 1,
+      clamp: 0,
+      min: DEFAULTS.happiness.min,
+      max: DEFAULTS.happiness.max,
+      total: 1,
+      clamped: 1, // pre-F4 name of `total`, kept for the happinessBreakdown alias
+      incomeMult: 1,
+      capReason: HAPPINESS_LIMITS.NONE,
+    };
   }
+  x.happinessBreakdown = x.happiness; // pre-F4 name; same object
   return x;
 }
 
@@ -385,16 +472,27 @@ export function computeDerived(state, derived, mods, config) {
   x.incomeBreakdown.buildings = fromBuildings;
   x.incomeBreakdown.upkeep = upkeep;
   x.incomeBreakdown.multiplier = multiplier;
-  const hb = x.happinessBreakdown;
+  const hb = x.happiness;
   hb.base = 1;
   hb.civic = civic;
-  hb.mods = modHappiness;
+  hb.civicSum = civicSum;
+  hb.civicCap = civicCap;
+  hb.civicSaturation = civicCap > 0 ? clamp(civic / civicCap, 0, 1) : 0;
+  hb.pollution = -pollution;
+  hb.pollutionRaw = pollutionRaw;
+  hb.pollutionCap = pollutionCap;
   hb.unemployment = -penUnemployment;
   hb.overcrowd = -penOvercrowd;
   hb.brownout = -penBrownout;
-  hb.pollution = -pollution;
+  hb.mods = modHappiness;
   hb.raw = happinessRaw;
+  hb.clamp = happiness - happinessRaw;
+  hb.min = happyMin;
+  hb.max = happyMax;
+  hb.total = happiness;
   hb.clamped = happiness;
+  hb.incomeMult = happinessMult;
+  hb.capReason = happinessLimit(happiness, happyMin, happyMax, hb.civicSaturation, pollution, penUnemployment, penOvercrowd, penBrownout);
 
   return derived;
 }

@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { registerBuilding, registry } from '../core/registry.js';
 import { createMods, buildingMod, sanitizeMods } from '../core/mods.js';
 import { config } from '../balance/config.js';
-import { computeDerived, DEFAULTS, RESOURCES, resourceValue, formatResource } from './index.js';
+import { computeDerived, DEFAULTS, RESOURCES, resourceValue, formatResource, HAPPINESS_LIMITS, HAPPINESS_LIMIT_MIN, CIVIC_SATURATED } from './index.js';
 import { fmtMoney, fmtInt } from '../core/format.js';
 import { civicBonus, pollutionPenalty, posOr1, finite, FINITE_MAX, OVERCROWD_MAX } from './math.js';
 
@@ -60,8 +60,40 @@ function assertContract(d) {
   for (const k of Object.keys(d.extra)) {
     const v = d.extra[k];
     if (typeof v === 'number') assert.ok(Number.isFinite(v), `extra.${k} finite`);
-    else for (const kk of Object.keys(v)) assert.ok(Number.isFinite(v[kk]), `extra.${k}.${kk} finite`);
+    else {
+      for (const kk of Object.keys(v)) {
+        if (typeof v[kk] === 'string') assert.ok(k === 'happiness' || k === 'happinessBreakdown', `only extra.happiness.capReason may be a string (extra.${k}.${kk})`);
+        else assert.ok(Number.isFinite(v[kk]), `extra.${k}.${kk} finite`);
+      }
+    }
   }
+  assertHappinessTerms(d);
+}
+
+// F4 contract: extra.happiness is the formula itself. Every signed term plus the clamp
+// correction sums to derived.happiness, and the multiplier is the curve of that total.
+const HAPPINESS_TERMS = ['base', 'civic', 'pollution', 'unemployment', 'overcrowd', 'brownout', 'mods', 'clamp'];
+function assertHappinessTerms(d) {
+  const h = d.extra.happiness;
+  assert.ok(h && typeof h === 'object', 'extra.happiness present');
+  assert.equal(h.base, 1, 'base');
+  let sum = 0;
+  for (const k of HAPPINESS_TERMS) sum += h[k];
+  near(sum, d.happiness, `terms ${HAPPINESS_TERMS.join('+')} sum to derived.happiness`);
+  near(sum - h.clamp, h.raw, 'terms without the clamp sum to raw');
+  near(h.total, d.happiness, 'total == derived.happiness');
+  near(h.clamped, h.total, 'clamped (pre-F4 name) == total');
+  near(h.incomeMult, 0.5 + 0.5 * d.happiness, 'incomeMult is the 0.5 + 0.5·h curve');
+  near(h.incomeMult, d.extra.happinessMult, 'incomeMult == extra.happinessMult');
+  assert.ok(h.civic >= 0 && h.civic <= h.civicCap + EPS, 'civic within 0..civicCap');
+  assert.ok(h.pollution <= 0 && -h.pollution <= Math.max(h.pollutionCap, h.pollutionRaw) + EPS, 'pollution within −cap..0');
+  for (const k of ['unemployment', 'overcrowd', 'brownout']) assert.ok(h[k] <= 0, `${k} ≤ 0`);
+  assert.ok(h.civicSaturation >= 0 && h.civicSaturation <= 1, 'civicSaturation in 0..1');
+  assert.ok(h.total >= h.min && h.total <= h.max, 'total within min..max');
+  assert.ok(Object.values(HAPPINESS_LIMITS).includes(h.capReason), `capReason "${h.capReason}" is a known limit`);
+  assert.equal(d.extra.happinessBreakdown, h, 'happinessBreakdown aliases extra.happiness');
+  near(d.extra.civic, h.civic, 'top-level civic alias');
+  near(d.extra.pollution, -h.pollution, 'top-level pollution alias');
 }
 
 test('city A: 10 houses / 5 shops / 2 windmills / 100 pop (brownout, overcrowded, jobless)', () => {
@@ -316,6 +348,70 @@ test('happinessBreakdown explains derived.happiness and is reused across ticks',
   assert.equal(derived.extra.happinessBreakdown, hb, 'breakdown object reused');
   near(hb.raw, hb.clamped, 'raw == clamped inside the clamp range');
   near(hb.raw, derived.happiness, 'matches derived.happiness');
+});
+
+test('F4: extra.happiness lists every term of the formula, sums to derived.happiness, names the limiter', () => {
+  const L = HAPPINESS_LIMITS;
+  const derived = {};
+  const at = (buildings, pop, mods = null, cfg = CFG) => computeDerived({ res: { pop }, buildings }, derived, mods, cfg).extra.happiness;
+
+  // Header's worked example shape under CFG: parks + smog + joblessness + a mods term.
+  const mods = createMods();
+  mods.happiness = 0.1;
+  // 485 jobs / 1,000 pop, housed (1,000), powered (600 MW cap vs 455 demand).
+  const h = at({ 't-house': 250, 't-shop': 5, 't-windmill': 20, 't-park': 12, 't-factory': 20, 't-coal': 6 }, 1000, mods);
+  assertHappinessTerms({ happiness: h.total, extra: derived.extra });
+  near(h.civicSum, 0.6, 'civicSum = 12 parks · 0.05');
+  near(h.civic, civicBonus(0.6, 1.25, 1.5), 'civic term');
+  near(h.civicCap, 1.25, 'civicCap from config');
+  near(h.civicSaturation, h.civic / 1.25, 'saturation');
+  near(h.pollutionRaw, (20 * 0.02 + 6 * 0.03) * 0.2, 'pollutionRaw');
+  near(h.pollution, -pollutionPenalty(h.pollutionRaw, 1.0, 1.0), 'pollution term (signed)');
+  near(h.pollutionCap, 1.0, 'pollutionCap from config');
+  near(derived.extra.unemployment, 0.515, '485 jobs / 1,000 pop');
+  near(h.unemployment, -(0.515 * 0.3), 'unemployment term');
+  near(h.overcrowd, 0, 'housed');
+  near(h.brownout, 0, 'powered');
+  near(h.mods, 0.1, 'mods term');
+  near(h.clamp, 0, 'clamp inactive');
+  near(h.min, 0.25, 'min');
+  near(h.max, 3, 'max');
+  near(h.total, 1 + h.civic + h.pollution + h.unemployment + 0.1, 'total');
+  near(h.incomeMult, 0.5 + 0.5 * h.total, 'incomeMult');
+  assert.equal(h.capReason, L.UNEMPLOYMENT, `51.5 % jobless (−0.1545) outweighs smog (${h.pollution})`);
+
+  // Same object every tick; strings are constants (no per-tick allocation).
+  const before = derived.extra.happiness;
+  at({ 't-house': 10 }, 1);
+  assert.equal(derived.extra.happiness, before, 'object reused');
+  assert.equal(derived.extra.happinessBreakdown, before, 'alias reused');
+
+  // capReason walks the ladder: none → civic cap → each drag → clamps.
+  assert.equal(at({ 't-house': 10, 't-shop': 10, 't-windmill': 10, 't-park': 3 }, 20).capReason, L.NONE, 'small city, nothing in the way');
+  const sat = at({ 't-house': 10, 't-shop': 10, 't-windmill': 10, 't-park': 100 }, 20);
+  assert.ok(sat.civicSaturation >= CIVIC_SATURATED, `100 parks saturate civic (${sat.civicSaturation})`);
+  assert.equal(sat.capReason, L.CIVIC_CAP, 'civic saturated and no drag ≥ 0.05');
+  const smog = at({ 't-house': 10, 't-shop': 10, 't-windmill': 60, 't-park': 100, 't-factory': 30 }, 20);
+  near(smog.brownout, 0, 'powered (360 MW cap vs 320 demand)');
+  assert.ok(-smog.pollution >= HAPPINESS_LIMIT_MIN, 'smog is a real drag');
+  assert.equal(smog.capReason, L.POLLUTION, 'smog beats the civic-cap reading');
+  const jobless = at({ 't-house': 10, 't-windmill': 10 }, 40);
+  near(jobless.unemployment, -0.3, '100 % jobless');
+  assert.ok(jobless.total > 0.25, 'raw 0.7 is above the floor');
+  assert.equal(jobless.capReason, L.UNEMPLOYMENT, 'joblessness is the only drag');
+  assert.equal(at({ 't-shop': 5 }, 100).capReason, L.MIN, 'no housing: overcrowd 10 pins the floor');
+  const dark = at({ 't-house': 10, 't-shop': 10 }, 20);
+  near(dark.brownout, -(1 - 0.4) * 0.3, 'unpowered city at the 0.4 floor');
+  assert.equal(dark.capReason, L.BROWNOUT, 'brownout is the only drag');
+  const floor = at({ 't-house': 10, 't-shop': 5, 't-windmill': 2 }, 100);
+  assert.equal(floor.capReason, L.MIN, 'city A is pinned at the floor');
+  near(floor.clamp, 0.25 - floor.raw, 'clamp term is the correction applied');
+  assert.ok(floor.clamp > 0, 'positive correction at the floor');
+  const roof = at({ 't-house': 10, 't-shop': 10, 't-windmill': 10, 't-park': 100 }, 20, Object.assign(createMods(), { happiness: 5 }));
+  assert.equal(roof.capReason, L.MAX, 'pinned at max');
+  near(roof.total, 3, 'max');
+  assert.ok(roof.clamp < 0, 'negative correction at the roof');
+  near(roof.raw + roof.clamp, 3, 'raw + clamp == total');
 });
 
 test('null mods leave the neutral bag in derived.mods (never a stale one)', () => {

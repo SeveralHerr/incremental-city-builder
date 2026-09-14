@@ -22,6 +22,8 @@ import {
   startMoneyFor,
   applyPrestigeMods,
   nextLegacyAt,
+  prevLegacyAt,
+  spanProgress,
   prestigeUnlockAt,
   runEarningsForGain,
   prestigeStatus,
@@ -365,7 +367,7 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   const cfg = withPrestige({ firstBonus: 0.5 });
   const s = fakeState({ legacy: 3, spent: 1, totalEarned: 55e6, lifetimeEarned: 64e6 });
   const out = prestigeStatus(s, {}, cfg);
-  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextIn', 'nextTierAt', 'nextTierName', 'spent', 'startMoneyAfter', 'unlockAt', 'unlockIn']);
+  assert.deepEqual(Object.keys(out).sort(), ['available', 'can', 'gain', 'legacy', 'lifetimeEarned', 'minGain', 'mult', 'multAfter', 'nextAt', 'nextIn', 'nextTierAt', 'nextTierName', 'pointProgress', 'prevAt', 'spent', 'startMoneyAfter', 'unlockAt', 'unlockIn']);
   assert.equal(out.legacy, 3);
   assert.equal(out.spent, 1);
   assert.equal(out.available, 2);
@@ -397,6 +399,49 @@ test('prestigeStatus fills the whole UI snapshot every call', () => {
   prestigeStatus(s, keep, cfg);
   assert.notEqual(keep.nextAt, 123);
   assert.notEqual(keep.unlockAt, 45);
+});
+
+test('prevAt / pointProgress: the "next legacy point" bar runs from the last point to the next, not from zero', () => {
+  const cfg = PLAIN; // threshold 1e6, exponent 0.5: point n needs n² × $1M lifetime
+  // A veteran with 100 banked ($1e10 lifetime) who has earned nothing this run: the bar
+  // starts at the run's first dollar (prevAt 0) and tops out at the 101st point.
+  const fresh = fakeState({ legacy: 100, totalEarned: 0, lifetimeEarned: 1e10 });
+  const a = prestigeStatus(fresh, {}, cfg);
+  assert.equal(a.gain, 0);
+  assert.equal(a.prevAt, 0);
+  near(a.nextAt, 101 * 101 * 1e6 - 1e10, 'the next point');
+  assert.equal(a.pointProgress, 0);
+  // Half-way between the 110th and 111th point: pointProgress reads 0.5 while a 0-based
+  // reading (earned / nextAt) would already show 95% — the F12 "permanently full" bar.
+  const p110 = 110 * 110 * 1e6 - 1e10;
+  const p111 = 111 * 111 * 1e6 - 1e10;
+  const mid = fakeState({ legacy: 100, totalEarned: (p110 + p111) / 2, lifetimeEarned: 1e10 + (p110 + p111) / 2 });
+  const b = prestigeStatus(mid, {}, cfg);
+  assert.equal(b.gain, 10);
+  near(b.prevAt, p110, 'floor: where the 10th point of this run was granted');
+  near(b.nextAt, p111, 'top: the 11th');
+  near(b.pointProgress, 0.5, 'half-way between the two');
+  assert.ok(mid.stats.totalEarned / b.nextAt > 0.95, 'the 0-based reading would pin the bar');
+  assert.equal(b.prevAt, prevLegacyAt(mid, cfg));
+  assert.equal(b.nextAt, nextLegacyAt(mid, cfg));
+  // Exactly on a point: the bar has just emptied.
+  const on = fakeState({ legacy: 100, totalEarned: p110, lifetimeEarned: 1e10 + p110 });
+  const c = prestigeStatus(on, {}, cfg);
+  assert.equal(c.gain, 10);
+  near(c.prevAt, p110, 'on the point');
+  assert.equal(c.pointProgress, 0);
+  // The helper's edges: out of reach, empty span, past the top, non-finite input.
+  assert.equal(spanProgress(0, Infinity, 5), 0);
+  assert.equal(spanProgress(10, 10, 12), 0);
+  assert.equal(spanProgress(10, 20, 25), 1);
+  assert.equal(spanProgress(10, 20, 5), 0);
+  assert.equal(spanProgress(NaN, 20, 5), 0);
+  near(spanProgress(10, 20, 12.5), 0.25, 'a quarter in');
+  // Every tick keeps the fields inside [0, 1] and prevAt ≤ nextAt.
+  const s = fakeState({ legacy: 7, totalEarned: 3e7, lifetimeEarned: 49e6 + 3e7 });
+  const d = prestigeStatus(s, {}, cfg);
+  assert.ok(d.prevAt <= s.stats.totalEarned && s.stats.totalEarned <= d.nextAt);
+  assert.ok(d.pointProgress >= 0 && d.pointProgress <= 1);
 });
 
 test('startMoneyFor grows linearly with the bank', () => {

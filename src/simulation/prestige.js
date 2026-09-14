@@ -214,6 +214,25 @@ export function nextLegacyAt(state, cfg = config) {
   return runEarningsForGain(state, prestigeGain(state, cfg) + 1, cfg);
 }
 
+// This run's totalEarned at which the point most recently granted this run was reached:
+// the floor of the "next legacy point" bar. 0 while the run has banked nothing yet (the
+// bar then starts at the run's first dollar, which is where the previous point — the one
+// the bank already holds — was crossed as far as this run is concerned).
+export function prevLegacyAt(state, cfg = config) {
+  return runEarningsForGain(state, prestigeGain(state, cfg), cfg);
+}
+
+// 0..1 from `from` to `to` at `at`: the fill of a bar whose floor is the last point and
+// whose top is the next. 0 when the next point is out of reach (Infinity) or the span is
+// empty; 1 once past it.
+export function spanProgress(from, to, at) {
+  if (!(at > from)) return 0;
+  if (!(to > from) || !Number.isFinite(to)) return 0;
+  if (at >= to) return 1;
+  const p = (at - from) / (to - from);
+  return Number.isFinite(p) ? p : 0;
+}
+
 // This run's totalEarned needed before founding is allowed (the requiredGain-th point).
 export function prestigeUnlockAt(state, cfg = config) {
   return runEarningsForGain(state, requiredGain(state, cfg), cfg);
@@ -224,6 +243,11 @@ export function prestigeUnlockAt(state, cfg = config) {
 //   legacy, spent, available   the bank, the charter tally, what is free to spend
 //   gain, can, minGain         points a founding banks now, whether it is allowed, the gate
 //   unlockAt, nextAt           this run's totalEarned at which founding arms / the next point
+//   prevAt, pointProgress      this run's totalEarned at which the latest point was granted
+//                              (0 before the first), and the 0..1 fill from prevAt to nextAt
+//                              — the "next legacy point" bar measured last point → next
+//                              point, never 0 → next (which reads permanently full late,
+//                              when a point is a fraction of a percent of the run's total)
 //   mult, multAfter            the real income multiplier now / after founding
 //   lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt
 //   nextIn, unlockIn           seconds at the given earning rate (index.js earningRate: the
@@ -245,8 +269,10 @@ export function prestigeStatus(state, out, cfg = config, incomePerSec = 0) {
   out.minGain = need; // the resolved gate: max(minGain, ceil(legacy · minGainShare))
   out.unlockAt = runEarningsForGain(state, need, cfg);
   out.nextAt = runEarningsForGain(state, gain + 1, cfg);
+  out.prevAt = runEarningsForGain(state, gain, cfg);
   out.lifetimeEarned = lifetimeEarnedOf(state);
   const earned = totalEarnedOf(state);
+  out.pointProgress = spanProgress(out.prevAt, out.nextAt, earned);
   out.nextIn = secondsUntil(out.nextAt, earned, incomePerSec);
   out.unlockIn = out.can ? 0 : secondsUntil(out.unlockAt, earned, incomePerSec);
   out.mult = legacyIncomeMult(legacy, cfg);

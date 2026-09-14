@@ -40,8 +40,11 @@
 // UI contract for the prestige card: read `prestigeSnapshot(derived)` (exported below; the
 // same object as derived.extra.prestige) — legacy, spent, available (legacy − spent, the
 // charter-perk currency), gain, can, minGain (the resolved gate), unlockAt (bar denominator;
-// Infinity when founding is out of reach this run), nextAt, mult and multAfter (the real
-// income multiplier now / after founding), startMoneyAfter, nextTierName / nextTierAt,
+// Infinity when founding is out of reach this run), nextAt, prevAt and pointProgress (the
+// "next legacy point" bar runs from prevAt — this run's earnings at which the latest point
+// was granted, 0 before the first — to nextAt; pointProgress is that fill, 0..1, so the bar
+// never reads as "% of the whole target" and never pins full late in a run), mult and
+// multAfter (the real income multiplier now / after founding), startMoneyAfter, nextTierName / nextTierAt,
 // lifetimeEarned, and nextIn / unlockIn (seconds at the current earning rate — the gross
 // output a solvent city scores, earningRate() — until the next point / until founding
 // arms; 0 once there, Infinity when out of reach or in deficit — a waiting target for a
@@ -73,6 +76,7 @@ import {
   startMoneyFor,
   legacyOf,
   nextLegacyAt,
+  prevLegacyAt,
   earningsForLegacy,
   prestigeUnlockAt,
   legacyIncomeMult,
@@ -94,6 +98,7 @@ export {
   isBrownout,
   nextLegacyMilestone,
   nextLegacyAt,
+  prevLegacyAt,
   earningsForLegacy,
   prestigeUnlockAt,
   legacyIncomeMult,
@@ -283,11 +288,11 @@ export function foldMods(state) {
 }
 
 // derived.extra.prestige: { legacy, spent, available, gain, can, minGain, unlockAt, nextAt,
-// mult, multAfter, lifetimeEarned, startMoneyAfter, nextTierName, nextTierAt, nextIn,
-// unlockIn } — the prestige situation for the dashboard ("found a new city at $unlockAt",
-// a bar that fills toward it, "next legacy point in 4 min", "◆ 12 / 40 legacy", "next
-// tier: Living Archive at 5,000 legacy") without calling actions. Every field is
-// closed-form, so the whole snapshot refreshes every tick.
+// prevAt, pointProgress, mult, multAfter, lifetimeEarned, startMoneyAfter, nextTierName,
+// nextTierAt, nextIn, unlockIn } — the prestige situation for the dashboard ("found a new
+// city at $unlockAt", a bar that fills toward it, "next legacy point in 4 min", "◆ 12 / 40
+// legacy", "next tier: Living Archive at 5,000 legacy") without calling actions. Every
+// field is closed-form, so the whole snapshot refreshes every tick.
 function ensurePrestigeExtra(derived) {
   let x = derived.extra;
   if (!x || typeof x !== 'object') x = derived.extra = {};
@@ -302,6 +307,8 @@ function ensurePrestigeExtra(derived) {
       minGain: 1,
       unlockAt: 0,
       nextAt: 0,
+      prevAt: 0,
+      pointProgress: 0,
       mult: 1,
       multAfter: 1,
       lifetimeEarned: 0,

@@ -755,6 +755,29 @@ button.gauge-happy:hover {
   touch-action: none;
 }
 
+/* A row the sheet landed on (sheet.open with an anchor, e.g. the HUD's mood gauge): a
+   one-second outline so the eye finds it after the scroll. Reduced motion: no fade, the
+   outline simply holds for the second and goes. */
+.is-flash {
+  outline: 2px solid var(--accent-ui);
+  outline-offset: 3px;
+  animation: land-flash 1s linear both;
+}
+@keyframes land-flash {
+  0%,
+  60% {
+    outline-color: var(--accent-ui);
+  }
+  100% {
+    outline-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-flash {
+    animation: none;
+  }
+}
+
 .sheet-close {
   display: grid;
   place-items: center;

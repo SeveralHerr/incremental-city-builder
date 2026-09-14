@@ -43,7 +43,7 @@ export function createHud(ui) {
     h('div.gauge-row', [icon('smile'), happyVal]),
     happySub,
   ]);
-  happyEl.addEventListener('click', () => ui.openSheet && ui.openSheet('city'));
+  happyEl.addEventListener('click', () => ui.openSheet && ui.openSheet('city', { anchor: '#hall-happiness' }));
 
   // Meta row and gauges are separate children of the grid: on a phone the gauges drop to their
   // own full-width row instead of squeezing the treasury into a third of the screen.
@@ -59,7 +59,9 @@ export function createHud(ui) {
     h('span.goal-label', { text: 'Next' }),
     h('div.goal-body', [h('div.goal-row', [goalName, goalPct]), goalBar]),
   ]);
-  goal.addEventListener('click', () => ui.openSheet && ui.openSheet('goals'));
+  // Lands on the first unreached row, which is this pill's milestone (milestones.js orders
+  // the list reached-then-next, and the HUD reads the same nextMilestones()).
+  goal.addEventListener('click', () => ui.openSheet && ui.openSheet('goals', { anchor: '.ms-item:not(.is-reached)' }));
 
   const el = h('div.hud', [purse, metaRow, gauges, goal]);
 

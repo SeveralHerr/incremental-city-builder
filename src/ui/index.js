@@ -99,7 +99,7 @@ async function mount(game) {
   const sheet = createSheet(ui, PAGES.map((p) => ({ id: p.id, title: p.title, el: pageEls[p.id] })));
   const dock = createDock(ui, PAGES.map((p) => ({ id: p.id, label: p.title, icon: p.icon, visible: p.visible, badge: p.badge })));
   ui.sheet = sheet;
-  ui.openSheet = (id) => sheet.open(id);
+  ui.openSheet = (id, opts) => sheet.open(id, opts);
   ui.toggleSheet = (id) => sheet.toggle(id);
   const stage = h('div.stage', [city.el, hud.el, dock.el, sheet.el]);
   app.replaceChildren(stage);

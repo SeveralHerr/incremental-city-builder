@@ -18,6 +18,7 @@ import { createModal, createSettingsModal } from './modal.js';
 import { createUnlockAnnouncer } from './announce.js';
 import { createSfx } from './sfx.js';
 import { createRefreshGate } from './schedule.js';
+import { createFullscreenPrompt, isFramed } from './embed.js';
 import { nameList } from './text.js';
 
 const REBUILD_EVERY = 30; // frames — safety net; events trigger immediate rebuilds
@@ -119,6 +120,14 @@ async function mount(game) {
     reportError('ui:sfx', e);
   }
   ui.settings = createSettingsModal(ui, ui.modal);
+  // Inside an iframe (itch.io's embed) the layout fits the frame as it is; a small chip
+  // offers fullscreen on first load and stays dismissed once tapped away (embed.js, F13).
+  try {
+    document.documentElement.classList.toggle('is-framed', isFramed());
+    ui.fullscreen = createFullscreenPrompt(ui, stage);
+  } catch (e) {
+    reportError('ui:embed', e);
+  }
 
   // ---- event wiring ----
   const ev = game.events;

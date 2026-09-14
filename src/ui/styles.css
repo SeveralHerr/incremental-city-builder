@@ -608,6 +608,83 @@ button.gauge-happy:hover {
   right: -4px;
 }
 
+/* ---------- Fullscreen offer (inside an iframe, F13) ---------- */
+/* A chip in the free corner of the road, right of the dock: one tap goes fullscreen, the ×
+   puts it away for good. It never covers a control; while the sheet is up it stands down. */
+.fs-prompt {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--plate-3), var(--plate));
+  border: 1px solid var(--plate-edge);
+  box-shadow: 0 8px 20px rgba(3, 6, 16, 0.5);
+  overflow: hidden;
+}
+.fs-prompt.is-entering {
+  animation: fs-in var(--t-med) var(--ease) both;
+}
+@keyframes fs-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fs-go,
+.fs-close {
+  display: grid;
+  place-items: center;
+  min-height: 40px;
+  color: var(--text-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.fs-go {
+  padding: 0 12px 0 14px;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.fs-close {
+  width: 36px;
+  border-left: 1px solid var(--plate-edge);
+  font-size: 18px;
+  line-height: 1;
+}
+.fs-go:hover,
+.fs-close:hover {
+  background: rgba(154, 178, 232, 0.1);
+  color: var(--text);
+}
+.fs-go:disabled {
+  color: var(--warn);
+  cursor: default;
+}
+.stage.is-sheet-open .fs-prompt {
+  display: none;
+}
+@media (max-width: 720px) {
+  .fs-prompt {
+    right: 10px;
+    bottom: calc(var(--dock-h) + 10px);
+  }
+  .fs-go,
+  .fs-close {
+    min-height: 44px;
+  }
+  .fs-close {
+    width: 44px;
+  }
+}
+
 /* ---------- Sheet ---------- */
 /* Every list in the game lives here. It is not a modal: the sky above stays live, so a player
    can keep collecting with the build list open. Capped so the city is never fully covered. */

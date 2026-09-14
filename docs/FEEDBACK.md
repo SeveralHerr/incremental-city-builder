@@ -78,9 +78,10 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   game it looks permanently full. Fix in the Legacy / City Hall panel using
   `derived.extra.prestige.nextAt` and the previous point's threshold.
   → Done: simulation exposes `prevAt` / `pointProgress` (`aab56b0`), City Hall bar draws the point N → N+1 segment (`84dc64b`).
-- [ ] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
+- [x] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
   much better once discovered. Check the embed viewport size on the itch page and make the
   layout fit it, or surface a fullscreen prompt on first load inside an iframe.
+  → Done: measured inside a real `<iframe scrolling="no">` at 960×640 and 1280×720 — HUD, dock and sheet all fit, the framed document never scrolls (the sheet body is the only scroller). Inside a frame (`self !== top`, or `?embed=1` for tooling) a "Fullscreen ↗ ×" chip sits in the free corner by the dock on first load: one tap calls `requestFullscreen`, × dismisses; either is remembered in localStorage (`metropolis.ui.fullscreenPrompt`, guarded — the key is not in the simulation's `SETTINGS` whitelist). Settings › Display also has a Fullscreen button. `src/ui/embed.js`, decision helper tested.
 - [x] **F14 ui — no bulk sell (P2).** Sell is one at a time. Add a modifier key (shift/ctrl/alt,
   the genre standard) and/or let the ×10 / Max segment apply to Sell.
   → Done: Sell is a toggle beside the ×1 / ×10 / Max switch and obeys it (×10 with 7 owned sells 7, Max sells all, never below 0); Shift-click = ×10, Ctrl/⌘-click = Max on any Buy or Sell button (rule on the tooltips and in Settings). The button shows core's own `api.sellRefund` for the exact amount, one `api.sell(id, n)` call per click (one debounced save). `text.js tradeCount`, tested.

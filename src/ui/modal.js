@@ -8,6 +8,7 @@
 // offers api.action('recoverSave') and shows its raw bytes via api.action('exportCorrupt').
 import { h, icon, setText, setHidden, money, num, fmtTime, fmtPct } from './dom.js';
 import { MODIFIER_HELP } from './text.js';
+import { requestFullscreen } from './embed.js';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -112,6 +113,26 @@ export function createSettingsModal(ui, modal) {
     const tutorial = h('input', { type: 'checkbox', id: 'set-tutorial' });
     tutorial.checked = s.tutorial !== false;
     tutorial.addEventListener('change', () => ui.setSetting('tutorial', tutorial.checked));
+    // Fullscreen lives here too, so a player who dismissed the embed chip can still find it.
+    let fullscreenRow = null;
+    if (document.fullscreenEnabled || document.webkitFullscreenEnabled) {
+      const fsBtn = h('button.btn', { type: 'button', text: document.fullscreenElement ? 'Leave fullscreen' : 'Fullscreen ↗' });
+      fsBtn.addEventListener('click', async () => {
+        if (document.fullscreenElement) {
+          try {
+            await document.exitFullscreen();
+          } catch {
+            /* nothing to leave */
+          }
+          modal.close();
+          return;
+        }
+        const ok = await requestFullscreen(document);
+        if (ok) modal.close();
+        else note('The browser refused fullscreen here; use the fullscreen button under the game.', 'warn');
+      });
+      fullscreenRow = h('div.form-row', [h('span', { text: 'Play fullscreen (Esc leaves)' }), fsBtn]);
+    }
 
     // ---- Save / export / import ----
     const exportArea = h('textarea.textarea', { rows: 3, readonly: true, spellcheck: 'false', placeholder: 'Your export code appears here.', 'aria-label': 'Export code' });
@@ -238,6 +259,7 @@ export function createSettingsModal(ui, modal) {
         storageNote,
         h('label.form-row', [h('span', { text: 'Sound effects' }), sfx]),
         h('label.form-row', [h('span', { text: 'Tutorial tips' }), tutorial]),
+        fullscreenRow,
         h('p.form-help', { text: `Shortcuts: ${MODIFIER_HELP} The ×1 / ×10 / Max switch applies to Sell too.` }),
       ]),
       h('section.form-section', [

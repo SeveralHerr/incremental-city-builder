@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
 import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, LEGACY_GLYPH } from './text.js';
 import { HAPPINESS_LIMITS } from '../resources/index.js';
+import { isFramed, shouldOfferFullscreen, STORAGE_KEY } from './embed.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -609,6 +610,25 @@ test('happiness hint: every capReason the resources module can emit has a line',
   assert.match(happinessHint('min', { min: 0.25 }), /minimum \(25%\)/);
   assert.equal(happinessHint('nonsense'), '');
   assert.equal(happinessHint(undefined), '');
+});
+
+// F13: the fullscreen chip shows only inside an iframe (or when tooling forces it), only
+// while the browser can go fullscreen, and never once dismissed or already fullscreen.
+test('fullscreen offer: framed or forced, not dismissed, not already full, browser able', () => {
+  assert.equal(isFramed({ self: 1, top: 2 }), true);
+  assert.equal(isFramed({ self: 1, top: 1 }), false);
+  assert.equal(isFramed(null), false, 'no window at all (Node) is not a frame');
+  const hostile = {};
+  Object.defineProperty(hostile, 'top', { get() { throw new Error('cross-origin'); } });
+  assert.equal(isFramed(hostile), true, 'a throwing top reads as framed');
+  assert.equal(shouldOfferFullscreen({ framed: true }), true);
+  assert.equal(shouldOfferFullscreen({ framed: false }), false, 'a top-level page is never asked');
+  assert.equal(shouldOfferFullscreen({ framed: false, forced: true }), true, '?embed=1 forces it for tooling');
+  assert.equal(shouldOfferFullscreen({ framed: true, dismissed: true }), false, 'dismissed stays dismissed');
+  assert.equal(shouldOfferFullscreen({ framed: true, fullscreen: true }), false);
+  assert.equal(shouldOfferFullscreen({ framed: true, canFullscreen: false }), false, 'no API, no chip');
+  assert.equal(shouldOfferFullscreen(), false);
+  assert.match(STORAGE_KEY, /^metropolis\./, 'namespaced localStorage key');
 });
 
 console.log(`ui tests: ${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

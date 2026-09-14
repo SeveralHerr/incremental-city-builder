@@ -665,8 +665,7 @@ test('founding rule text: the +N gate as a share of the bank, and the earnings i
 // that edge.
 test('the sky gradient ends where the drawing starts: one --sky-h token for both rules', () => {
   const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-  assert.match(css, /
-\.skyline\s*\{[^}]*height:\s*var\(--sky-h\);/, '.skyline height must be var(--sky-h)');
+  assert.match(css, /\n\.skyline\s*\{[^}]*height:\s*var\(--sky-h\);/, '.skyline height must be var(--sky-h)');
   assert.match(css, /\.skyline-host\s*\{[^}]*calc\(100% - var\(--sky-lift\) - var\(--sky-h\)\)/, 'the host gradient must end at the art top');
   // The art's top pixel is --sk-top under the night rect (#03061a at night × 0.58, skyline.js).
   assert.match(css, /--sk-base:\s*color-mix\(in srgb, #03061a calc\(var\(--sk-night, 0\) \* 58%\), var\(--sk-top, #2456a8\)\)/);

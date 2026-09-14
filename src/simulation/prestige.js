@@ -51,7 +51,7 @@ import { config } from '../balance/config.js';
 import { resetState, addLog } from '../core/state.js';
 import { emit } from '../core/events.js';
 import { prestigeTuning, economyTuning, foundingTuning } from './tuning.js';
-import { nextLegacyMilestone } from './milestones.js';
+import { nextLegacyMilestone, lifetimeBuiltOf } from './milestones.js';
 
 // How many log lines survive a founding (the run's story is worth keeping).
 const KEEP_LOG_LINES = 20;
@@ -331,6 +331,10 @@ export function performPrestige(state, cfg = config, onReset) {
   const peakPop = Number.isFinite(state.stats.peakPop) ? Math.floor(state.stats.peakPop) : 0;
   const peakIncome = peakIncomeOf(state);
   const keptLog = Array.isArray(state.log) ? state.log.slice(-KEEP_LOG_LINES) : [];
+  // Every structure raised so far, this city included: the Endless Skyline count is a
+  // lifetime one (F10; milestones.js lifetimeBuiltOf) and the old city's builds move into
+  // stats.buildingsBuiltPrior before resetState zeroes the per-run buildingsBuilt.
+  const builtLifetime = lifetimeBuiltOf(state);
 
   state.prestige.legacy = legacy;
   state.prestige.spent = spent;
@@ -348,6 +352,7 @@ export function performPrestige(state, cfg = config, onReset) {
   // earnings (what legacy is computed from) live in state.prestige.lifetimeEarned.
   state.stats.totalEarned = 0;
   state.stats.peakIncome = 0; // per run, like peakPop: the new city sizes the next seed
+  state.stats.buildingsBuiltPrior = builtLifetime; // lifetime builds before this new city (F10)
   state.res.money = startMoneyFor(legacy, cfg, peakIncome);
   state.res.pop = 0;
 

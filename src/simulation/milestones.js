@@ -9,7 +9,9 @@
 // The ids below are a contract: the upgrades module reads them in its unlock rules
 // (pop-100, pop-1k, pop-10k, pop-100k, money-1k, money-100k, money-1m, money-1b, brownout,
 // first-upgrade, buildings-100, prestige-1). `metric` + `target` (and `progress`) feed the
-// UI's progress bars. Metrics: pop, totalEarned, buildings, upgrades, brownout, founding,
+// UI's progress bars. Metrics: pop, totalEarned, buildings (this run's stats.buildingsBuilt),
+// lifetimeBuildings (every city's builds, stats.buildingsBuiltPrior + buildingsBuilt — see
+// lifetimeBuiltOf), upgrades, brownout, founding,
 // prestiges, legacy, clicks (lifetime taps — the tap ladder scales mods.tap). Listed in
 // roughly the order a growing city reaches them, because the UI shows the first few
 // unreached entries as "next".
@@ -43,6 +45,23 @@ function pctText(x) {
 const popOf = (s) => (s && s.res && Number.isFinite(s.res.pop) ? s.res.pop : 0);
 const earnedOf = (s) => (s && s.stats && Number.isFinite(s.stats.totalEarned) ? s.stats.totalEarned : 0);
 const builtOf = (s) => (s && s.stats && Number.isFinite(s.stats.buildingsBuilt) ? s.stats.buildingsBuilt : 0);
+
+// Structures raised in every city before this one: stats.buildingsBuiltPrior, a lifetime
+// counter this module keeps (prestige.js performPrestige adds the old city's per-run
+// stats.buildingsBuilt to it at each founding; core's resetState keeps every stats key it
+// does not zero, and both core loadState and the save module keep a stats key they do not
+// know, so it survives a founding and a save round-trip). Guarded here because core's
+// sanitize() only types the keys createInitialState declares — this one it does not, so a
+// hand-edited value is read as 0 rather than trusted.
+export function builtPriorOf(s) {
+  const v = s && s.stats ? s.stats.buildingsBuiltPrior : 0;
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+// Structures raised across every city, this one included: the Endless Skyline count.
+export function lifetimeBuiltOf(s) {
+  return builtPriorOf(s) + builtOf(s);
+}
 const prestigesOf = (s) => (s && s.stats && Number.isFinite(s.stats.prestiges) ? s.stats.prestiges : 0);
 const clicksOf = (s) => (s && s.stats && Number.isFinite(s.stats.clicks) ? s.stats.clicks : 0);
 const legacyOf = (s) => (s && s.prestige && Number.isFinite(s.prestige.legacy) ? s.prestige.legacy : 0);
@@ -113,6 +132,12 @@ const happinessReward = (add) => (mods) => {
   mods.happiness += add;
 };
 
+// Taps pay `mult` × more seconds of output (the tap ladder's reward, shared with tapMilestone).
+// Bounded by the tap meter, so it never moves the 12 h cadence or magnitude gates.
+const tapReward = (mult) => (mods) => {
+  mods.tap = (Number.isFinite(mods.tap) && mods.tap > 0 ? mods.tap : 1) * mult;
+};
+
 // Every polluting building (negative per-unit happiness) emits `frac` less. Allocates one
 // byBuilding entry per polluter per tick, the same sanctioned exception upgrades use.
 function cleanAirReward(frac) {
@@ -176,6 +201,31 @@ function buildMilestone(id, target, name, icon, desc, rewardText, reward) {
   };
 }
 
+// A lifetime structure count (lifetimeBuiltOf: every city's builds, this one included).
+// Per-run counts top out at ~4,200 in a 12 h bot city (3,600 human profile) with every
+// building going exponential, so a 10,000 target per city was never reached by any profile
+// or by the playtester (F10); across cities every profile crosses 10,000 in city 9, at
+// 124–131 min. Latched per run like every milestone: a replay re-collects it in its first
+// second (the carry-over window in index.js keeps that silent).
+// Reward: taps pay double, not the +10 % income the unreachable version carried — a reachable
+// +10 % at 125 min pushed both 12 h profiles past the 1e18 money ceiling and the saver to a
+// 37th founding (balance.test.mjs, measured 2026-09-14). Balance may re-grant an income
+// reward here when it retunes the late ladder (docs/FEEDBACK.md F1).
+function lifetimeBuildMilestone(id, target, name, icon, desc, rewardText, reward) {
+  return {
+    id,
+    name,
+    icon,
+    desc,
+    metric: 'lifetimeBuildings',
+    target,
+    check: (state) => lifetimeBuiltOf(state) >= target,
+    progress: (state) => clamp01(lifetimeBuiltOf(state) / target),
+    reward,
+    rewardText,
+  };
+}
+
 function prestigeMilestone(id, target, name, icon, desc, rewardText, reward) {
   return {
     id,
@@ -209,11 +259,9 @@ function tapMilestone(id, target, name, icon, desc, mult, rewardText) {
     target,
     check: (state) => clicksOf(state) >= target,
     progress: (state) => clamp01(clicksOf(state) / target),
-    reward: (mods) => {
-      // The fold seeds mods.tap = 1; a bare core bag (an upgrades test, an older caller) has
-      // no tap field and must not turn into NaN.
-      mods.tap = (Number.isFinite(mods.tap) && mods.tap > 0 ? mods.tap : 1) * mult;
-    },
+    // The fold seeds mods.tap = 1; a bare core bag (an upgrades test, an older caller) has
+    // no tap field and must not turn into NaN (tapReward guards it).
+    reward: tapReward(mult),
     rewardText,
   };
 }
@@ -348,7 +396,7 @@ export const MILESTONES = [
   }),
   moneyMilestone('money-10t', 1e13, 'Ten Trillion', '💫', 'Earn $10,000,000,000,000 in total.', '+10% income', incomeReward(1.1)),
   legacyMilestone('legacy-150', 150, 'Scrubber Mandate', '🌬️', 'Bank 150 legacy points.', 'Polluting buildings emit another 25% less smog', cleanAirReward(0.25)),
-  buildMilestone('buildings-10k', 10000, 'Endless Skyline', '🌉', 'Raise ten thousand structures.', '+10% income', incomeReward(1.1)),
+  lifetimeBuildMilestone('buildings-10k', 10000, 'Endless Skyline', '🌉', 'Raise ten thousand structures across every city you have founded.', 'Taps pay 2× the seconds of income', tapReward(2)),
   legacyMilestone('legacy-500', 500, 'Storied Skyline', '📚', 'Bank 500 legacy points.', 'All buildings cost another −10%', costReward(0.9)),
   legacyMilestone('legacy-1000', 1000, 'Millennium Bank', '🏦', 'Bank a thousand legacy points.', '+5% income', incomeReward(1.05)),
   popMilestone('pop-100m', 1e8, 'Continental City', '🗺️', 'A hundred million citizens. Borders are a rumour.'),

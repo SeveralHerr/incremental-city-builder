@@ -39,7 +39,7 @@ import {
   foundingTapMult,
   foundingsOf,
 } from './prestige.js';
-import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods } from './milestones.js';
+import { MILESTONES, REWARDED_MILESTONES, LEGACY_MILESTONES, nextLegacyMilestone, isBrownout, getMilestone, pendingMilestones, applyMilestoneMods, lifetimeBuiltOf, builtPriorOf } from './milestones.js';
 import { simulate, recompute, foldMods, seedStartMoney, markFounding, tap, tapSecondsFor, tapMeter, prestigeSnapshot, init, bookkeeping, createBookkeeping } from './index.js';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -1317,4 +1317,48 @@ test('a save loaded mid-run latches the tiers it already exceeds silently (the c
   assert.match(state.log[state.log.length - 1].msg, /Century Bank/);
   loadState({});
   markFounding(0);
+});
+
+// F10: Endless Skyline counts every city's structures. A founding moves the old city's per-run
+// buildingsBuilt into stats.buildingsBuiltPrior (a key core's resetState keeps and sanitize()
+// does not type, so a garbage value reads as 0), and the milestone reads the sum.
+test('F10: Endless Skyline is a lifetime count that survives a founding', () => {
+  const ms = getMilestone('buildings-10k');
+  assert.ok(ms, 'buildings-10k exists');
+  assert.equal(ms.metric, 'lifetimeBuildings');
+  assert.equal(ms.target, 10000);
+  // Garbage prior reads as 0; a real one is floored.
+  assert.equal(builtPriorOf({ stats: { buildingsBuiltPrior: NaN, buildingsBuilt: 3 } }), 0);
+  assert.equal(builtPriorOf({ stats: { buildingsBuiltPrior: -5 } }), 0);
+  assert.equal(builtPriorOf({ stats: { buildingsBuiltPrior: 7.9 } }), 7);
+  assert.equal(lifetimeBuiltOf({ stats: { buildingsBuiltPrior: 7, buildingsBuilt: 5 } }), 12);
+  assert.equal(lifetimeBuiltOf(null), 0);
+  // Two cities of 6,000 builds each: the milestone is not met at the end of the first, is
+  // met partway through the second, and progress reads the lifetime share.
+  loadState({
+    res: { money: 5e6, pop: 12000 },
+    buildings: { house: 40 },
+    stats: { totalEarned: 9e6, peakPop: 12000, buildingsBuilt: 6000, prestiges: 0, playtime: 1800, clicks: 0 },
+    prestige: { legacy: 0, spent: 0, lifetimeEarned: 9e6 },
+  });
+  assert.equal(ms.check(state, derived), false, '6,000 in one city is not 10,000');
+  assert.ok(Math.abs(ms.progress(state, derived) - 0.6) < 1e-9, 'progress 60 %');
+  const cfg = withPrestige({ firstBonus: 0.5 });
+  assert.equal(performPrestige(state, cfg), true);
+  assert.equal(state.stats.buildingsBuilt, 0, 'per-run counter restarts');
+  assert.equal(state.stats.buildingsBuiltPrior, 6000, 'the old city moved into the lifetime prior');
+  assert.equal(lifetimeBuiltOf(state), 6000);
+  state.stats.buildingsBuilt = 3999;
+  assert.equal(ms.check(state, derived), false);
+  state.stats.buildingsBuilt = 4000;
+  assert.equal(ms.check(state, derived), true, '6,000 + 4,000 across two cities');
+  assert.equal(ms.progress(state, derived), 1);
+  // A third founding accumulates: 6,000 + 4,000 carried, the new city starts at 0.
+  state.stats.totalEarned = 4e7;
+  state.prestige.lifetimeEarned = 4.9e7;
+  assert.equal(performPrestige(state, cfg), true);
+  assert.equal(state.stats.buildingsBuiltPrior, 10000);
+  assert.equal(state.stats.buildingsBuilt, 0);
+  assert.equal(ms.check(state, derived), true, 'lifetime count stays met on the replay');
+  loadState({});
 });

@@ -3,7 +3,7 @@
 // here changes every frame, which is exactly why it lives one tap away instead of on the sky.
 import { h, icon, setText, setHidden, setProgress, setClass, setDisabled, setAttr, money, num, short, fmtPct, fmtInt } from './dom.js';
 import { createCharterSection } from './charter.js';
-import { unemploymentLevel, LEGACY_GLYPH } from './text.js';
+import { unemploymentLevel, legacyPointBar, LEGACY_GLYPH } from './text.js';
 
 export function createCityHall(ui) {
   const { game } = ui;
@@ -109,13 +109,17 @@ export function createCityHall(ui) {
       const minGain = fin(px.minGain) && px.minGain > 0 ? px.minGain : 1;
       const per = ui.content.config?.prestige?.incomePerLegacy ?? 0.05;
       const threshold = ui.content.config?.prestige?.threshold ?? 1e6;
-      // Bar: earnings this city toward the founding gate (unlockAt); once past it, toward the
-      // next legacy point (nextAt) so the bar keeps moving instead of pinning at 100%.
+      // Bar: earnings this city toward the founding gate (unlockAt); once past it, the
+      // current legacy-point segment — from the last point's threshold (prevAt) to the next
+      // (nextAt) — so late in a run it reads "point 415 → 416: 64%", never "% of the whole
+      // target" pinned at 100% (F12; text.js legacyPointBar).
       const earned = s.stats.totalEarned || 0;
       const unlockAt = fin(px.unlockAt) && px.unlockAt > 0 ? px.unlockAt : threshold;
       const nextAt = fin(px.nextAt) && px.nextAt > earned ? px.nextAt : 0;
-      const target = can && nextAt > 0 ? nextAt : unlockAt;
-      const p = target > 0 ? Math.min(1, earned / target) : 0;
+      const pointMode = can && nextAt > 0;
+      const bar = pointMode ? legacyPointBar({ earned, nextAt, prevAt: px.prevAt, legacy, gain }) : null;
+      const target = pointMode ? nextAt : unlockAt;
+      const p = bar ? bar.p : target > 0 ? Math.min(1, earned / target) : 0;
       const mult = fin(px.mult) && px.mult > 0 ? px.mult : 1 + legacy * per;
       const multAfter = fin(px.multAfter) && px.multAfter > 0 ? px.multAfter : 1 + (legacy + gain) * per;
       const spent = (s.prestige && s.prestige.spent) || 0;
@@ -127,8 +131,15 @@ export function createCityHall(ui) {
       setAttr(bonusStat, 'title', 'Income multiplier from every legacy point ever earned; spending on the charter never lowers it');
       setText(prestigePct, fmtPct(p));
       setProgress(prestigeFill, p);
-      setText(prestigeBarLabel.firstChild, can && nextAt > 0 ? 'Next legacy point' : 'Earned this city');
-      setText(prestigeBarLabel.lastChild, `${money(earned)} / ${money(target)}`);
+      if (bar && bar.segment) {
+        setText(prestigeBarLabel.firstChild, `Legacy point ${LEGACY_GLYPH} ${num(bar.point)} → ${num(bar.nextPoint)}`);
+        setText(prestigeBarLabel.lastChild, `${money(earned - bar.from)} / ${money(nextAt - bar.from)}`);
+        setAttr(prestigeBar, 'title', `${fmtPct(p)} of the way from point ${num(bar.point)} (${money(bar.from)} earned this city) to point ${num(bar.nextPoint)} (${money(nextAt)})`);
+      } else {
+        setText(prestigeBarLabel.firstChild, pointMode ? 'Next legacy point' : 'Earned this city');
+        setText(prestigeBarLabel.lastChild, `${money(earned)} / ${money(target)}`);
+        setAttr(prestigeBar, 'title', pointMode ? `Earn ${money(target)} this city for legacy point ${num(legacy + gain + 1)}` : `Earn ${money(target)} this city to found again`);
+      }
       setClass(prestigePanel, 'is-ready', can && gain > 0);
       setDisabled(prestigeBtn, !can);
       setClass(prestigeBtn, 'is-ready', can && gain > 0);

@@ -51,6 +51,32 @@ export function legacyCost(n) {
   return `${LEGACY_GLYPH} ${num(Number.isFinite(n) ? n : 0)}`;
 }
 
+// The "next legacy point" bar (F12). Points come at ever-wider earnings intervals, so a bar
+// measured 0 → nextAt reads permanently full late in a run (one point is a fraction of a
+// percent of the run's total). This measures the current segment instead: from prevAt (this
+// run's earnings at which the latest point was granted — derived.extra.prestige.prevAt, the
+// same units as nextAt) to nextAt, clamped 0..1. Without prevAt the bar keeps its old
+// 0 → nextAt reading (`segment: false`) so an older simulation snapshot still draws
+// something sensible. `point` / `nextPoint` are the absolute point numbers (bank + points
+// this run) for a "◆ 415 → 416" label; a bar with no valid target returns p = 0.
+export function legacyPointBar({ earned, nextAt, prevAt, legacy = 0, gain = 0 } = {}) {
+  const fin = (v) => Number.isFinite(v) && v >= 0;
+  earned = fin(earned) ? earned : 0;
+  const to = fin(nextAt) ? nextAt : 0;
+  const point = Math.max(0, Math.floor((fin(legacy) ? legacy : 0) + (fin(gain) ? gain : 0)));
+  const out = { p: 0, from: 0, to, earned, point, nextPoint: point + 1, segment: false };
+  if (!(to > 0)) return out;
+  if (fin(prevAt) && prevAt < to) {
+    out.segment = true;
+    out.from = prevAt;
+    out.p = earned <= prevAt ? 0 : earned >= to ? 1 : (earned - prevAt) / (to - prevAt);
+  } else {
+    out.p = Math.min(1, earned / to);
+  }
+  if (!Number.isFinite(out.p)) out.p = 0;
+  return out;
+}
+
 // 'Windmill, Corner Shop and 7 more' — a burst of unlocks folds into one line.
 export function nameList(defs, shown = 2) {
   const names = defs.map((d) => d.name);

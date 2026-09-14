@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, LEGACY_GLYPH } from './text.js';
+import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, LEGACY_GLYPH } from './text.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
@@ -468,6 +468,38 @@ test('airport flights are staggered, distinct and park between crossings', () =>
   assert.equal(new Set(PLANE_FLIGHTS.map((f) => f.dur)).size, PLANE_FLIGHTS.length);
   assert.ok(PLANE_FLIGHTS.every((f) => f.dur >= 120 && f.delay >= 0 && f.scale > 0));
   assert.ok(PLANE_FLIGHTS.some((f) => f.west));
+});
+
+// F12: the "next legacy point" bar measures the current segment (prevAt → nextAt), not 0 →
+// nextAt, so it never pins full late in a run; without prevAt it keeps the old reading.
+test('legacy point bar runs from the last point to the next', () => {
+  // Late game: point 415 landed at $1,000 of this run, 416 lands at $1,100; $1,064 earned.
+  const late = legacyPointBar({ earned: 1064, nextAt: 1100, prevAt: 1000, legacy: 400, gain: 15 });
+  assert.equal(late.segment, true);
+  assert.ok(Math.abs(late.p - 0.64) < 1e-9, `segment fill 64%, got ${late.p}`);
+  assert.equal(late.point, 415);
+  assert.equal(late.nextPoint, 416);
+  assert.equal(late.from, 1000);
+  // The old reading of the same moment would have been 97%: that is the bug.
+  assert.ok(Math.abs(legacyPointBar({ earned: 1064, nextAt: 1100 }).p - 1064 / 1100) < 1e-9);
+  assert.equal(legacyPointBar({ earned: 1064, nextAt: 1100 }).segment, false);
+  // Clamped 0..1 at both ends of the segment.
+  assert.equal(legacyPointBar({ earned: 900, nextAt: 1100, prevAt: 1000 }).p, 0);
+  assert.equal(legacyPointBar({ earned: 1100, nextAt: 1100, prevAt: 1000 }).p, 1);
+  assert.equal(legacyPointBar({ earned: 5000, nextAt: 1100, prevAt: 1000 }).p, 1);
+  // First point of a run: prevAt is 0 and the segment starts at 0.
+  const first = legacyPointBar({ earned: 250, nextAt: 1000, prevAt: 0, legacy: 0, gain: 0 });
+  assert.equal(first.segment, true);
+  assert.equal(first.p, 0.25);
+  assert.equal(first.point, 0);
+  assert.equal(first.nextPoint, 1);
+  // Garbage never draws a bar: NaN / negative / Infinity fall to 0, and a prevAt at or past
+  // nextAt (an inconsistent snapshot) falls back to the 0 → nextAt reading.
+  assert.equal(legacyPointBar({ earned: NaN, nextAt: 100, prevAt: 10 }).p, 0);
+  assert.equal(legacyPointBar({ earned: 50, nextAt: Infinity, prevAt: 10 }).p, 0);
+  assert.equal(legacyPointBar({ earned: 50, nextAt: 100, prevAt: 100 }).segment, false);
+  assert.equal(legacyPointBar({ earned: 50, nextAt: 100, prevAt: -5 }).segment, false);
+  assert.equal(legacyPointBar().p, 0);
 });
 
 // F15: planes fly nose first. The keyframes carry a flight left to right (x rises from the

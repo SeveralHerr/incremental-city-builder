@@ -29,9 +29,9 @@
     { "id": "standing-orders", "city": 21, "mode": "spree" },
     { "id": "mass-driver-port", "city": 22, "mode": "spree" },
     { "id": "ringworld-district", "city": 24, "mode": "spree" },
-    { "id": "stellar-engine", "city": 26, "mode": "spree" },
+    { "id": "stellar-engine", "city": 25, "mode": "spree" },
+    { "id": "galactic-charter", "city": 26, "mode": "spree" },
     { "id": "superconductor-grid", "city": 27, "mode": "spree" },
-    { "id": "galactic-charter", "city": 28, "mode": "spree" },
     { "id": "orbital-shipyard", "city": 29, "mode": "spree" },
     { "id": "helios-array", "city": 30, "mode": "spree" },
     { "id": "exchange-ring", "city": 31, "mode": "spree" }

@@ -329,8 +329,8 @@ rather than glowing unaffordably for a quarter hour. The contract, measured from
 - no two cards open within 90 s of each other;
 - a card is bought within 5 min of opening (4 min for a tier-4 card);
 - no 7 min pass with nothing new — including the tail before the first founding, which is
-  what the fusion reactor's first-city gate (36,000 citizens, a trophy the city reaches at
-  36.1 min and buys 2.3 minutes later; `legacy >= 1` stays the normal route) is for.
+  what the fusion reactor's first-city gate (39,000 citizens, a trophy the city reaches at
+  30.6 min and buys in the same bot window; `legacy >= 1` stays the normal route) is for.
 
 The early gates are placed on the curve `cadence.mjs --curve` prints. The population crawls
 from 20 to 60 citizens on cottages between minutes 1 and 5 and then jumps with the apartment
@@ -360,6 +360,36 @@ every card opens ≥ 90 s after the last and is bought within 4.7 min; the first
 at 40.2 min. (Round 2 read factory 4.1 → 7.7 · office 7.7 → 10.4 · tower 9.6 → 11.5 · mall
 15.2 → 18.9 · stadium 37.9 → 41.7, first city 42.5.) Cadence is sensitive to every sibling
 module's numbers — re-run the probe before quoting these.
+
+**Wave 3 (2026-09-15).** On the wave-2 tree the probe read four faults, three of them with a
+data.js field in them: office and tower 28 s apart (200 / 300 citizens, 7.0 and 7.4 min),
+financial and fusion 70 s, fusion and stadium 30 s. The office cannot move down —
+`buildings.test.mjs` pins `office.unlockS - coal.unlockS >= 60 s` and the coal plant opens at
+5.4 min against the office's 7.0 — so the office → refinery band (7.0 → 12.0 min, four gates,
+three gaps, 4.5 min of rule in 5.0 min of band) only fits if the two middle gates spread
+evenly across it: **tower 300 → 420** and **school 500 → 820**, which land them at 8.5 and
+10.2 min (90 / 102 / 108 s gaps). **Fusion 36,000 → 39,000** puts the reactor 114 s behind the
+financial district (28.7 → 30.6). 39,000 and not 40,000 because the catalogue's own ordering
+rule wants ≥ 15 % between neighbouring defaults.
+
+The other two faults had no data.js field in them — nuclear → campus (88 s) and fusion →
+stadium (14 s) were `config.buildings` gates at both ends. Balance landed both moves in the
+mirror pass: **campus 16,500 → 18,500** and **stadium 45,000 → 73,000**, and `data.js` mirrors
+them. Reading as shipped: office 7.0 → bought 8.8 · tower 8.5 → 9.9 ·
+school 10.2 → 11.6 · refinery 12.0 → 16.3 · mall 13.7 → 17.3 · solar 15.2 → 18.3 · hospital
+18.1 → 21.4 · arcology 20.4 → 23.1 · nuclear 23.8 → 24.8 · campus 25.9 → 27.2 · district 28.7
+→ 28.8 · fusion 30.6 → 30.6 · stadium 32.4 → 32.4; first city 35.0 min, 0 errors, and
+`node src/buildings/cadence.mjs` prints "no spacing, affordability or dead-air problems".
+
+Why those two config gates and not others: the fusion → stadium window was bounded at both
+ends by config (district 28.7, stadium 30.8, 126 s apart, and two 90 s gaps need 180 s), so no
+fusion gate inside it could work — the stadium's own gate had to move. The pop curve is very
+steep there (38,817 at 30.5 min, 62,873 at 31.5, 71,109 at 32.3), which is why 66,000 and
+70,000 only bought 82 s and 88 s and 73,000 is the shipped value. Also measured and rejected:
+dropping fusion to 23,000 so it opens *below* the district
+(27.2 → bought 28.6) clears every buildings-owned fault on the shipped config, but it demotes
+the reactor from the first city's trophy card and simply moves the fault onto config as a
+58 s district → stadium gap.
 
 The windmill gates on live power demand, so the first cottage is always followed by one dark
 tick. Measured (12 h sim): opening the windmill from the start drops the "happiness dips below

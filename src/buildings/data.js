@@ -84,13 +84,17 @@ export const BUILDINGS = [
     baseCost: 2800,
     housing: 160,
     powerUse: 40,
-    // 300 (was 250, round 3): Green Belts' F7 clause (cottages and apartment blocks hold
-    // +10 %, a $1,500 first-city rung) lifted the curve between 200 and 300 citizens, and at
-    // 250 the tower opened 32 s after the office (limit 90 s; cadence.mjs). At 300 it opens
-    // at 9.5 min, 114 s after the office and 90 s before the school.
-    unlock: pop(300),
-    unlockAt: { pop: 300 },
-    unlockHint: 'Reach 300 citizens',
+    // 420 (was 300, wave 3): the comment the 300 carried was stale — on the shipped curve
+    // 300 opened the tower at 7.4 min, 28 s after the office block (200 at 7.0), the worst
+    // of the four cadence faults. The office cannot move down (buildings.test pins
+    // office.unlockS - coal.unlockS >= 60 s and coal opens at 5.4 against the office's
+    // 7.0), so the office -> refinery band (7.0 -> 12.0 min, four gates, three gaps) is
+    // only wide enough if the tower and the school are spread evenly across it. 420 sits on
+    // the 8.5 min step of the first city's curve (cadence.mjs --curve 15: 375 at 8.0, 420 at
+    // 8.5, 436 at 8.8).
+    unlock: pop(420),
+    unlockAt: { pop: 420 },
+    unlockHint: 'Reach 420 citizens',
   },
   {
     id: 'arcology',
@@ -256,8 +260,8 @@ export const BUILDINGS = [
     synergy: { stat: 'income', source: 'employed', per: 20000, cap: 2.5, text: 'Income +5% per 1,000 employed citizens (up to ×2.5)' },
     powerUse: 10200, // 5.1 MW per job, ~26× the mall's 0.2 — ~0.9 nuclear plants per district (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per District owned (up to ×1.5)' },
-    // 30,000 (mirrors config): ~2.5 min after the tech campus (16,500) in the first city,
-    // ~4 min before fusion's 36,000 trophy gate.
+    // 30,000 (mirrors config): ~2.8 min after the tech campus (18,500) in the first city
+    // (25.9 → 28.7 min), ~2 min before fusion's 39,000 trophy gate (30.6).
     unlock: pop(30000),
     unlockAt: { pop: 30000 },
     unlockHint: 'Reach 30,000 citizens',
@@ -324,11 +328,13 @@ export const BUILDINGS = [
     powerUse: 11600, // 6.4 MW per job, ~11× the refinery's 0.6 — ~1 nuclear plant per campus (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Campus owned (up to ×1.5)' },
     happiness: 0.05,
-    // 16,500 (mirrors config): ~3 min after nuclear (12,500) in the first city, so the
-    // campus's bill has a plant to land on; ~2.5 min before the financial district.
-    unlock: pop(16500),
-    unlockAt: { pop: 16500 },
-    unlockHint: 'Reach 16,500 citizens',
+    // 18,500 (mirrors config, wave 3): at 16,500 the campus opened 88 s after the nuclear
+    // plant (12,500) — one of the four cadence faults. At 18,500 it opens at 25.9 min,
+    // 2.1 min after the plant (23.8). The catalogue's ordering rule (every gate ≥ 15 %
+    // above the one below) still holds: 18,500 / 12,500 = ×1.48.
+    unlock: pop(18500),
+    unlockAt: { pop: 18500 },
+    unlockHint: 'Reach 18,500 citizens',
   },
 
   // ---------------------------------------------------------------------- power
@@ -412,7 +418,7 @@ export const BUILDINGS = [
     // A real running cost: the bill the fusion reactor is there to replace.
     upkeep: 300,
     // 12,500 (mirrors config): ~4 min after the arcology (6,600), whose 6.5 GW draw is what the plant is
-    // sized for, and ~2.7 min before the tech campus (16,500).
+    // sized for, and ~2.1 min before the tech campus (18,500).
     unlock: pop(12500),
     unlockAt: { pop: 12500 },
     unlockHint: 'Reach 12,500 citizens',
@@ -434,13 +440,18 @@ export const BUILDINGS = [
     happiness: 0.05,
     // The same bill per MW as nuclear at the sticker ($0.025/MW/s), a third of it at ×3.
     upkeep: 1500,
-    // 36,000: the first-city trophy gate, placed on the curve so the reactor opens ~34.8
-    // min — ~2.6 min after the district (30,000 at 32.2), ~2 min before the stadium
-    // (45,000 at 36.9) — and is bought 2 min later (cadence.mjs); at 28,000 it opened at
-    // 32.9 and glowed for six minutes. `legacy >= 1` stays the normal route.
-    unlock: (state) => (state?.res?.pop ?? 0) >= 36000 || (state?.prestige?.legacy ?? 0) >= 1,
-    unlockAt: { pop: 36000, legacy: 1 },
-    unlockHint: 'Found a new city (or reach 36,000 citizens)',
+    // 39,000 (was 36,000, wave 3): the first-city trophy gate. At 36,000 the reactor opened
+    // 70 s after the financial district (30,000, 28.7 min) and only 30 s before the stadium
+    // (then 45,000) — two of the four cadence faults at once. At 39,000 it opens at 30.6 min,
+    // 114 s after the district (cadence.mjs). 39,000 and not the 40,000 the plan named
+    // because the catalogue's own ordering rule wants every default gate ≥ 15 % above the
+    // one below it. The fusion → stadium gap is closed on the stadium's side: its gate is
+    // now 73,000 in config and here, which opens it at 32.4 min, 108 s after this reactor,
+    // and clears the ordering rule too (73,000 / 39,000 = ×1.87). `legacy >= 1` stays the
+    // normal route, so a second city still gets the reactor at once.
+    unlock: (state) => (state?.res?.pop ?? 0) >= 39000 || (state?.prestige?.legacy ?? 0) >= 1,
+    unlockAt: { pop: 39000, legacy: 1 },
+    unlockHint: 'Found a new city (or reach 39,000 citizens)',
   },
   {
     id: 'elevator',
@@ -500,9 +511,15 @@ export const BUILDINGS = [
     jobs: 30,
     powerUse: 5,
     happiness: 0.08,
-    unlock: pop(500),
-    unlockAt: { pop: 500 },
-    unlockHint: 'Reach 500 citizens',
+    // 820 (was 500, wave 3): the middle rung of the office -> tower -> school -> refinery
+    // run. At 500 the school opened at 9.3 min, 114 s behind the tower's old 300 gate but
+    // only because the tower itself was crowding the office; with the tower at 420 (8.5 min)
+    // the school has to move up to keep both gaps near the band's 100 s share. 820 lands it
+    // at ~10.2 min on the curve (734 at 10.0, 894 at 10.3), ~105 s before the refinery's
+    // 2,200 at 12.0.
+    unlock: pop(820),
+    unlockAt: { pop: 820 },
+    unlockHint: 'Reach 820 citizens',
   },
   {
     id: 'hospital',
@@ -553,9 +570,13 @@ export const BUILDINGS = [
     powerUse: 3850, // floodlights and screens: about half an arcology's draw, four solar farms (mirrors config)
     demandGrowth: { per: 40, cap: 1.5, text: 'Grid strain: draw +2.5% per Stadium owned (up to ×1.5)' },
     happiness: 0.25,
-    // 45,000 (mirrors config): the first city's last card, ~2 min after fusion's 36,000 trophy gate.
-    unlock: pop(45000),
-    unlockAt: { pop: 45000 },
-    unlockHint: 'Reach 45,000 citizens',
+    // 73,000 (mirrors config, wave 3): the first city's last card. At 45,000 it opened at
+    // 30.8 min, 14 s after fusion's 39,000 trophy gate (30.6) — a cadence fault. The curve
+    // is very steep here (38,817 pop at 30.5 min, 62,873 at 31.5, 71,109 at 32.3), so
+    // 66,000 and 70,000 only buy 82 s and 88 s; 73,000 opens the stadium at 32.4 min,
+    // 108 s clear of the reactor, bought at 32.4, first city still founds at 35.0.
+    unlock: pop(73000),
+    unlockAt: { pop: 73000 },
+    unlockHint: 'Reach 73,000 citizens',
   },
 ];

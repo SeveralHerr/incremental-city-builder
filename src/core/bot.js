@@ -241,8 +241,10 @@ function greedyStep({ maxBuys = 25, prestigeMin = 5, prestigeScale = 0.25, tapBe
 //      player pushed cities far past the gate (415 legacy in city 6 vs 30 for a found-at-the-gate
 //      bot), so the profile waits until the haul would at least `foundShare` × the bank AND — when
 //      `foundReachMinutes` > 0 — the city has run out of targets (no unlocked, unowned money
-//      upgrade within that many minutes of income). Measured 2026-09-14 (12 h, see the constants
-//      above humanShouldFound); the shipped default is share 2.0 with the reach check off;
+//      upgrade within that many minutes of income). Swept 2026-09-15 on both of the playtest
+//      screenshot's observables (12 h, see the constants above humanShouldFound); the shipped
+//      default is share 1.0 — "found once the haul would double the bank" — with the reach
+//      check off, fitted to the screenshot's CLOCK (city 6 at 92 min) rather than its legacy;
 //   4. taps while income is tiny, like the other profiles.
 // Within a category the newest (highest tier) affordable building wins a need, cheapest on a
 // tie; the rotation takes the lowest count (ties: newest). The rotation pointer and the jobs
@@ -254,25 +256,39 @@ const CATEGORY_ROTATION = ['residential', 'commercial', 'industrial', 'power', '
 const HUMAN_POWER_TRIGGER = 0.98; // power need once demand > 0.98 × cap
 const HUMAN_POWER_HEADROOM = 1.2; // ...and the fix puts the grid 1.2 × demand ahead
 const HUMAN_VACANCY = 0.05; // housing need: fewer than 5 % of homes empty
-// Deep-push founding rule (docs/FEEDBACK.md F16, second pass). The player pushed cities far past
-// the gate (415 legacy at the end of city 6, Megastructures owned there); a bot that founds at
-// the gate holds 30 and first buys Megastructures in city 18. Candidates measured 2026-09-14 on
-// the current balance (`node tools/economy-sim.mjs --ticks 432000 --profile human --found <rule>`;
-// city-6 legacy vs the player's 415, the city that first buys Megastructures on its own):
-//   share 0.1 reach 0  (gate)     28 foundings, city-6 legacy 30,   Megastructures city 18 @ 338 min
-//   share 1.0 reach 0  (double)   14 foundings, city-6 legacy 80,   Megastructures city 10 @ 303 min
-//   share 1.5 reach 0             10 foundings, city-6 legacy 208,  Megastructures city 8 @ 309 min
-//   share 2.0 reach 0  (triple)    9 foundings, city-6 legacy 405,  Megastructures city 7 @ 315 min
-//   share 3.0 reach 0              6 foundings, city-6 legacy 1280, Megastructures city 6 @ 331 min
-//   share 0.1 reach 20 (targets)   3 foundings, city 6 never,       Megastructures city 4 @ 472 min
-//   share 0.1 reach 5              6 foundings, city-6 legacy 87,   Megastructures city 7 @ 352 min
-//   share 1.0 reach 20 (deep)      2 foundings, city 6 never,       Megastructures city 3 @ 500 min
-// "Out of targets" never fires at this income (some rung is always within minutes), so the
-// reach knob alone only stretches cities. The pick is share 2.0 (the haul triples the bank):
-// city-6 legacy 405 (0.98× the player) and Megastructures unassisted in city 7 — the only
-// candidate inside 0.5–2× of 415 that also owns the rung by city 8. Its cost is cadence: 9
-// foundings in 12 h, cycles 46 · 18 · 22 · 61 · 74 · 64 · 91 · 143 · 146 min.
-const HUMAN_FOUND_SHARE = 2.0; // found once the haul would be ≥ this × the bank (0 = the game's gate)
+// Deep-push founding rule (docs/FEEDBACK.md F16 / F1). The playtest screenshot is ONE frame and
+// it carries TWO observables, and they disagree about how long a city lasts:
+//   clock   the player is in CITY 6 at 92 min of playtime — ~15-min cities;
+//   legacy  the player holds 415 legacy at the end of city 6, Megastructures owned there —
+//           ~90-min cities, since legacy comes from lifetime earnings on exponent 0.488.
+// Both cannot hold on this economy. The 2026-09-14 sweep fitted the rule to the legacy column
+// alone and read share 2.0 off it; the clock column in the same screenshot went unread, and the
+// result was a measuring instrument running 3× slow against the clock it claims to reproduce —
+// which is what F1 (a wall-clock cadence line) is measured with. Re-swept 2026-09-15 on HEAD
+// 1c3ebfa, 12 h, `node tools/economy-sim.mjs --ticks 432000 --profile human --found <rule>`,
+// BOTH columns recorded this time, plus the F1(a) cadence gate the sweep exists to be judged by:
+//   rule                        foundings  city @ 92 min   city-6 legacy   F1(a) cadence gate
+//   share 0.1 reach 0 (gate)      27       city 6  (=6 ✓)  30   (×0.07)    PASS
+//   share 1.0 reach 0 (double)    14       city 5  (−1)    80   (×0.19)    PASS
+//   share 1.5 reach 0             10       city 4  (−2)    208  (×0.50)    FAIL c9 110.1 > 1.35× c8 75.6
+//   share 2.0 reach 0 (triple)     8       city 4  (−2)    405  (×0.98)    FAIL c7 105.6, c8 164.1
+//   share 3.0 reach 0              6       city 3  (−3)    1280 (×3.08)    FAIL c4 104.7, c6 164.4
+// (reach-knob rows from the 2026-09-14 sweep, unchanged and still not picked: share 0.1 reach 20
+// → 3 foundings, city 6 never; share 0.1 reach 5 → 6 foundings, city-6 legacy 87; share 1.0
+// reach 20 → 2 foundings, city 6 never. "Out of targets" never fires at this income — some rung
+// is always within minutes — so the reach knob only stretches cities and is left off.)
+// The table is monotone: every rung that buys legacy spends clock, and the two columns cross
+// between 1.0 and 1.5. The rule the pick is fitted to is the CLOCK, because F1 is a wall-clock
+// contract and an instrument 3× off the clock cannot measure it; the selection rule is "the
+// deepest push that still lands within one city of the player's clock AND keeps F1(a) on its
+// ≤ 90-min branch", which is share 1.0 — 1.5 is the next rung up and fails F1(a) outright.
+// What that costs, stated plainly so nobody re-reads it as free: the legacy observable drops
+// from ×0.98 of the player to ×0.19, and Megastructures unassisted moves from city 7 to city 10
+// (@ 324 min). F16's own finding — that a found-at-the-gate bot is not player-like — still
+// stands and still rules out share 0.1: it holds 30 legacy (×0.07) and does not buy
+// Megastructures on its own until city 19 @ 372 min. Share 1.0 is the compromise rung, not a
+// dominating one.
+const HUMAN_FOUND_SHARE = 1.0; // found once the haul would be ≥ this × the bank (0 = the game's gate)
 const HUMAN_FOUND_REACH_MIN = 0; // ...and no unlocked, unowned money upgrade is within this many minutes of income (0 = ignore)
 const human = { rotation: 0, jobsIndustrial: false };
 

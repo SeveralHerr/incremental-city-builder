@@ -1136,3 +1136,57 @@ test('humanShouldFound: waits past an open gate until the haul is foundShare × 
     resetState();
   }
 });
+
+// The shipped default is a measuring-instrument setting, not an implementation detail: the human
+// profile is the instrument F1's wall-clock cadence line is read with, and the 2026-09-15 re-fit
+// moved it from share 2.0 ("the haul triples the bank") to share 1.0 ("the haul doubles it")
+// after the sweep above HUMAN_FOUND_SHARE recorded BOTH of the playtest screenshot's observables
+// instead of the legacy one alone. Pinned two-sided and with no argument passed, so a silent
+// flip back — or a "harmless" nudge — fails here rather than quietly re-timing every F1 number.
+test('human profile shipped default: found once the haul would DOUBLE the bank, reach check off', () => {
+  clearErrors();
+  let can = true;
+  let gain = 0;
+  registerAction('canPrestige', () => can);
+  registerAction('prestigeGain', () => gain);
+  const far = registerUpgrade({ id: 'hfd-far', name: 'Far rung', cost: 1e6, effect: () => {} });
+  assert.ok(far);
+  try {
+    resetState();
+    for (const id of registry.upgradeOrder) state.upgrades[id] = true;
+    delete state.upgrades['hfd-far'];
+    state.prestige.legacy = 100;
+    state.res.money = 0;
+    derived.income = 1;
+    // Below the bank: waits (so the default is not the game's own 0.4 × bank gate).
+    gain = 99;
+    assert.equal(humanShouldFound(), false, 'default waits below 1 × bank');
+    // Exactly the bank: founds. A share-2.0 default would still be waiting here — and so would
+    // 1.5 — so this pair pins the value, not just "somewhere above the gate".
+    gain = 100;
+    assert.equal(humanShouldFound(), true, 'default founds at 1 × bank');
+    assert.equal(humanShouldFound({ foundShare: 1.5, foundReachMinutes: 0 }), false, '1.5 would still wait');
+    assert.equal(humanShouldFound({ foundShare: 2.0, foundReachMinutes: 0 }), false, '2.0 would still wait');
+    // ...and it is not deeper than 1.0 either: at 1 × bank the default has already fired above.
+    // Reach check off by default: a rung one minute of income away does not hold the founding.
+    derived.income = 1e6 / 60;
+    assert.equal(humanShouldFound(), true, 'default ignores the out-of-targets check');
+    assert.equal(humanShouldFound({ foundReachMinutes: 20 }), false, '...which is a default, not a removal');
+    // botStep's own default matches humanShouldFound's (one constant, two call sites).
+    let founded = 0;
+    registerAction('prestige', () => (founded++, true));
+    derived.income = 1;
+    gain = 99;
+    botStep({ profile: 'human', maxBuys: 5 });
+    assert.equal(founded, 0, 'step default: below 1 × bank, wait');
+    gain = 100;
+    botStep({ profile: 'human', maxBuys: 5 });
+    assert.equal(founded, 1, 'step default: at 1 × bank, found');
+    assert.equal(errors.length, 0);
+  } finally {
+    registerAction('canPrestige', () => false);
+    registerAction('prestigeGain', () => 0);
+    registerAction('prestige', () => false);
+    resetState();
+  }
+});

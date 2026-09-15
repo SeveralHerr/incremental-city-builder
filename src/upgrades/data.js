@@ -37,12 +37,12 @@
 //     arrive as they can be paid for. Institutional Memory (tiers 1–2, city 3), the Grid
 //     Charter (tier 3, city 6) and Standing Orders (the Legacy rungs, city 21) grant the
 //     ladder back at every founding, so a replay starts at the decisions below;
-//   • the fleet ladder (`fleet: true`, see "the fleet ladder" below): sixteen tier-4 core
-//     rungs in four columns (arcologies, financial districts, tech campuses, fusion
-//     reactors) that open once this city owns 60 / 90 / 130 / 180 of the building and the
-//     treasury holds the price. Tier 4 is in no keeper's rule, so every city buys them
+//   • the fleet ladder (`fleet: true`, see "the fleet ladder" below): twenty-four tier-4
+//     core rungs in four columns (arcologies, financial districts, tech campuses, fusion
+//     reactors) that open once this city owns 60 / 90 / 115 / 140 / 160 / 180 of the
+//     building and the treasury holds the price. Tier 4 is in no keeper's rule, so every city buys them
 //     again: they are the content of a replay's plateau, where nothing else opens (F1);
-//   • the pace ladder (`pace: true`), nine tier-4 rungs from $74M to $609T placed one per
+//   • the pace ladder (`pace: true`), nine tier-4 rungs from $74M to $1.5Qa placed one per
 //     city by the balance builder: each opens once this run has earned a hundred times its
 //     price (`earnedGate: PACE_GATE`, see `earnedUnlock`). That is the point at which the
 //     replay's cash — a few seconds of income in a mature city — is about to reach it, so a
@@ -92,9 +92,12 @@
 // · Superconductor Grid 0.8 (the one late demand cut) · the Energy Charter's draw ×1.15;
 // net ×7.5 (pinned by upgrades.test.mjs, "full-stack fold"; round 2 read ×8.6 with the
 // Energy Charter demand-neutral, round 1 ×29). On top of that, per city and never across a
-// founding, the fleet ladder's four draw rungs — Trading Floors II/III and Campus Expansion
-// II/III, ×1.08 each, ×1.36 per city (see "the fleet ladder") — so a late city that owns
-// everything draws ×0.736 · 1.36 ≈ ×1.0 of its stickers under ×5.49 the supply, and the
+// founding, the fleet ladder's six draw rungs — Trading Floors II/IV/VI and Campus Expansion
+// II/IV/VI/VI, ×1.07 each, ×1.50 per city (see "the fleet ladder") — so a late city that owns
+// everything draws ×0.736 · 1.50 = ×1.105 of its stickers under ×5.49 the supply. That is
+// the invariant as of wave 3: the late grid runs ~10 % OVER sticker, deliberately, so the
+// last third of a plateau binds (at net ×1.000 the greedy read 0.8 % of a 12 h
+// session under power against a 3–20 % contract — power had stopped mattering). The
 // bare curve falls ×0.9 per city (below), which is why the post-stack plateau reads
 // 1.6–2.0× and not 5×. That 1.6–2.0× is the accepted late surplus: docs/DESIGN.md names it,
 // and the contract line is the ratio the player sees (≤ 4.0 and ≥ 1.0 in every hour of a
@@ -110,24 +113,31 @@
 // is unaffordable and not a second longer — round 2 read under-power in 0.06–0.67 % of
 // ticks from hour 3 in every profile. A demand step is therefore felt only where the
 // reactors that cover it cost minutes of income, not seconds and not hours: at fleet
-// 90–150 (the II/III gates) a +8 % step is 8–15 more reactors, 5–15 min of income on a
+// 90–180 (the II/IV/VI gates) a +7 % step is 7–20 more reactors, 5–15 min of
+// income on a
 // plateau wallet that holds 4–10 s of it, and the need rule buys out of it. Measured
-// (round 2, human): rung II crosses at run-min 54/62 in city 5 and 16/18 in city 6, rung
-// III at 39/49 in city 7 and 10/12 in city 8 — mid-plateau, unit price 100–300 s of income;
+// (round 2, human, on the four-gate ladder): rung II crosses at run-min 54/62 in city 5 and
+// 16/18 in city 6, the 130 rung
+// at 39/49 in city 7 and 10/12 in city 8 — mid-plateau, unit price 100–300 s of income;
 // the greedy crosses 130 mid-plateau in cities 13–19 (hours 4–6). Rung I lands in the
-// founding spree (a draw there is inside the spree's own strain) and rung IV at fleet
-// 180+, where 15 more reactors are hours of income (count 180+ costs ×1.112 per extra
+// founding spree (a draw there is inside the spree's own strain); rung VI at fleet 180+ was
+// the doubtful one — 15 more reactors are hours of income there (count 180+ costs ×1.112 per extra
 // reactor): the Ringworld District's ×1.5 draw was measured there in round 2 — 46 min of
 // Lights Out in the human's city 9, cap/demand 0.71–0.76 for greedy cities 25–28 (26.6 %
-// of the session under-powered; ×1.25 draws 18 %, ×1.15 14 %) — and rejected. The Energy
+// of the session under-powered; ×1.25 draws 18 %, ×1.15 14 %) — and rejected; a ×1.07 step
+// there is a twentieth of that, and measured (wave 3) it costs the greedy's cities 27–28
+// 344 / 312 s under power with the median grid still at 1.00, which is what the contract
+// asks for. The Energy
 // Charter is the one supply rung a 24 h session still buys late (human city 11, greedy 28)
 // and round 2 read 1.83 / 1.96 / 2.23 in the human's cities 11–13 with it demand-neutral,
 // so its ×1.5 (the perk floor the charter test holds) carries a ×1.15 draw and lands as net
 // ×1.30. Effects read only the mods bag — they cannot see derived.powerRatio — so a
 // surplus-conditional rung is not available here.
 //
-// Measured on this tree (round 3, strain-aware human guard, 12 h, scratch runs under a
-// preload that put the 1× fleet prices into config): with FLEET_DRAW 1.08 the human reads
+// Measured on the round-3 tree (strain-aware human guard, 12 h, scratch runs under a
+// preload that put the 1× fleet prices into config); superseded by the sweep beside
+// FLEET_DRAW, kept because it is the reasoning the ×1.3-per-city figure above comes from:
+// with FLEET_DRAW 1.08 the human reads
 // Lights Out ≥ 30 s at ≤ 0.95 in cities 7 (224 s) and 8 (72 s) — city 7 falls 1.11 → 1.03
 // at Trading Floors III (run-min 73) → 0.93 at Campus Expansion III (86) and climbs back
 // to 0.98 over 10 min, city 8 1.09 → 1.00 → 0.94 at III (25) → 1.00 in 5 min; cities 5–6
@@ -144,11 +154,13 @@
 // greedy's cities 20–25 never reach IV; a draw fading at 180 reactors 28.2 % — those cities
 // own fewer than 180; Reactor Refits II/III at ×1.15 as the supply twin 23.7 %. No value of
 // a count-gated draw meets both profiles: the human needs ≥ ×1.3 per city to cross its
-// city-7 float, the greedy tolerates ≤ ×1.17. FLEET_DRAW ships at 1.08 — the one value that
-// earns the human gate by content — and is the single constant the integrator flips (1.0
-// or 1.04) if the greedy's power line is the one to hold this round; the alternative that
-// separates the profiles is not content but the human bot's fifth-of-wallet generator
-// float (core), or a one-shot surge a city buys out of once (a core mechanism).
+// city-7 float, the greedy tolerates ≤ ×1.17.
+//
+// That round-3 curve was read on the earlier lp-0.54 ladder and does NOT describe this
+// tree; the integrator re-swept FLEET_DRAW on the shipped prices and found the greedy under
+// the floor rather than over the ceiling (0.8 % of a 12 h session against 3–20 %). The
+// current curve and the decision live beside FLEET_DRAW below. FLEET_DRAW ships at 1.07 on
+// six rungs.
 //
 // Why the bare grid is not level: the human profile's rotation buys generators at a fixed
 // fifth of the wallet, and its cap/demand falls about ×0.9 per city as the fleet climbs
@@ -156,8 +168,8 @@
 // for cities 4–9 under a constant ×3.66 mid stack are a bare 0.42 → 0.29; extrapolated to
 // city 13 ≈ 0.19), so a session needs a stack that keeps rising through cities 9–13 just
 // to stay ≥ 1.0. The per-plant rungs (turbine blades ×2, scrubbers ×1.5, sun-tracking ×2,
-// Breeders ×2) stay as they are: they are the first city's cadence; the four Reactor
-// Refits (fleet ladder, fusion ×1.08 each, ×1.36 per city) are per-building and re-bought
+// Breeders ×2) stay as they are: they are the first city's cadence; the six Reactor
+// Refits (fleet ladder, fusion ×1.053 each, ×1.36 per city) are per-building and re-bought
 // every city.
 //
 // Growth (F7, round 3): population fills its housing within seconds everywhere past the
@@ -189,8 +201,8 @@
 // · Homestead 1.5 · Megastructures 2 · Ringworld 2.5 · Skyline 2 · Exchange Ring 2)
 // against global jobs ×21.1 (Modern Curriculum 1.25 · Megastructures 1.5 · Gardens 1.2 ·
 // Archives 1.25 · Ringworld 2.0 · Skyline 2.0 · Shipyard 1.25 · Exchange Ring 1.5), with
-// the Orbital Ring's pop-synergy jobs and the per-building terms (Blueprints ×1.57 arcology
-// housing, Trading Floors / Campus Expansion ×1.57 jobs, Gardens ×1.5 arcology housing) on
+// the Orbital Ring's pop-synergy jobs and the per-building terms (Blueprints ×1.569 arcology
+// housing, Trading Floors / Campus Expansion ×1.569 jobs, Gardens ×1.5 arcology housing) on
 // top. Round 2 folded global jobs to ×13.8 (the Civic Charter's ×1.25 in, the late housing
 // rungs at ×1.5 / ×1.5 / commerce-only ×2, the Shipyard ×1.75) and read, step by step on
 // the greedy's own by-city line: 1.20 → Civic 1.56 → Ringworld (×0.6) 0.95 → Skyline
@@ -215,8 +227,12 @@
 // ×1.12 (×1.57 per city) reads jobs/pop by city 1.24 1.12 1.21 0.87 1.14 0.97 for cities
 // 4–9, unemployment 13 % in city 7 and 3 % in city 9, hours 7/11/12 at 14/4/3 % inside the
 // band and no hour over 15 % — a +12 % housing step on a 1.05–1.25 city is the 2–8 %
-// jobless stretch the jobs rule buys back over 20–40 min, so ×1.12 ships (the balance
-// builder re-sweeps through probe.mjs --boost on the final tree). What the re-pairing
+// jobless stretch the jobs rule buys back over 20–40 min, so the ×1.57 PER-CITY fold ships.
+// Wave 3 splits that same fold over six rungs instead of four (×1.078 each, ×1.569 per
+// city): the per-city housing step the sweep measured is unchanged to 0.3 %, and each
+// individual step is smaller, so the jobless spike a Blueprint opens is shallower and the
+// jobs rule buys it back sooner. (The balance
+// builder re-sweeps through probe.mjs --boost on the final tree.) What the re-pairing
 // costs as pace, measured on the greedy with the draws stripped: the round-2 jobs stack
 // under everything else in round 3 reads 34 foundings / 530,923 legacy / money peak
 // 4.30e17 (round 2's own numbers) with cities 25–28 at 30–36 % jobless; the round-3 stack
@@ -476,26 +492,66 @@ const incomeOfEach = (ids, mult) => compose(...ids.map((id) => incomeOf(id, mult
 // tails. Fleet size is the one quantity that keeps growing through a city for a player
 // who never saves (the rotation buys the lowest-count building in each category, so the
 // four columns grow together, ~20–25 units per column per city on the plateau), so a
-// count gate puts a purchase on the plateau where nothing else opens. Sixteen tier-4 core
-// rungs, four columns × FLEET_GATES: Arcology Blueprints (arcology housing ×1.12 each),
-// Trading Floors (district jobs ×1.12), Campus Expansion (campus jobs ×1.12), Reactor
-// Refits (fusion output ×1.08); rungs II and III of the two employer columns also draw
-// +8 % city-wide (FLEET_DRAW). Each is `funded` — it opens on the count *and* the
+// count gate puts a purchase on the plateau where nothing else opens. Twenty-four tier-4
+// core rungs, four columns × FLEET_GATES: Arcology Blueprints (arcology housing ×1.078
+// each), Trading Floors (district jobs ×1.078), Campus Expansion (campus jobs ×1.078),
+// Reactor Refits (fusion output ×1.053); rungs II, IV and VI of the two employer columns also
+// draw +7 % city-wide (FLEET_DRAW). Each is `funded` — it opens on the count *and* the
 // treasury holding the price — and tier 4 is in no keeper's rule (Institutional Memory
 // tiers 1–2, the Grid Charter and Standing Orders tier 3), so a founding takes all
-// sixteen and every city buys them again.
+// twenty-four and every city buys them again.
 //
-// Gates (measured, human profile 12 h on this ladder, run-minute at which each column
+// WHY THE HOLD DOOR STAYS, and why this ladder can never close F1(b)'s decision-gap line
+// (measured, wave 3, and the finding that decided this round). The gap metric
+// (tools/economy-sim.mjs:594) counts a purchase as a DECISION only when the rung was ≥ 30 s
+// of income out of reach at the moment its unlock latched, and a `funded` rung's reach at
+// unlock is 0 by construction — so the plan for this round was to drop the door and let the
+// count alone open the card. Built and measured (human profile, 6 h, against 1c3ebfa run
+// the same way):
+//   decision gap, cities 4–6   61.3 / 76.1 / 48.1 min  →  58.9 / 76.7 / 46.0   (noise)
+//   all-purchase gap           28 / 18 / 23            →  27 / 21 / 20
+//   reachShare, cities 4–9     48 %                    →  16 %   (target ≥ 40 %)
+// The door was not what held the two lines apart. The instrumented run says why: at the
+// tick each count gate opens, the rung's price is worth
+//   0.9 / 3.4 / 3.8 s of income (city 7, gates 60) · 9.9 s (gate 90) · 0.2–4.6 s (city 9,
+//   gates 60–90) · 9.4 s (gate 115, city 8) · 10.0–12.5 s (gate 115, city 9) · max 26.6 s
+//   anywhere in cities 4–9
+// — i.e. ALWAYS under the 30 s threshold, at every gate, with or without the money door. A
+// fleet rung is priced in fixed dollars and re-bought every city while the human profile's
+// income triples per city, so the same rung is worth 4.4 s of income in city 4 and 0.2 s in
+// city 9: no static price and no arrangement of count gates can hold a constant reach. What
+// would is a price that scales with the city (the gating building's CURRENT cost), and
+// `cost` is a static number on the definition — a core API change, not content. F1(b) is
+// therefore named as not-closable-here rather than papered over; F1(a), the city-length
+// ratio, is the profile's founding rule (core) by the same kind of arithmetic.
+//
+// Dropping the door also costs the player the thing it was invented for: with it, an
+// unlocked fleet card is affordable and is bought, so the cheapest open card is the far
+// frontier target; without it, a 0.2–27 s card sits open on top of that target and
+// reachShare — the share of the city spent with the cheapest open card 30 s – 15 min away —
+// falls by two thirds. Measured above; that is why the funded wrapper is back.
+//
+// Gates: six per column, 60 / 90 / 115 / 140 / 160 / 180 (wave 3; four — 60/90/130/180 —
+// through round 3). The spacing is the measured growth rate of the plateau fleet, not a
+// round number: a column grows 0.79 units/min in city 4 (60 → 90 arcologies in 38 min) and
+// 0.42 units/min in city 8 (130 → 180 in 118 min), so a 50-unit gap is one crossing per
+// 119 min per column in city 8 — longer than the 20-min rule allows — while a 20–25-unit
+// gap is one per 48–60 min, and with the four columns lagging each other by 20–30 units
+// the crossings interleave. The top gate stays at 180 because the human profile never
+// reaches 180 in any column inside 12 h (the four rung-VI ids are on its neverPurchased
+// list) and the greedy contract asserts neverPurchased is empty, so a 190+ gate risks
+// failing balance.test 19 outright; the bottom two stay at 60 and 90 because they are the
+// two the FLEET_DRAW sweep was measured on.
+//
+// Measured on the four-gate ladder (human profile 12 h, run-minute at which each column
 // crosses the count, cities 4–9 in order; "1" or "0" is the founding spree, "—" not
 // reached): 60 → arcology 3/1/1/0/1/0, district 14/6/2/2/1/0, campus 16/6/3/1/1/0, fusion
 // 50/21/6/4/1/0; 90 → arcology 41/17/3/1/1/0, district —/54/16/3/2/0, campus —/62/18/4/2/0,
 // fusion —/—/34/10/3/0; 130 → arcology —/—/47/12/2/0, district —/—/—/39/10/2, campus
 // —/—/—/49/12/2, fusion —/—/—/—/29/3; 180 → arcology —/—/—/—/120/16, district —/—/—/—/—/71,
-// campus —/—/—/—/—/97. A column lags the arcologies by 20–30 units, so one gate lands in
-// the plateau of two or three consecutive cities across the four columns, and every
-// complete city 4–9 crosses ≥ 3 gates spaced ≥ 10 min apart. The plan's 30/60/100/160
-// crossed mostly inside the spree from city 5 on (the fleet is 60–140 per column at
-// minute 2 there) and left city 9 with one crossing after minute 15. Result: upgrade
+// campus —/—/—/—/—/97 — i.e. the 130 → 180 stretch is exactly where cities 7–8 read their
+// 105 and 51 min gaps, and 115/140/160 put three crossings per column inside it. Result on
+// the four-gate ladder: upgrade
 // purchases in cities 4–9 at run-minutes 1 2 3 4 8 14 16 17 41 49 58 · 1 6 6 7 17 20 24 31
 // 52 54 61 · 1 2 2 3 6 7 8 16 16 18 34 44 47 · 1 2 3 4 4 10 12 12 37 39 40 49 78 · 1 2 2 2
 // 9 9 9 12 20 28 41 69 119 135 · 2 2 3 16 20 72 97 125; the longest stretch without a
@@ -505,77 +561,120 @@ const incomeOfEach = (ids, mult) => compose(...ids.map((id) => incomeOf(id, mult
 // gates per column cannot put a purchase in every 20-minute window of a 150-minute city.
 // City lengths 64 78 70 94 148 153 min (65 80 71 96 153 160 without the ladder).
 //
-// Effects are small per rung and felt as a column: Blueprints ×1.12 each, arcology housing
-// ×1.57 per city — the mid-plateau housing steps that make the unemployment band (header,
-// "Housing": ×1.15 was swept and put city 7 over both lines); Trading Floors and Campus
-// Expansion ×1.12 jobs each (×1.57 per column),
-// worth nothing at 0 % unemployment and what refills the jobs after a Blueprint raises the
-// population, and rungs II and III of both carry a +8 % city-wide draw (×1.36 per city
-// across the four; header, "Power": the one fleet size where a demand step is bought out
-// of in minutes) — rungs I and IV draw nothing (I lands in the spree, IV at fleet 180+);
-// Reactor Refits ×1.08 each save a plant on a grid that binds. Not nil as pace, measured
+// Effects are small per rung and felt as a column, and the per-city fold is the SAME as it
+// was on four gates — six rungs is more cadence, not more power: Blueprints ×1.078 each,
+// arcology housing ×1.078^6 = ×1.569 per city (four gates: ×1.12^4 = ×1.574, −0.3 %) — the
+// mid-plateau housing steps that make the unemployment band (header, "Housing": ×1.15 per
+// rung was swept and put city 7 over both lines); Trading Floors and Campus Expansion
+// ×1.078 jobs each (×1.569 per column), worth nothing at 0 % unemployment and what refills
+// the jobs after a Blueprint raises the population, and rungs II, IV and VI of both carry a
+// +7 % city-wide draw on rungs II, IV and VI (×1.07^6 = ×1.50 per city across the six;
+// header, "Power": three fleet sizes — 90, 140 and 180 — so the bite is spread over four
+// hours of a greedy session instead of concentrated in three cities) — rungs I, III and V
+// draw nothing (I lands in the founding spree, where a step is inside the spree's own
+// strain); Reactor Refits ×1.053 each (×1.053^6 = ×1.362 per city
+// against ×1.08^4 = ×1.361, +0.1 %) save a plant on a grid that binds. Not nil as pace, measured
 // on the round-2 tree: the ladder took the greedy's 12 h session from 32 foundings /
 // 270,655 legacy / money peak 1.78e17 to 34 / 530,227 / 4.23e17 (a few percent per city
 // compounds through thirty foundings), the saver from 35 / 745,592 to 35 / 743,643 — both
 // under the 1e6 ceiling; the balance builder's placement pass owns the cadence.
 //
-// Prices (round 3): the building's undiscounted unit price at the gate count on the tree's
-// cost curve (knee 75, late growth 1.112; recomputed from api.buildingCost(def, gate) with
-// no mods — arcology 7.0e7 / 1.7e9 / 1.2e11 / 2.4e13, financial 4.1e8 / 9.9e9 / 6.9e11 /
-// 1.4e14, techpark 4.6e8 / 1.4e10 / 9.9e11 / 2.0e14, fusion 2.3e9 / 5.6e10 / 3.9e12 /
-// 8.0e14) — the price the player just paid for the unit that crossed the gate, before the
-// cost stack of cities 4–9 (×0.5). Round 2 shipped a quarter of that and measured every
-// rung within 30 s of its gate (p90 0.1 min): a funded card that lights when the cash is
-// already there is a notification, not a decision. At the unit price (measured, round 2,
-// human profile, whose wallet holds 2–10 s of income) 24 of 68 fleet rungs were bought
-// more than 2 min after their gate, p50 ~1–2 min, p90 15 min — the 30 s – 15 min-away
-// target the contract's reachShare counts, on the plateau where nothing else opens (at
-// twice the unit price 24 of 63, p90 30 min, max 94; at half 16 of 72, p90 5.4). What
-// count gates cannot buy is the 20-min gap line: the plateau fleet grows 0.4–0.8 units per
-// minute per column (city 4: 60 → 90 arcologies in 38 min; city 8: 130 → 180 in 118 min),
-// so gates dense enough for a purchase every 20 min would sit ~8 units apart — 40+ rungs
-// per column — and a fixed-dollar pace rung lands once and is bought in the spree. The
-// structure that puts a decision every 20 minutes of a 150-minute city for a never-saver
-// is a leveled (repeatable) upgrade, a core API change named for the next wave, not faked
-// here. src/balance/config.js places them (config.upgrades[id]); the literals are copies,
-// as everywhere in this file.
-export const FLEET_GATES = [60, 90, 130, 180];
-const ROMAN = ['I', 'II', 'III', 'IV'];
-// The city-wide draw the two employer columns' rungs II and III carry (gates 90 and 130;
-// header, "Power"): ×1.08 each, ×1.36 per city across the four, never across a founding.
-// 1.08 is the one value that earns the human Lights Out gate by content and the value that
-// puts the greedy 33.5 % under power (header, "Power", the measured curve): the integrator
-// flips this one constant to 1.0 or 1.04 if the greedy's power line is the one to hold;
-// upgrades.test.mjs pins whatever ships here.
-// INTEGRATOR RE-MEASUREMENT (2026-09-15, on the FINAL round-3 placement — the curve above
-// was read on the earlier lp-0.54 ladder and no longer describes this tree). On the shipped
-// prices 1.08 leaves the greedy UNDER the contract floor, not over its ceiling, so the
-// "flip it down to 1.0 or 1.04" advice above is backwards here. Measured, 12 h, both
-// profiles (greedy under-power share of ticks by hour 3–12 / human Lights Out / greedy
-// variety):
-//   1.08  0.2 0.4 0.1 0.3 2.5 4.9 1.4 0.1 0.1 0 0 0 % — the by-hour power line FAILS
-//         (needs >= 1 % in 3 of hours 3–12; only h6 clears) / cities 7 (266 s), 8 (80 s)
-//         / 2 of 29 late cycles empty.
-//   1.12  h5 13.9 %, h6 25.0 %, h7 14.6 % — power line PASSES, median cap/demand never
-//         below 1.0 / cities 7 (1,630 s), 8 (908 s) / 4 of 29 empty.
-//   1.16  h6 82 %, h7 89 %, median cap/demand 0.95–0.98 in h6–h7 — FAILS the floor
-//         / 7 (2,110 s), 8 (2,090 s) / 4 of 29 empty.
-// 1.12 is the only value measured that holds both profiles' power lines at once, but it is
-// NOT a free flip: it takes a fully-upgraded city's draw from x0.736 * 1.36 ~ x1.0 of its
-// stickers to x1.16, breaking the "all owned ~ x1.0" invariant this module pins
-// (upgrades.test.mjs "every effect leaves a deep-frozen state untouched"), and the II/III
-// card text reads "draw +8%". That is an upgrades-owned content decision (re-word the
-// rungs and re-state the invariant, or move the demand onto a housing rung instead), left
-// for the next wave rather than taken by the integrator. Variety (late cities with nothing
-// never-before-bought) does not move with this knob at all: it is the late ladder's
-// placement.
-export const FLEET_DRAW = 1.08;
-const DRAW_RUNGS = [false, true, true, false];
+// Prices (wave 3): the building's undiscounted unit price at the gate count on the tree's
+// cost curve (knee 75, late growth 1.112; api.buildingCost(def, gate) with no mods, two
+// figures — arcology 7.0e7 / 1.7e9 / 2.4e10 / 3.4e11 / 2.9e12 / 2.4e13, financial 4.1e8 /
+// 9.9e9 / 1.4e11 / 2.0e12 / 1.7e13 / 1.4e14, techpark 4.6e8 / 1.4e10 / 2.0e11 / 2.8e12 /
+// 2.4e13 / 2.0e14, fusion 2.3e9 / 5.6e10 / 8.0e11 / 1.1e13 / 9.5e13 / 8.0e14) — the price
+// the player just paid for the unit that crossed the gate, before the cost stack of cities
+// 4–9 (×0.5). Round 2 shipped a quarter of that and measured every rung within 30 s of its
+// gate (p90 0.1 min): a card that lights when the cash is already there is a notification,
+// not a decision. At the unit price (measured, round 2, human profile, whose wallet holds
+// 2–10 s of income) 24 of 68 fleet rungs were bought more than 2 min after their gate, p50
+// ~1–2 min, p90 15 min — the 30 s – 15 min-away target the contract's reachShare counts,
+// on the plateau where nothing else opens (at twice the unit price 24 of 63, p90 30 min,
+// max 94; at half 16 of 72, p90 5.4). Those delays are what the wallet does; the DECISION
+// metric reads reach at UNLOCK, which the hold door pins at 0 — see above for why that is
+// not the lever it looked like.
+//
+// What count gates still cannot buy on their own is the 20-min gap line in a 150-minute
+// city: the plateau fleet grows 0.4–0.8 units per minute per column, so gates dense enough
+// for a purchase every 20 min in city 8 would sit ~8 units apart — 40+ rungs per column —
+// and a fixed-dollar pace rung lands once and is bought in the spree. Six gates is the
+// density that fits without turning the card list into wallpaper; the structure that
+// guarantees a decision every 20 minutes for a never-saver is a leveled (repeatable)
+// upgrade, a core API change named for a later wave, not faked here.
+// src/balance/config.js places them (config.upgrades[id]); the literals are copies, as
+// everywhere in this file.
+export const FLEET_GATES = [60, 90, 115, 140, 160, 180];
+const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+// The city-wide draw the two employer columns' rungs II, IV and VI carry (gates 90, 140 and
+// 180; header, "Power"): ×1.07 each, ×1.07^6 = ×1.50 per city across the six, never across
+// a founding.
+//
+// THE DECISION (wave 3, docs/FEEDBACK.md F2 / the session under-power red line). Round 3
+// shipped ×1.08 on four rungs (gates 90 and 130) and the integrator re-measured it: it
+// leaves the greedy UNDER the contract's under-power floor, not over its ceiling — 0.8 % of
+// a 12 h session against balance.test.mjs's 3–20 %. The integrator's note proposed ×1.12 on
+// the same four rungs. Swept again here, on this round's tree, reading FOUR lines at once
+// (12 h greedy: session under-power share · the median cap/demand ≥ 1.0 floor · the
+// prestige-cycle ratio against plan.json's ≤ 1.345 margin · late cycles with nothing new):
+//   4 rungs, gates 90 + 140
+//     ×1.080  2.3 %  · floor ok · ratio ok    · 2 of 29 empty  — under the 3 % floor
+//     ×1.086  2.9 %  · floor ok · ratio ok    · 1 empty        — under the floor
+//     ×1.088  3.2 %  · floor ok · ratio 1.348 · —
+//     ×1.090  3.1 %  · floor ok · ratio 1.348 · 0 empty        — 0 sim-contract issues
+//     ×1.092  ok     · floor ok · ratio 1.355 · —
+//     ×1.095  3.8 %  · floor ok · ratio >1.35 · 0 empty
+//     ×1.100  4.6 %  · floor ok · ratio >1.35 · 2 empty
+//     ×1.110  6.8 %  · floor ok · ratio >1.35 · 2 empty
+//     ×1.120 11.2 %  · median 0.98 in h6 FAILS the floor · ratio >1.35 · 3 empty
+//   4 rungs, other placements at ×1.09: gates 90 + 160 → h8 median 0.98, fails the floor;
+//     gates 90 + 180 → the by-hour line clears in only 2 of hours 3–12 (needs 3);
+//     gates 90 + 115 → session 0.4 %, far under the floor.
+//   6 rungs, gates 90 + 140 + 180 (SHIPPED at ×1.07, ×1.50 per city)
+//     ×1.060  3.0 %  · floor ok · ratio ok · 1 empty  — 0.0295, just under the floor
+//     ×1.065  3.0 %  · floor ok · ratio ok · 0 empty  — 0.0298, just under
+//     ×1.070  3.6 %  · floor ok · ratio ok · 2 empty  — every power line green
+//     ×1.075  3.2 %  · floor ok · ratio ok · 3 empty
+// Four rungs cannot hold both power and cadence on this tree: every value dense enough to
+// clear the floor (≥ ×1.088) stretches the greedy's cycle 21 past plan.json's ratio margin,
+// because the brownouts all land in cities 21–23 and shave that one city's income. Three
+// rungs spread the same total bite over three fleet sizes — the greedy goes under power in
+// hours 6–7 AND 9–10 instead of 6–8 only — so a smaller step per rung buys the same session
+// share without deepening any single city. ×1.07 is the shipped point: session 3.6 %,
+// by-hour ≥ 1 % in 4 of hours 3–12, median cap/demand never under 1.0, minPowerRatio 0.60,
+// prestige-cycle ratio inside plan.json, variety 2 of 29 (exactly what 1c3ebfa reads).
+// The band is narrow — re-read the greedy's [power] and [cadence] lines after any income
+// change.
+//
+// The price is the module's demand invariant, re-stated rather than broken: a late city
+// that owns everything draws 0.8 · 0.8 · 1.15 · 1.07^6 = ×1.105 of its stickers, not
+// ×1.000. upgrades.test.mjs pins it two-sided at 1.09 ≤ demand ≤ 1.12 with the exact
+// product asserted. The late grid runs ~10 % OVER sticker on purpose, so the last third of
+// a plateau binds; at net ×1.0 it did not bind at all (0.8 % of a session).
+//
+// Why not pay for the draw with a deeper global cut and keep ×1.000: the only global demand
+// cuts in the tree are Smart Grid ×0.8 and Superconductor Grid ×0.8, and both are owned in
+// exactly the cities where the draw has to bite, so deepening either cancels the draw by
+// construction. "Net ×1.0" IS the reason power stopped mattering. The other alternative
+// the integrator named — move the demand onto a housing rung — was measured in round 2 on
+// a different ladder (Ringworld ×1.5 read 26.6 % of the greedy session under power, ×1.25
+// 18 %, ×1.15 14 %) and those numbers no longer describe this tree, so taking it would mean
+// a second full sweep this round was told not to run.
+//
+// The card text moves with the effect: the II/IV/VI descs read "draw +7%". Variety (late
+// cities with nothing never-before-bought) tracks this knob only through the brownouts it
+// causes, and at the shipped point it reads 2 of 29 — the same as 1c3ebfa; the line itself
+// is the late ladder's placement, balance's lever, not this constant.
+export const FLEET_DRAW = 1.07;
+const DRAW_RUNGS = [false, true, false, true, false, true];
+// Per-rung multipliers are re-sized so six gates fold to the same per-city step four gates
+// did: 1.078^6 = ×1.5694 against 1.12^4 = ×1.5735 (−0.3 %), 1.053^6 = ×1.3632 against
+// 1.08^4 = ×1.3605 (+0.2 %). Six rungs is cadence, not power.
 const FLEET_COLUMNS = [
-  { id: 'arcology-blueprints', name: 'Arcology Blueprints', icon: '🏘️', building: 'arcology', category: 'residential', clause: 'Arcologies hold +12% residents', costs: [7.0e7, 1.7e9, 1.2e11, 2.4e13], effect: () => housingOf('arcology', 1.12) },
-  { id: 'trading-floors', name: 'Trading Floors', icon: '🏦', building: 'financial', category: 'commercial', clause: 'Financial districts provide +12% jobs', costs: [4.1e8, 9.9e9, 6.9e11, 1.4e14], draw: true, effect: () => jobsOf('financial', 1.12) },
-  { id: 'campus-expansion', name: 'Campus Expansion', icon: '🔬', building: 'techpark', category: 'industrial', clause: 'Tech campuses provide +12% jobs', costs: [4.6e8, 1.4e10, 9.9e11, 2.0e14], draw: true, effect: () => jobsOf('techpark', 1.12) },
-  { id: 'reactor-refits', name: 'Reactor Refits', icon: '⚛️', building: 'fusion', category: 'power', clause: 'Fusion reactors generate +8% power', costs: [2.3e9, 5.6e10, 3.9e12, 8.0e14], effect: () => powerOf('fusion', 1.08) },
+  { id: 'arcology-blueprints', name: 'Arcology Blueprints', icon: '🏘️', building: 'arcology', category: 'residential', clause: 'Arcologies hold +7.8% residents', costs: [7.0e7, 1.7e9, 2.4e10, 3.4e11, 2.9e12, 2.4e13], effect: () => housingOf('arcology', 1.078) },
+  { id: 'trading-floors', name: 'Trading Floors', icon: '🏦', building: 'financial', category: 'commercial', clause: 'Financial districts provide +7.8% jobs', costs: [4.1e8, 9.9e9, 1.4e11, 2.0e12, 1.7e13, 1.4e14], draw: true, effect: () => jobsOf('financial', 1.078) },
+  { id: 'campus-expansion', name: 'Campus Expansion', icon: '🔬', building: 'techpark', category: 'industrial', clause: 'Tech campuses provide +7.8% jobs', costs: [4.6e8, 1.4e10, 2.0e11, 2.8e12, 2.4e13, 2.0e14], draw: true, effect: () => jobsOf('techpark', 1.078) },
+  { id: 'reactor-refits', name: 'Reactor Refits', icon: '⚛️', building: 'fusion', category: 'power', clause: 'Fusion reactors generate +5.3% power', costs: [2.3e9, 5.6e10, 8.0e11, 1.1e13, 9.5e13, 8.0e14], effect: () => powerOf('fusion', 1.053) },
 ];
 const FLEET = FLEET_COLUMNS.flatMap((col) =>
   FLEET_GATES.map((n, i) => {
@@ -584,7 +683,7 @@ const FLEET = FLEET_COLUMNS.flatMap((col) =>
       id: `${col.id}-${i + 1}`,
       name: `${col.name} ${ROMAN[i]}`,
       icon: col.icon,
-      desc: `${col.clause}${draws ? ' · draw +8%' : ''} · with ${n} owned`,
+      desc: `${col.clause}${draws ? ' · draw +7%' : ''} · with ${n} owned`,
       cost: col.costs[i],
       category: col.category,
       tier: 4,
@@ -630,8 +729,8 @@ export function earnedUnlock(def) {
   if (def && def.pace) {
     // Both doors stay in the rule, but the card surfaces only the one that opens it in
     // practice: the treasury holding the price (measured: every pace rung's first purchase
-    // came through the cash door). A hint that read "Earn $60.9Qa in this city or hold
-    // $609T" and a bar drawn against the earnings door read ~1 % at the moment the card
+    // came through the cash door). A hint that read "Earn $150Qa in this city or hold
+    // $1.5Qa" and a bar drawn against the earnings door read ~1 % at the moment the card
     // became buyable, so the mirror is the price and the hint the hold.
     const hold = holds(cost);
     const fn = any(hasEarned(at), hold);
@@ -689,7 +788,11 @@ const legacyRung = (def) => {
 // legacyPower 0.54; greedy max ratio ×1.332 at cycle 14, 34 foundings, no empty late
 // city): the Port $9T → $13.2T (city 22, where the shipped $9T landed in 21 and left 22
 // empty), the Shipyard $2.35Qa → $1.91Qa, the Helios Array $3.11Qa → $2.80Qa, the Ring
-// $5.29Qa → $5.09Qa (config.js, cities 29 / 30 / 31).
+// $5.29Qa → $5.09Qa (config.js, cities 29 / 30 / 31). Wave 3 re-placed the tail again on
+// the twenty-four-rung fleet tree: the Port $13.2T → $31T (22), the Ringworld District
+// $77.7T → $200T (24), the Superconductor Grid $609T → $1.5Qa (27), the Shipyard
+// $1.91Qa → $1.95Qa (29) and the Helios Array $2.80Qa → $2.25Qa (30, which was empty when
+// the Array sat at $2.80Qa beside the Ring in 31).
 
 const FRONTIER = [
   frontier({
@@ -718,7 +821,7 @@ const FRONTIER = [
     name: 'Mass-Driver Port',
     icon: '🚀',
     desc: 'All buildings cost −25% · industry earns +100% income',
-    cost: 1.32e13,
+    cost: 3.1e13,
     category: 'industrial',
     effect: compose(global('cost', 0.75), incomeOfEach(INDUSTRY, 2)),
   }),
@@ -727,7 +830,7 @@ const FRONTIER = [
     name: 'Ringworld District',
     icon: '🪐',
     desc: 'All housing +150% and all jobs +100%',
-    cost: 7.77e13,
+    cost: 2.0e14,
     category: 'residential',
     // No draw clause (header, "Power"): a matching draw here (+50 %, then +25 %, then
     // +15 %) was measured in round 2 and rejected — it lands where the bare grid float is
@@ -771,7 +874,7 @@ const FRONTIER = [
     name: 'Orbital Shipyard',
     icon: '🛸',
     desc: 'All jobs +25% · factories, refineries and campuses cost −25%',
-    cost: 1.91e15,
+    cost: 1.95e15,
     category: 'industrial',
     // Jobs ×1.25, not ×1.75 (round 3, header "Housing"): with the jobs moved onto the three
     // housing rungs that need them (Ringworld ×2.0, Skyline ×2.0, Exchange Ring ×1.5) the
@@ -788,13 +891,13 @@ const FRONTIER = [
     name: 'Helios Array',
     icon: '🔆',
     desc: 'All power generation +25% · all income +25%',
-    // The 20th late rung, between the Shipyard ($1.91Qa) and the Exchange Ring ($5.09Qa):
+    // The 20th late rung, between the Shipyard ($1.95Qa) and the Exchange Ring ($5.09Qa):
     // that ×23 step was the ladder's widest and left the 30th–32nd cities with one new
     // card each over 45–50 minutes (DESIGN.md names the gap). A sun-tap whose surplus is
     // sold: the income clause is the "felt" term the balance notes ask of the late power
     // content, so the rung can carry a city of its own once config places it. Power ×1.25,
     // not ×1.5 or ×3: part of the ×5.5 stack (header, "Power").
-    cost: 2.80e15,
+    cost: 2.25e15,
     category: 'power',
     effect: compose(global('power', 1.25), global('income', 1.25)),
   }),
@@ -1437,10 +1540,10 @@ export const UPGRADES = [
     effect: powerOf('nuclear', 2),
   },
 
-  // ===== Fleet ladder ($70M – $800T): sixteen count-gated tier-4 core rungs, re-bought every city (see "the fleet ladder") =====
+  // ===== Fleet ladder ($70M – $800T): twenty-four count-gated tier-4 core rungs, re-bought every city (see "the fleet ladder") =====
   ...FLEET,
 
-  // ===== Pace ladder ($74M – $609T): one rung per replay city, each opens once the city has earned 100× its price =====
+  // ===== Pace ladder ($74M – $1.5Qa): one rung per replay city, each opens once the city has earned 100× its price =====
   // In price (= city) order. Config places them by city (5 Championship Season · 7 Robotic
   // Assembly · 9 AI Governance · 10 Orbital Solar · 11 Planetary Charter · 15 Megastructures
   // · 16 Arcology Gardens · 18 Algorithmic Trading · 27 Superconductor Grid; "mid-city"
@@ -1534,7 +1637,7 @@ export const UPGRADES = [
     name: 'Superconductor Grid',
     icon: '🧲',
     desc: 'Every building draws −20% power',
-    cost: 6.09e14,
+    cost: 1.5e15,
     category: 'power',
     // ×0.8, not ×0.7: the one late demand cut — Smart Grid 0.8 · this 0.8 · the Energy
     // Charter's draw 1.15 fold to ×0.736 (header, "Power").
@@ -1627,7 +1730,7 @@ export const UPGRADES = [
     // Config prices it at $1.53T as the 19th city's novelty (the saver-gate pass moved it
     // up from $52M in city 4: at $52M a saver's mid-game hoard toward it opened Algorithmic
     // Trading a city early; $1.53T sits above the saver's 30 s-of-income reach in city 17).
-    // It must stay cheaper than Standing Orders ($6.91T, city 21), which re-grants every
+    // It must stay cheaper than Standing Orders ($15T, city 21), which re-grants every
     // Legacy rung at each founding after it, so no Legacy rung can be a first purchase
     // once that is owned. Jobs and an employer discount, not income: it is re-granted in
     // every later city, and an income term here compounds through thirty foundings
@@ -1652,10 +1755,10 @@ export const UPGRADES = [
     name: 'Standing Orders',
     icon: '📑',
     desc: 'Tier 3 and Legacy upgrades are yours from the day a city is founded',
-    cost: 6.91e12,
+    cost: 1.5e13,
     tier: 4,
     legacyGate: all(hasLegacy(50), owns('institutional-memory')),
-    // Config prices it at $6.91T, the 21st city's novelty. Tier 3 has usually been kept by
+    // Config prices it at $15T, the 21st city's novelty. Tier 3 has usually been kept by
     // the Grid Charter since city 6 by then (a `keeps` overlap is harmless: a rung is
     // granted once); what this adds is the six Legacy rungs.
     keeps: (def) => (isCore(def) && def.tier === 3) || def.category === 'prestige',

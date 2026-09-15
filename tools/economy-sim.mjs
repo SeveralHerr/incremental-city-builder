@@ -55,6 +55,12 @@
 // reproduce that timeline, so the F3 probe at the player's point is the `--grant` what-if
 // (own Megastructures / Arcology Gardens from city 6 on, no money spent, kind 'g' in the
 // purchase log, report.grant) rather than a claim that the profile reaches it on its own.
+// The screenshot carries two observables that disagree — the CLOCK (city 6 at 92 min, ~15-min
+// cities) and the LEGACY bank (415 at the end of city 6, ~90-min cities on exponent 0.488) — and
+// no founding rule satisfies both (the sweep is tabulated above HUMAN_FOUND_SHARE in
+// src/core/bot.js). The shipped rule is fitted to the clock, because F1 is a wall-clock cadence
+// contract; the "vs the player's screenshot" line below prints both columns every run so the
+// cost on the legacy side stays visible rather than being quietly dropped.
 // Note for F16: the F2 surplus is structural (Grid Charter +100 % generation in city ~7,
 // Orbital Solar later) and the DEFAULT profile already shows it (median cap/demand 4× in
 // hour 1, 6.8× in hour 2, 16× in hour 3 of logs/sim-gauntlet.json), so an F2 contract gate
@@ -105,8 +111,8 @@ const trace = (reason, row, n) => {
 // the 2026-09-14 candidates; `share:S,reach:M` sets the two knobs directly.
 const FOUND_RULES = {
   gate: { foundShare: 0.1, foundReachMinutes: 0 }, // found at the game's gate (F16 first cut)
-  double: { foundShare: 1.0, foundReachMinutes: 0 }, // haul ≥ 1.0 × bank
-  triple: { foundShare: 2.0, foundReachMinutes: 0 }, // haul ≥ 2.0 × bank
+  double: { foundShare: 1.0, foundReachMinutes: 0 }, // haul ≥ 1.0 × bank — the shipped default
+  triple: { foundShare: 2.0, foundReachMinutes: 0 }, // haul ≥ 2.0 × bank (the 2026-09-14 pick)
   targets: { foundShare: 0.1, foundReachMinutes: 20 }, // gate + no upgrade within 20 min of income
   deep: { foundShare: 1.0, foundReachMinutes: 20 }, // double + out of targets
 };

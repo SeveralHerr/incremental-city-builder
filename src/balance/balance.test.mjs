@@ -227,9 +227,12 @@ test('pace ladder and money-priced Legacy rungs are placed here, one price per r
     'standing-orders', // 21
     'mass-driver-port', // 22
     'ringworld-district', // 24
-    'stellar-engine', // 26
-    'superconductor-grid', // 27
-    'galactic-charter', // 28 (with the Energy Charter)
+    'stellar-engine', // 25
+    'galactic-charter', // 26 (with the Energy Charter)
+    'superconductor-grid', // 27 — moved above the Charter in wave 3: cities 27-33 are seven
+    // cities and only six novelties could reach them, so the Grid had to be pulled up from
+    // below 27 to fill city 29's hole. The bot meets money rungs in price order, so a rung
+    // that lands after the Charter must cost more than it (see plan.json rungs).
     'orbital-shipyard', // 29
     'helios-array', // 30
     'exchange-ring', // 31, the last rung (the Imperial Charter is city 32's novelty, the Space Elevator city 33's; city 34 is open at 12 h)

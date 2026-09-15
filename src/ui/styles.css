@@ -1,10 +1,4 @@
-/* Metropolis — UI design system.
-   The city is the interface: the skyline fills the screen, the readouts are set straight onto
-   the sky, and every list lives in one sheet that slides up from the road. There are no
-   floating glass cards over a gradient — the sheet and the dock are cut from the same indigo
-   the skyline paints its own ground with, and the only accent that is not a building category
-   is the brass of civic signage. Display type is Archivo (wide, signage-like); body text stays
-   on the bundled Inter; prices and gauges keep JetBrains Mono. */
+/* Metropolis — UI design system. Dark glass, one accent per category, Inter + JetBrains Mono. */
 
 /* ---------- Fonts ----------
    Self-hosted latin subsets (variable weight, ~80 KB total) under their own family names so they
@@ -42,73 +36,47 @@
 :root {
   color-scheme: dark;
 
-  /* Ground. The stage is covered by the skyline, so these only show at the edges and behind
-     the sheet; they are the skyline's own night indigos rather than a neutral near-black. */
-  --bg-0: #060a16;
-  --bg-1: #0b1224;
-  --bg-2: #101a33;
+  --bg-0: #070a12;
+  --bg-1: #0b0f1a;
+  --bg-2: #111827;
+  --glass: rgba(255, 255, 255, 0.035);
+  --glass-2: rgba(255, 255, 255, 0.06);
+  --glass-3: rgba(255, 255, 255, 0.09);
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
 
-  /* Plate: the material the dock and the sheet are cut from. */
-  --plate: #101a33;
-  --plate-2: #17233f;
-  --plate-3: #1f2d4f;
-  --plate-edge: #2c3c66;
-  --plate-shadow: #060b18;
-  --glass: rgba(154, 178, 232, 0.05);
-  --glass-2: rgba(154, 178, 232, 0.09);
-  --glass-3: rgba(154, 178, 232, 0.14);
-  --line: rgba(154, 178, 232, 0.15);
-  --line-strong: rgba(154, 178, 232, 0.28);
+  --text: #e6e9f0;
+  --text-2: #a3acbf;
+  --text-3: #7d879c; /* ~5:1 on panel ground: AA for the 10–11px labels that use it */
 
-  --text: #eef2fb;
-  --text-2: #adbad8;
-  --text-3: #8593b5; /* ~5:1 on the plate: AA for the 10-11px labels that use it */
+  --money: #4ade80;
+  --pop: #60a5fa;
+  --power: #facc15;
+  --happy: #f472b6;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --accent-ui: #38bdf8;
 
-  --money: #57d98b;
-  --pop: #6fb0fa;
-  --power: #ffcf47;
-  --happy: #f987bd;
-  --danger: #ff7b6f;
-  --warn: #ffb638;
-  --badge: #ff7a59;
-  --brass: #f2b544; /* civic signage gold: prices, the goal bar, the pressed dock key */
-  --accent-ui: #57a8f5;
-
-  /* One colour per building category, shared with content.js (the skyline paints its sprites
-     from the same values) and with the log rails, toasts and charter cards. */
-  --c-residential: #6fb0fa;
-  --c-commercial: #57d98b;
-  --c-industrial: #ff9f4a;
-  --c-power: #ffcf47;
-  --c-civic: #c08cff;
-  --c-global: #57a8f5;
+  --c-residential: #60a5fa;
+  --c-commercial: #4ade80;
+  --c-industrial: #fb923c;
+  --c-power: #facc15;
+  --c-civic: #c084fc;
+  --c-global: #38bdf8;
   --c-prestige: #f9a8d4;
-  --c-general: #97a5c4;
+  --c-general: #94a3b8;
 
-  --radius-sm: 5px;
+  --radius-sm: 6px;
   --radius: 8px;
   --radius-lg: 12px;
-  --radius-xl: 18px;
+  --radius-xl: 16px;
 
-  /* Archivo carries the HUD and every heading: a wide grotesque with the stance of transit
-     signage, so the numbers over the city read as a scoreboard and not as a dashboard chip.
-     It is progressive enhancement — the bundled Inter is the fallback and holds the metrics
-     if the network face never arrives. */
-  --display: 'Archivo', 'Inter Bundled', 'Inter', 'Inter Fallback', system-ui, sans-serif;
   --font: 'Inter Bundled', 'Inter', 'Inter Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'JetBrains Mono Bundled', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
 
-  /* Physical, not glassy: a hard bottom edge a press can compress, plus one soft cast shadow.
-     No blurred glow around every block. */
-  --shadow: 0 18px 40px rgba(3, 6, 16, 0.55);
-  --shadow-sm: 0 6px 16px rgba(3, 6, 16, 0.4);
-  --press: 0 4px 0 var(--plate-shadow);
-  --dock-h: 78px;
-  --sheet-h: min(62dvh, 560px); /* the sheet's ceiling; toasts clear it (see .toast-stack) */
-  --sky-lift: 0px; /* how far the drawing sits above the bottom edge; the apron fills the rest */
-  /* The drawing's height: bottom-anchored, at least half as tall as it is wide (see .skyline).
-     The host's sky gradient reads the same token so it ends exactly where the art begins. */
-  --sky-h: max(50vw, 52%);
+  --shadow: 0 12px 32px rgba(0, 0, 0, 0.38), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.3);
+  --topbar-h: 66px;
   --gap: 14px;
   --pad: 16px;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -134,7 +102,11 @@ body {
   font-size: 14px;
   line-height: 1.45;
   color: var(--text);
-  background: var(--bg-0);
+  background:
+    radial-gradient(1100px 620px at 12% -12%, rgba(56, 189, 248, 0.11), transparent 60%),
+    radial-gradient(900px 520px at 104% -4%, rgba(192, 132, 252, 0.09), transparent 60%),
+    radial-gradient(800px 500px at 50% 110%, rgba(74, 222, 128, 0.05), transparent 60%),
+    var(--bg-0);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -198,698 +170,95 @@ ul {
   outline-offset: 2px;
 }
 
-/* ---------- Stage ---------- */
-/* One fixed stage. The city fills it edge to edge; the HUD, the dock and the sheet are layers
-   on top, in that order. Nothing scrolls except the inside of the sheet. */
-.stage {
-  position: relative;
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-  isolation: isolate;
-}
-
-/* Scrims. The sky runs from a bright noon blue to near-black at midnight, so the HUD needs a
-   darkening at the top and along the road to stay legible at every hour of the cycle. */
-.stage::before,
-.stage::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  z-index: 2;
-}
-.stage::before {
-  top: 0;
-  height: 42%;
-  background: linear-gradient(180deg, rgba(4, 8, 22, 0.6), rgba(4, 8, 22, 0.16) 58%, transparent);
-}
-.stage::after {
-  bottom: 0;
-  height: 28%;
-  background: linear-gradient(0deg, rgba(4, 8, 22, 0.7), transparent);
-}
-
-/* ---------- HUD ---------- */
-/* Readouts sit directly on the sky: no chips, no cards, no bar. The layer itself is inert so
-   the whole skyline behind it stays one tap target; only the two real controls opt back in. */
-.hud {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
+/* ---------- Shell / layout ---------- */
+.shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 10px;
-  padding: clamp(14px, 2vw, 24px) clamp(14px, 2vw, 26px) calc(var(--dock-h) + 8px);
-  pointer-events: none;
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  height: 100%;
 }
 
-.hud-btn,
-.hud-goal,
-.gauge-happy {
-  pointer-events: auto;
-}
-/* The mood gauge is a button (it opens the happiness breakdown); it keeps the gauge look. */
-button.gauge-happy {
-  cursor: pointer;
-  border-radius: 8px;
-  padding: 2px 4px;
-  margin: -2px -4px;
-  transition: background var(--t-fast);
-}
-button.gauge-happy:hover {
-  background: rgba(8, 14, 30, 0.42);
-}
-
-.hud-purse {
-  grid-column: 1;
-  grid-row: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  text-shadow: 0 2px 14px rgba(3, 6, 18, 0.65), 0 1px 2px rgba(3, 6, 18, 0.7);
-}
-
-.hud-city {
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.28em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.66);
-}
-
-.hud-money-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.hud-money {
-  font-family: var(--display);
-  font-size: clamp(30px, 4.4vw, 46px);
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.05;
-  font-variant-numeric: tabular-nums;
-}
-
-.hud-rate {
-  font-family: var(--display);
-  font-size: clamp(13px, 1.5vw, 17px);
-  font-weight: 700;
-  color: var(--money);
-  font-variant-numeric: tabular-nums;
-}
-.hud-rate.is-negative {
-  color: var(--danger);
-}
-
-.hud-pop {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.82);
-  white-space: nowrap; /* one line: hud.js prints the short form where the purse is narrow */
-}
-.hud-pop .ico {
-  display: flex;
-  color: var(--pop);
-}
-.hud-pop-count {
-  font-family: var(--display);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.hud-pop-sub {
-  color: rgba(255, 255, 255, 0.6);
-}
-.hud-pop.is-warn .hud-pop-sub,
-.hud-pop.is-warn .hud-pop-count {
-  color: var(--warn);
-}
-
-/* Meta row and gauges, top right — two cells, so a narrow screen can drop the gauges to their
-   own row instead of squeezing the treasury. Quiet until the grid or the mood needs attention. */
-.hud-meta-row {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.72);
-  text-shadow: 0 2px 12px rgba(3, 6, 18, 0.6);
-}
-
-.hud-tier {
-  font-family: var(--display);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-weight: 700;
-  font-size: 11px;
-}
-
-.hud-clock {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.hud-btn {
+/* 30/44/26: the build column is ~607px at 1440 wide. Five labelled tabs with two-digit counts
+   need ~640px, so at the most common desktop width the inactive tabs collapse to icon + count
+   (the 660px container threshold below) rather than wrapping an orphan Civic tab onto a second
+   row; every tab keeps its name as a title/aria-label. */
+.layout {
   display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  margin-left: 6px;
-  border-radius: 10px;
-  color: rgba(255, 255, 255, 0.8);
-  background: rgba(8, 14, 30, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.hud-btn:hover {
-  background: rgba(8, 14, 30, 0.72);
-  color: #fff;
-}
-
-.hud-gauges {
-  grid-column: 2;
-  grid-row: 2;
-  justify-self: end;
-  align-self: start;
-  display: flex;
-  gap: 18px;
-  align-items: flex-start;
-  text-shadow: 0 2px 12px rgba(3, 6, 18, 0.6);
-}
-.hud-gauges:empty {
-  display: none;
-}
-
-.gauge {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-  min-width: 86px;
-}
-
-.gauge-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.gauge-row .ico {
-  display: flex;
-}
-
-.gauge-value {
-  font-family: var(--display);
-  font-size: 16px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.gauge-sub {
-  font-size: 10.5px;
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.gauge-bar {
-  width: 86px;
-  background: rgba(4, 8, 22, 0.5);
-}
-
-.gauge-power {
-  --accent: var(--power);
-}
-.gauge-power .ico {
-  color: var(--power);
-}
-.gauge-happy {
-  --accent: var(--happy);
-}
-.gauge-happy .ico {
-  color: var(--happy);
-}
-.gauge.is-warn {
-  --accent: var(--warn);
-}
-.gauge.is-warn .gauge-value,
-.gauge.is-warn .ico {
-  color: var(--warn);
-}
-.gauge.is-bad {
-  --accent: var(--danger);
-}
-.gauge.is-bad .gauge-value,
-.gauge.is-bad .ico,
-.gauge.is-bad .gauge-sub {
-  color: var(--danger);
-}
-
-/* Next goal: bottom left, in the dead corner of the sky, never over the middle of the city. */
-.hud-goal {
-  grid-column: 1;
-  grid-row: 3;
-  justify-self: start;
-  align-self: end;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: min(340px, 48vw);
-  padding: 7px 12px 8px;
-  border-radius: 12px;
-  text-align: left;
-  color: var(--text);
-  background: rgba(8, 14, 30, 0.44);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  transition: background var(--t-fast), transform var(--t-fast);
-}
-.hud-goal:hover {
-  background: rgba(8, 14, 30, 0.74);
-  transform: translateY(-1px);
-}
-/* The sheet covers the bottom of the sky; the goal line ducks out rather than hiding behind it
-   (it is the first row of the Goals page anyway). */
-.stage.is-sheet-open .hud-goal {
-  opacity: 0;
-  transform: translateY(10px);
-  pointer-events: none;
-  transition: opacity var(--t-fast), transform var(--t-fast);
-}
-
-.goal-label {
-  font-family: var(--display);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--brass);
-}
-
-.goal-body {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-  flex: 1;
-}
-
-.goal-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-}
-
-.goal-name {
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.goal-pct {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-
-.goal-bar {
-  --accent: var(--brass);
-  background: rgba(4, 8, 22, 0.55);
-}
-
-/* ---------- Dock ---------- */
-/* The only permanent chrome in the game: four keys on the road. They are physical objects — a
-   hard bottom edge that compresses on press — rather than translucent glass. */
-.dock {
-  position: absolute;
-  left: 50%;
-  bottom: 14px;
-  transform: translateX(-50%);
-  z-index: 6;
-  display: flex;
-  gap: 10px;
-}
-
-.dock-btn {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  align-content: center;
-  gap: 3px;
-  width: 76px;
-  height: 60px;
-  border-radius: 14px;
-  color: var(--text-2);
-  background: linear-gradient(180deg, var(--plate-3), var(--plate));
-  border: 1px solid var(--plate-edge);
-  box-shadow: var(--press), 0 10px 24px rgba(3, 6, 16, 0.5);
-  font-family: var(--display);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  transition: transform var(--t-fast), box-shadow var(--t-fast), background var(--t-fast), color var(--t-fast);
-}
-.dock-btn .ico {
-  display: flex;
-}
-.dock-btn:hover {
-  color: var(--text);
-  background: linear-gradient(180deg, #26365f, var(--plate-2));
-}
-.dock-btn:active,
-.dock-btn.is-on {
-  transform: translateY(4px);
-  box-shadow: 0 0 0 var(--plate-shadow), 0 4px 12px rgba(3, 6, 16, 0.45);
-}
-.dock-btn.is-on {
-  color: #16223f;
-  background: linear-gradient(180deg, #ffd97a, var(--brass));
-  border-color: #ffe0a0;
-}
-
-.dock-badge {
-  position: absolute;
-  top: -7px;
-  right: -7px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--badge);
-  color: #2a0f07;
-  font-family: var(--display);
-  font-size: 11px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 2px 0 rgba(3, 6, 16, 0.4);
-}
-.dock-badge.is-dot {
-  min-width: 12px;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  top: -4px;
-  right: -4px;
-}
-
-/* ---------- Fullscreen offer (inside an iframe, F13) ---------- */
-/* A chip in the free corner of the road, right of the dock: one tap goes fullscreen, the ×
-   puts it away for good. It never covers a control; while the sheet is up it stands down. */
-.fs-prompt {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  z-index: 6;
-  display: inline-flex;
-  align-items: stretch;
-  border-radius: 12px;
-  background: linear-gradient(180deg, var(--plate-3), var(--plate));
-  border: 1px solid var(--plate-edge);
-  box-shadow: 0 8px 20px rgba(3, 6, 16, 0.5);
-  overflow: hidden;
-}
-.fs-prompt.is-entering {
-  animation: fs-in var(--t-med) var(--ease) both;
-}
-@keyframes fs-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-.fs-go,
-.fs-close {
-  display: grid;
-  place-items: center;
-  min-height: 40px;
-  color: var(--text-2);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.fs-go {
-  padding: 0 12px 0 14px;
-  font-family: var(--display);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-.fs-close {
-  width: 36px;
-  border-left: 1px solid var(--plate-edge);
-  font-size: 18px;
-  line-height: 1;
-}
-.fs-go:hover,
-.fs-close:hover {
-  background: rgba(154, 178, 232, 0.1);
-  color: var(--text);
-}
-.fs-go:disabled {
-  color: var(--warn);
-  cursor: default;
-}
-.stage.is-sheet-open .fs-prompt {
-  display: none;
-}
-@media (max-width: 720px) {
-  .fs-prompt {
-    right: 10px;
-    bottom: calc(var(--dock-h) + 10px);
-  }
-  .fs-go,
-  .fs-close {
-    min-height: 44px;
-  }
-  .fs-close {
-    width: 44px;
-  }
-}
-
-/* ---------- Sheet ---------- */
-/* Every list in the game lives here. It is not a modal: the sky above stays live, so a player
-   can keep collecting with the build list open. Capped so the city is never fully covered. */
-.sheet {
-  --sheet-axis: y;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-  margin: 0 auto;
-  width: 100%;
-  max-width: 1120px;
-  height: var(--sheet-h);
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  border: 1px solid var(--plate-edge);
-  border-bottom: 0;
-  background: linear-gradient(180deg, #16233f, #0c1428);
-  box-shadow: 0 -20px 50px rgba(3, 6, 16, 0.55);
-  transition: transform var(--t-med) var(--ease), visibility var(--t-med);
-  will-change: transform;
-}
-
-.sheet.is-closed {
-  transform: translateY(100%);
-  visibility: hidden;
-}
-
-.sheet.is-dragging,
-.sheet.no-anim {
-  transition: none;
-}
-
-.sheet-grip {
-  display: grid;
-  place-items: center;
-  padding: 9px 0 3px;
-  cursor: grab;
-  touch-action: none;
-}
-.grip-bar {
-  width: 46px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--line-strong);
-}
-
-.sheet-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 16px 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.sheet-title {
-  font-family: var(--display);
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  cursor: grab;
-  touch-action: none;
-}
-
-/* A row the sheet landed on (sheet.open with an anchor, e.g. the HUD's mood gauge): a
-   one-second outline so the eye finds it after the scroll. Reduced motion: no fade, the
-   outline simply holds for the second and goes. */
-.is-flash {
-  outline: 2px solid var(--accent-ui);
-  outline-offset: 3px;
-  animation: land-flash 1s linear both;
-}
-@keyframes land-flash {
-  0%,
-  60% {
-    outline-color: var(--accent-ui);
-  }
-  100% {
-    outline-color: transparent;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .is-flash {
-    animation: none;
-  }
-}
-
-.sheet-close {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  color: var(--text-2);
-  background: var(--glass);
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.sheet-close:hover {
-  background: var(--glass-2);
-  color: var(--text);
-}
-
-.sheet-body {
-  flex: 1;
+  grid-template-columns: minmax(320px, 30fr) minmax(380px, 44fr) minmax(300px, 26fr);
+  gap: var(--gap);
+  padding: var(--gap) var(--pad) var(--pad);
   min-height: 0;
+  min-width: 0;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0 16px 26px;
-  margin-bottom: var(--dock-h);
-  /* Fades the last line rather than cutting it: the only cue was an 8px scrollbar thumb. */
-  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+  padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
 }
-.sheet-body::-webkit-scrollbar {
+
+.col::-webkit-scrollbar {
   width: 8px;
 }
-.sheet-body::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
+.col::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 8px;
 }
-.sheet-body::-webkit-scrollbar-track {
+.col::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.sheet-page {
-  padding-top: 12px;
+@media (max-width: 1080px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .col-side {
+    grid-column: 1 / -1;
+    max-height: 40vh;
+  }
 }
 
-.page-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.page-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.page-head-label {
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.page-city {
-  gap: 18px;
-}
-
-.hall {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-/* ---------- Blocks inside the sheet ---------- */
-/* Not cards. The sheet is already one surface, so a section is a heading plus its content,
-   separated from the next by a hairline — boxing each one in its own bordered panel is what
-   made the old dashboard read as a template. Only rows the player acts on (build cards,
-   upgrade cards) get a fill of their own. */
+/* ---------- Panels ---------- */
 .panel {
   position: relative;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.025));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 14px;
   flex: 0 0 auto;
-  min-width: 0;
-}
-
-.panel + .panel,
-.hall + .panel-log {
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
+  /* No backdrop blur here: panels sit on a flat ground where it is invisible, and blurring a
+     dozen of them costs ~20 fps under software rendering. Blur is reserved for overlays. */
+  contain: paint;
 }
 
 .panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 10px;
+  min-height: 26px;
 }
 
 .panel-title {
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
 }
 
 .panel-meta {
   font-size: 12px;
   color: var(--text-3);
-  font-variant-numeric: tabular-nums;
 }
 
 .empty-note {
@@ -898,114 +267,13 @@ button.gauge-happy:hover {
   line-height: 1.5;
 }
 
-.panel-lead {
-  margin: -2px 0 10px;
-  font-size: 12px;
-  color: var(--text-3);
-  line-height: 1.5;
-}
-
-/* ---------- Happiness breakdown (City Hall, F4) ---------- */
-/* One row per term of the formula: label, small print, signed value. Zero terms stay listed
-   but dim, so the player sees every lever, not just the ones currently pulling. */
-.happy-rows {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius);
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid var(--line);
-  overflow: hidden;
-}
-.happy-row {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 10px;
-  padding: 6px 10px;
-  font-size: 12.5px;
-  min-height: 30px;
-}
-.happy-rows .happy-row + .happy-row {
-  border-top: 1px solid var(--line);
-}
-.happy-label {
-  color: var(--text-2);
-  white-space: nowrap;
-}
-.happy-note {
-  font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.happy-val {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  min-width: 5.5ch;
-  text-align: right;
-  color: var(--text);
-}
-.happy-row.is-pos .happy-val {
-  color: var(--money);
-}
-.happy-row.is-neg .happy-val {
-  color: var(--danger);
-}
-.happy-row.is-zero .happy-label,
-.happy-row.is-zero .happy-val {
-  color: var(--text-3);
-}
-.happy-total {
-  margin-top: 6px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--line-strong);
-}
-.happy-total .happy-label {
-  color: var(--text);
-  font-weight: 600;
-}
-.happy-total .happy-val {
-  font-family: var(--display);
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--happy);
-}
-.happy-mult {
-  font-size: 11.5px;
-  color: var(--text-2);
-  text-align: right;
-}
-.happy-hint {
-  margin-top: 4px;
-  padding: 7px 10px;
-  border-radius: var(--radius);
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-2);
-  background: color-mix(in srgb, var(--happy) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--happy) 22%, transparent);
-}
-.panel-happy[data-limit='pollution'] .happy-hint,
-.panel-happy[data-limit='unemployment'] .happy-hint,
-.panel-happy[data-limit='overcrowding'] .happy-hint,
-.panel-happy[data-limit='brownout'] .happy-hint,
-.panel-happy[data-limit='min'] .happy-hint {
-  background: color-mix(in srgb, var(--warn) 9%, transparent);
-  border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-}
-.happy-hint:empty {
-  display: none;
-}
-
 .dot {
   display: inline-block;
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: currentColor;
-  opacity: 0.6;
-  margin: 0 6px;
+  background: var(--text-3);
+  margin: 0 7px;
   vertical-align: middle;
 }
 
@@ -1161,11 +429,11 @@ button.gauge-happy:hover {
   color: var(--text);
   border-color: var(--line);
 }
-.hud-btn .ico {
-  transition: transform var(--t-med) var(--ease);
-}
-.hud-btn:hover .ico {
+.topbar .icon-btn:hover .ico {
   transform: rotate(30deg);
+}
+.topbar .icon-btn .ico {
+  transition: transform var(--t-med) var(--ease);
 }
 
 .btn-row {
@@ -1174,13 +442,7 @@ button.gauge-happy:hover {
   gap: 8px;
 }
 
-/* Segmented control (buy amount) + the Sell toggle beside it (one row, never wraps apart). */
-.build-modes {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-}
+/* Segmented control (buy amount) */
 .seg {
   display: inline-flex;
   padding: 3px;
@@ -1214,17 +476,240 @@ button.gauge-happy:hover {
   color: color-mix(in srgb, var(--danger) 85%, white);
 }
 
-/* ---------- City view ---------- */
-/* The city is the page. It fills the stage and every bare patch of it is the collect button. */
-.city-view {
+/* ---------- Top bar ---------- */
+.topbar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 0 var(--pad);
+  height: var(--topbar-h);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(11, 15, 26, 0.96), rgba(11, 15, 26, 0.86));
+  min-width: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.brand-mark {
+  line-height: 0;
+  filter: drop-shadow(0 4px 12px rgba(56, 189, 248, 0.35));
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand-name {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.brand-sub {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.brand-tier {
+  color: var(--text-2);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chip {
+  --accent: var(--accent-ui);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 10px;
+  min-height: 46px;
+  border-radius: 10px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  transition: border-color var(--t-med);
+}
+
+.chip::before {
+  content: '';
   position: absolute;
-  inset: 0;
-  z-index: 1;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  opacity: 0.9;
+}
+
+.chip-money {
+  --accent: var(--money);
+}
+.chip-pop {
+  --accent: var(--pop);
+}
+.chip-power {
+  --accent: var(--power);
+}
+.chip-happy {
+  --accent: var(--happy);
+}
+
+.chip.is-warn {
+  --accent: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+}
+.chip.is-bad {
+  --accent: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.chip.is-good {
+  --accent: var(--money);
+}
+
+.chip-icon {
+  font-size: 18px;
+  line-height: 1;
+  filter: saturate(1.1);
+}
+
+.chip-body {
+  display: grid;
+  grid-template-columns: auto;
+  line-height: 1.15;
+}
+
+.chip-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.chip-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 8ch;
+}
+
+.chip-sub {
+  font-size: 11px;
+  color: var(--text-3);
+  min-width: 9ch;
+}
+
+.chip-money .chip-sub {
+  color: color-mix(in srgb, var(--money) 75%, white);
+}
+.chip-money.is-negative .chip-sub {
+  color: var(--danger);
+}
+
+.chip-power .power-bar {
+  position: absolute;
+  left: 3px;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Healthy grid = quiet green underline; yellow and red are reserved for brownout states. */
+.chip-power .power-bar .progress-fill {
+  --accent: var(--money);
+  opacity: 0.6;
+}
+.chip-power.is-warn .power-bar .progress-fill {
+  --accent: var(--warn);
+  opacity: 1;
+}
+.chip-power.is-bad .power-bar .progress-fill {
+  --accent: var(--danger);
+  opacity: 1;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Compact power figure ('+18' spare / '72%' supplied) shown only when the sub-line is hidden. */
+.chip-short {
+  display: none;
+  font-size: 11px;
+  color: var(--text-3);
+  align-self: flex-end;
+  margin-left: 2px;
+}
+.chip-power.is-warn .chip-short,
+.chip-power.is-bad .chip-short {
+  color: var(--accent);
+}
+
+@media (max-width: 1180px) {
+  .chip-sub {
+    display: none;
+  }
+  .chip-power .chip-short {
+    display: inline;
+  }
+  .chip-value {
+    font-size: 14px;
+  }
+  .chips {
+    gap: 8px;
+  }
+}
+
+/* ---------- Hero / city view ---------- */
+.panel-city {
+  position: relative; /* anchors the toast overlay (.toasts) */
+  padding: 0;
+  overflow: hidden;
+}
+
+.city-view {
+  position: relative;
+  min-height: 220px;
+  max-height: 340px;
   cursor: pointer;
   user-select: none;
   -webkit-user-select: none;
   overflow: hidden;
+  border-radius: inherit;
   transform-origin: 50% 90%;
+}
+
+/* Ratio box via padding (aspect-ratio would transfer min-height into width). */
+.city-view::before {
+  content: '';
+  display: block;
+  padding-top: 56.25%;
 }
 
 .city-view.is-tapped .skyline-host {
@@ -1247,42 +732,17 @@ button.gauge-happy:hover {
   position: absolute;
   inset: 0;
   transform-origin: 50% 100%;
-  /* Continues the SVG's sky gradient upward. The art's top edge is its first stop, --sk-top,
-     under the night rect (#03061a at night × 0.58, skyline.js) — so the host paints that same
-     colour from the art's top edge (the host's bottom minus the lift minus the drawing's
-     height) downward, and only darkens above it. Anything else is a hard seam where the SVG
-     starts. */
-  --sk-base: color-mix(in srgb, #03061a calc(var(--sk-night, 0) * 58%), var(--sk-top, #2456a8));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--sk-base) 84%, #05070f), var(--sk-base) calc(100% - var(--sky-lift) - var(--sky-h)), var(--sk-base));
 }
 
 /* Stacked SVGs: sky (animated clouds), then per depth row a static city layer and an animated
    fx layer, then the top layer (ground, night overlay, lights). Animated layers get their own
    compositor layer so a spinning blade never repaints a thousand windows. */
-/* Bottom-anchored, and at least half as tall as it is wide: on a 2:1-or-wider window that is
-   the full height (the art crops vertically, as it always did); on a taller screen the drawing
-   keeps a landscape shape so less of the city's width is sliced away. */
 .skyline {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--sky-lift);
-  top: auto;
+  inset: 0;
   display: block;
   width: 100%;
-  height: var(--sky-h);
-}
-
-/* Road apron: where the drawing is lifted clear of the dock, this continues its asphalt to the
-   bottom edge in the same colour the ground gradient ends on. */
-.city-view::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: var(--sky-lift);
-  background: #070a12;
+  height: 100%;
 }
 
 .sk-sky,
@@ -1452,11 +912,48 @@ button.gauge-happy:hover {
   }
 }
 
+/* Scrim behind the title so it stays legible against a bright noon sky or the sun. */
+.city-view::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(320px 150px at 0% 0%, rgba(4, 6, 20, 0.62), transparent 70%);
+}
+
+.city-overlay {
+  position: absolute;
+  left: 16px;
+  top: 14px;
+  z-index: 1;
+  pointer-events: none;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+}
+
+.city-name {
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.city-meta {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.city-tier {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  font-size: 10.5px;
+}
+
 .city-hint {
   position: absolute;
-  z-index: 4;
-  right: clamp(14px, 2vw, 26px);
-  bottom: calc(var(--dock-h) + 12px);
+  right: 14px;
+  bottom: 12px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1522,6 +1019,63 @@ button.gauge-happy:hover {
   }
 }
 
+/* Next milestone */
+.next-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.next-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 10px;
+  font-size: 18px;
+  background: color-mix(in srgb, var(--accent-ui) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-ui) 24%, transparent);
+}
+
+.next-body {
+  min-width: 0;
+}
+
+.next-name {
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.next-desc {
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  margin-top: 1px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.next-reward {
+  color: var(--text-3);
+  font-size: 11.5px;
+  margin-top: 8px;
+}
+.next-reward:empty {
+  display: none;
+}
+
+.panel-next .progress-fill {
+  --accent: var(--accent-ui);
+}
+
 /* Stats */
 .stat-grid {
   display: grid;
@@ -1583,10 +1137,8 @@ button.gauge-happy:hover {
 }
 
 .stat-value {
-  font-family: var(--display);
-  font-variant-numeric: tabular-nums;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 13.5px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1641,29 +1193,6 @@ button.gauge-happy:hover {
   font-size: 12px;
   color: var(--text-2);
   line-height: 1.5;
-}
-
-/* The founding rule (F6): two plain lines between the stat tiles and the button. */
-.prestige-rule {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 10px 0 12px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-2);
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid var(--line);
-  font-variant-numeric: tabular-nums;
-}
-.prestige-rule-line:first-child {
-  color: var(--text);
-  font-weight: 600;
-}
-.prestige-rule.is-met {
-  border-color: color-mix(in srgb, var(--c-prestige) 35%, var(--line));
 }
 
 /* ---------- Charter (legacy-priced perks inside the Legacy panel) ---------- */
@@ -1826,33 +1355,29 @@ button.gauge-happy:hover {
 }
 
 /* ---------- Build panel ---------- */
-.page-build {
+.col-build {
   container-type: inline-size;
   container-name: build;
-  gap: 0;
 }
 
-/* Category tabs and the buy-amount switch ride together in one bar that stays put while the
-   card list scrolls under it. */
-.build-bar {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+/* Fill the column so a short card list does not leave a dead strip under the panel. At desktop
+   widths the City log panel is re-homed under it (src/ui/index.js placeLog) and sits at the foot. */
+.col-build .panel-build {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0 10px;
-  margin-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, #16233f 72%, rgba(22, 35, 63, 0));
+  flex-direction: column;
+  flex: 1 0 auto;
+}
+.col-build .panel-log {
+  flex: 0 0 auto;
 }
 
 .tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
-  min-width: 0;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
 
 .tab {
@@ -1881,9 +1406,8 @@ button.gauge-happy:hover {
 
 .tab.is-active {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: inset 0 -2px 0 var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .tab-icon {
@@ -1924,28 +1448,6 @@ button.gauge-happy:hover {
    title/aria-label). Quantity-aware so two or three tabs stay fully labelled in a wide column:
    measured with the bundled Inter: five labelled tabs need a ~595px column with single-digit
    counts and ~640px once counts reach two digits (late game), four ~505px, three ~410px. */
-/* Narrow container (phone, or the landscape side panel): the buy-amount switch drops under the
-   tab strip and the strip itself scrolls sideways with a soft edge. */
-@container build (max-width: 620px) {
-  .build-bar {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
-    padding-right: 18px;
-  }
-  .tabs::-webkit-scrollbar {
-    display: none;
-  }
-  .tab {
-    flex: 0 0 auto;
-  }
-}
-
 @container build (max-width: 660px) {
   .tabs:has(> .tab:nth-child(5)) .tab:not(.is-active) .tab-label {
     display: none;
@@ -2161,14 +1663,6 @@ button.gauge-happy:hover {
 .pill-happiness .stat-val {
   color: var(--happy);
 }
-/* A joy-reducing building wears its cost: '−Joy −1.5%' in the danger tint. */
-.pill-joy-cost {
-  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
-}
-.pill-joy-cost .stat-key,
-.pill-joy-cost .stat-val {
-  color: var(--danger);
-}
 .pill-upkeep .stat-val {
   color: var(--danger);
 }
@@ -2368,7 +1862,6 @@ button.gauge-happy:hover {
 
 .onboard {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
@@ -2417,6 +1910,19 @@ button.gauge-happy:hover {
   .bcard {
     grid-template-columns: 40px minmax(0, 1fr) auto;
     gap: 10px;
+  }
+  /* The narrower card wraps its synergy / strain / power lines to two rows instead of
+     truncating 'Suburbs: +4% housing per Apart…' behind a hover title. */
+  .bcard-synergy,
+  .bcard-power {
+    white-space: normal;
+  }
+  .bcard-synergy > .bcard-line-text,
+  .bcard-power > .bcard-line-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .bcard-icon {
     width: 40px;
@@ -2909,22 +2415,27 @@ button.gauge-happy:hover {
 }
 
 /* ---------- Toasts ---------- */
-/* The stack drops in over the middle of the sky: clear of the HUD's two top corners, clear of
-   the dock and the sheet, and on the one surface where covering something costs nothing. */
+/* The host is an absolutely positioned overlay inside the city panel (.panel-city), so the
+   stack grows downward over the skyline — a large, forgiving tap target — and can never sit on
+   the Legacy panel's 'Found a new city' / 'Sign' buttons (whatever the hero column's scroll
+   position), the build column's Buy buttons or the sidebar. Two toasts fit inside the 220px
+   minimum city view; the panel's overflow: hidden clips anything taller. */
 .toasts {
   position: absolute;
   inset: 0 0 auto 0;
   height: 0;
-  z-index: 7;
+  z-index: 5;
   pointer-events: none;
 }
 
+/* Starts under the city title overlay (name + tier/citizens line, ~58px measured at 1440) so a
+   toast never hides the city's name or its meta line; two clamped toasts end well above the
+   220px view's tap hint. */
 .toast-stack {
   position: absolute;
-  top: clamp(96px, 13vh, 132px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(430px, calc(100vw - 32px));
+  left: 8px;
+  right: 8px;
+  top: 64px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2938,10 +2449,11 @@ button.gauge-happy:hover {
   gap: 9px;
   padding: 9px 12px 10px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(180deg, rgba(23, 35, 63, 0.96), rgba(13, 21, 41, 0.96));
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--plate-edge));
-  border-left: 3px solid var(--accent);
+  background: rgba(17, 24, 39, 0.92);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   pointer-events: auto;
   cursor: pointer;
   animation: toast-in 380ms var(--ease);
@@ -3053,12 +2565,6 @@ button.gauge-happy:hover {
 }
 
 /* ---------- Modal ---------- */
-/* createModal() latches .modal-open on <html>; the sheet body is the only scroller, so lock it
-   or a drag on the backdrop scrolls the sheet out from under the dialog. */
-.modal-open .sheet-body {
-  overflow: hidden;
-}
-
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -3111,13 +2617,11 @@ button.gauge-happy:hover {
 }
 
 .modal-body {
-  padding: 16px 20px 26px;
+  padding: 16px 20px 20px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
-  /* The last line fades rather than being sliced by the dialog's max-height. */
-  mask-image: linear-gradient(180deg, #000 0, #000 calc(100% - 20px), transparent 100%);
 }
 
 .form-section {
@@ -3184,7 +2688,6 @@ button.gauge-happy:hover {
   color: var(--danger);
 }
 
-/* The one dialog in the game should not be the one screen wearing the OS's own widgets. */
 .select,
 .textarea {
   background: rgba(0, 0, 0, 0.3);
@@ -3195,21 +2698,6 @@ button.gauge-happy:hover {
   font-size: 13px;
 }
 
-.select {
-  appearance: none;
-  -webkit-appearance: none;
-  padding-right: 30px;
-  /* Chevron drawn in the sheet's own line colour (--text-2). */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23adbad8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 14px 14px;
-}
-.select option {
-  background: var(--plate);
-  color: var(--text);
-}
-
 .textarea {
   width: 100%;
   resize: vertical;
@@ -3218,40 +2706,11 @@ button.gauge-happy:hover {
   line-height: 1.4;
 }
 
-/* Switch, not a browser checkbox: the same physical language as the dock keys. */
-.form-row input[type='checkbox'] {
-  appearance: none;
-  -webkit-appearance: none;
-  flex: 0 0 auto;
-  width: 42px;
-  height: 24px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--line-strong);
-  position: relative;
-  cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
-}
-.form-row input[type='checkbox']::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
+input[type='checkbox'] {
   width: 18px;
   height: 18px;
-  border-radius: 50%;
-  background: var(--text-2);
-  transition: transform var(--t-fast) var(--ease), background var(--t-fast);
+  accent-color: var(--accent-ui);
 }
-.form-row input[type='checkbox']:checked {
-  background: color-mix(in srgb, var(--brass) 42%, transparent);
-  border-color: var(--brass);
-}
-.form-row input[type='checkbox']:checked::after {
-  transform: translateX(18px);
-  background: var(--brass);
-}
-
 
 .boot-error {
   padding: 32px;
@@ -3272,13 +2731,16 @@ button.gauge-happy:hover {
 }
 
 /* ---------- Tutorial callout extras ---------- */
+.onboard {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
 .onboard-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 .onboard-step {
-  font-family: var(--mono);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10.5px;
   color: var(--text-3);
   letter-spacing: 0.04em;
@@ -3296,7 +2758,7 @@ button.gauge-happy:hover {
   cursor: pointer;
 }
 .onboard-close:hover {
-  color: var(--text);
+  color: var(--text-1, #fff);
   border-color: rgba(255, 255, 255, 0.25);
 }
 .tab.is-guided {
@@ -3304,192 +2766,89 @@ button.gauge-happy:hover {
   animation: nudge 1.4s ease-in-out infinite;
 }
 
-/* ---------- Wide sheet: two columns of cards ---------- */
-/* The sheet is up to 1120px on a desktop; a single column of 700px-wide rows would be a lot of
-   dead space beside each price, so the lists pair up once the container can hold two. */
-@container build (min-width: 720px) {
-  /* Two-up cards are the narrow case whatever the window is doing, so the signature and power
-     lines wrap to two rows here rather than truncating 'Suburbs: +4% housing per Apart…'
-     behind a hover title. */
-  .bcard-synergy,
-  .bcard-power {
-    white-space: normal;
+/* ---------- Mobile (< 900px): one column, page scroll, 44px touch targets ---------- */
+@media (max-width: 900px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
-  .bcard-synergy > .bcard-line-text,
-  .bcard-power > .bcard-line-text {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  #app {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
   }
-  .cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    align-items: start;
+  .shell {
+    display: block;
+    height: auto;
   }
-}
-
-/* The sheet is its own size context: in the landscape side panel it is 460px wide on a 1024px
-   screen, so a viewport query would pair columns that have no room to pair. */
-.sheet-body {
-  container-type: inline-size;
-  container-name: sheet;
-}
-
-@container sheet (min-width: 860px) {
-  .page-upgrades .ucards,
-  .page-milestones .ms-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    align-items: start;
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 6px 10px;
+    padding: 8px 12px;
   }
-  .page-city {
-    display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-    gap: 10px 26px;
-    align-items: start;
-  }
-  .page-city .hall {
-    display: contents;
-  }
-  .page-city .panel-prestige {
-    grid-column: 1;
-    grid-row: 1 / span 3;
-  }
-  .page-city .panel-stats {
+  .topbar-actions {
     grid-column: 2;
     grid-row: 1;
   }
-  .page-city .panel-happy {
-    grid-column: 2;
-    grid-row: 2;
-  }
-  /* Before the Legacy panel opens, happiness takes the empty left column instead of stacking
-     under the stats beside a hole. */
-  .page-city .panel-prestige[hidden] + .panel-happy {
-    grid-column: 1;
-    grid-row: 1 / span 3;
-    padding-top: 0;
-    border-top: 0;
-  }
-  .page-city .panel-log {
-    grid-column: 2;
-    grid-row: 3;
-  }
-  /* Columns separate the blocks here; the stacked hairline would draw across the gap. */
-  .page-city .panel + .panel,
-  .page-city .hall + .panel-log {
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-  .page-city .panel-prestige,
-  .page-city .panel-stats {
-    padding-top: 0;
-    border-top: 0;
-  }
-}
-
-/* ---------- Phone (<= 720px): the dock becomes the bottom bar ---------- */
-@media (max-width: 720px) {
-  :root {
-    --dock-h: 74px;
-  }
-
-  .dock {
-    left: 0;
-    right: 0;
-    bottom: 0;
-    transform: none;
-    gap: 6px;
-    padding: 7px 8px calc(7px + env(safe-area-inset-bottom, 0px));
-    background: linear-gradient(0deg, rgba(6, 11, 24, 0.92), rgba(6, 11, 24, 0.55) 70%, transparent);
-  }
-  .dock-btn {
-    flex: 1 1 0;
-    width: auto;
-    height: 56px;
-    box-shadow: 0 3px 0 var(--plate-shadow), 0 6px 16px rgba(3, 6, 16, 0.45);
-  }
-  .dock-btn:active,
-  .dock-btn.is-on {
-    transform: translateY(3px);
-  }
-
-  /* A phone is far taller than the 2:1 art. The drawing keeps a tall-ish shape (so the towers
-     still read at 390px) but lifts clear of the dock, and the apron carries the road down. */
-  :root {
-    --sky-lift: calc(var(--dock-h) - 14px);
-    --sky-h: max(50vw, 62%);
-  }
-
-  .hud {
-    padding: 12px 14px calc(var(--dock-h) + 6px);
-  }
-  .hud-money {
-    font-size: 32px;
-  }
-  .hud-gauges {
+  .chips {
     grid-column: 1 / -1;
-    gap: 14px;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
   }
-  .gauge {
+  .chip {
+    flex: 1 1 calc(50% - 6px);
     min-width: 0;
   }
-  .gauge-sub {
+  .layout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    min-height: 0;
+  }
+  .col,
+  .col-side {
+    overflow: visible;
+    max-height: none;
+    padding-right: 0;
+  }
+  .panel-city {
+    min-height: 200px;
+  }
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabs::-webkit-scrollbar {
     display: none;
   }
-  .gauge-bar {
-    width: 64px;
-  }
-  .hud-goal {
-    max-width: min(300px, 72vw);
-  }
-
-  :root {
-    --sheet-h: min(74dvh, 620px);
-  }
-  .sheet {
-    border-radius: 16px 16px 0 0;
-    border-left: 0;
-    border-right: 0;
-  }
-  .sheet-body {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .sheet-head {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
   .tab {
-    min-height: 40px;
+    flex: 0 0 auto;
+    min-height: 44px;
   }
-
-  /* Touch targets: 44px on everything a finger aims at. */
   .btn,
+  .bcard-buy,
+  .ucard-buy,
   .onboard-close,
-  .icon-btn,
-  .sheet-close,
-  .hud-btn {
+  .icon-btn {
     min-height: 44px;
   }
-  .seg-btn {
-    min-height: 44px;
-    padding: 4px 12px;
-  }
-  .form-row input[type='checkbox'] {
-    min-height: 32px;
-  }
   .onboard-close,
-  .icon-btn,
-  .sheet-close,
-  .hud-btn {
+  .icon-btn {
     min-width: 44px;
   }
-
   .bcard {
     grid-template-columns: 40px minmax(0, 1fr);
   }
@@ -3498,13 +2857,154 @@ button.gauge-happy:hover {
     width: 100%;
     justify-self: stretch;
   }
-  .ucard,
-  .ucard.is-locked {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
+  .ucard {
+    grid-template-columns: 36px minmax(0, 1fr);
   }
   .ucard-buy {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+  .toasts,
+  .toast-stack {
+    left: 12px;
+    right: 12px;
     width: auto;
-    min-width: 92px;
+    max-width: none;
+  }
+  .modal {
+    width: min(100vw - 16px, 560px);
+    max-height: 92vh;
+  }
+}
+
+/* ---------- Short viewports (landscape phones, small windows): page scroll, no inner panes ---------- */
+@media (max-height: 640px) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  #app {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  .shell {
+    display: block;
+    height: auto;
+  }
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+  }
+  .layout {
+    grid-template-rows: auto;
+    align-items: start;
+    min-height: 0;
+  }
+  .col,
+  .col-side {
+    overflow: visible;
+    max-height: none;
+    padding-right: 0;
+  }
+}
+
+/* ---------- Phone (< 900px): the panels people act on come first ---------- */
+@media (max-width: 900px) {
+  .col {
+    display: contents;
+  }
+  .panel-city {
+    order: 1;
+  }
+  .panel-build {
+    order: 2;
+  }
+  .panel-prestige {
+    order: 3;
+  }
+  .panel-upgrades {
+    order: 4;
+  }
+  .panel-next {
+    order: 5;
+  }
+  .panel-milestones {
+    order: 6;
+  }
+  .panel-stats {
+    order: 7;
+  }
+  .panel-log {
+    order: 8;
+  }
+}
+
+/* Phone layout is a flex column: panels must stretch (the short-viewport grid rule above
+   sets align-items: start for the tablet/desktop grids only). */
+@media (max-width: 900px) {
+  .layout {
+    align-items: stretch;
+  }
+  .panel {
+    width: auto;
+    max-width: none;
+  }
+}
+@media (max-width: 900px) and (min-width: 700px) {
+  .chip {
+    flex: 1 1 calc(25% - 6px);
+  }
+}
+
+/* ---------- Round 1 (phone review): toasts off the skyline, city view fits a landscape screen ---------- */
+@media (max-width: 900px) {
+  .toasts {
+    position: fixed;
+    inset: auto 0 0 0;
+    height: 0;
+    z-index: 60;
+  }
+  .toast-stack {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: 12px;
+    flex-direction: column-reverse;
+  }
+  .toast {
+    padding: 8px 12px 9px;
+  }
+}
+@media (max-height: 640px) {
+  .city-view {
+    min-height: 180px;
+    max-height: 62vh;
+  }
+}
+@media (max-width: 900px) {
+  /* .panel's contain: paint would trap the fixed toast host inside the city panel. */
+  .panel-city {
+    contain: none;
+  }
+}
+
+/* ---------- Round 2 (landscape review): one toast at a time on short screens ---------- */
+@media (max-height: 640px) {
+  .toast-stack .toast:not(:last-child) {
+    display: none;
+  }
+}
+
+/* ---------- Round 3 (phone review): locked upgrade cards keep price on the title row ---------- */
+@media (max-width: 900px) {
+  .ucard.is-locked {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
   }
   .ucard.is-locked .ucard-buy.ucard-lock {
     grid-column: auto;
@@ -3514,186 +3014,267 @@ button.gauge-happy:hover {
     gap: 6px;
     justify-self: end;
   }
-
-  /* Below the whole HUD block (city line, treasury, citizens, gauges) rather than over it. */
-  .toast-stack {
-    width: calc(100vw - 24px);
-    top: 150px;
-  }
-  .stage.is-sheet-open .toast-stack {
-    top: auto;
-    bottom: calc(var(--sheet-h) + 10px);
-    flex-direction: column-reverse;
-  }
-  .modal {
-    width: min(100vw - 16px, 560px);
-    max-height: 92vh;
-  }
-}
-
-/* ---------- Short and wide (itch.io's 960x640 frame, landscape tablets, small windows) ---------- */
-/* On a 2:1 drawing the bottom-left corner is the front row — the welcome sign, the trees, the
-   ferris wheel — and on a short screen the goal pill sat right on the sign. Under the treasury
-   it stands on the top scrim over empty sky instead. Capped narrow enough (the toasts are a
-   430px column in the middle) that the two never meet. */
-@media (max-height: 700px) and (min-width: 621px) {
-  .hud-goal {
-    grid-row: 2;
-    align-self: start;
-    max-width: min(300px, max(180px, 50vw - 230px));
-    padding: 5px 10px 6px;
-    gap: 8px;
-  }
-  .goal-name {
-    font-size: 12px;
-  }
-}
-/* The bottom sheet gets more of a short frame: at 640px tall the 62dvh sheet left ~170px of
-   card list under the title row and the build bar. Taller, and a tighter grip and head; the
-   HUD's top row stays clear above it. (Under 721px the phone sheet rules apply instead.) */
-@media (max-height: 700px) and (min-width: 721px) {
-  :root {
-    --sheet-h: min(72dvh, 560px);
-  }
-  .sheet-grip {
-    padding: 6px 0 2px;
-  }
-  .sheet-head {
-    padding: 0 16px 8px;
-  }
-  /* The taller sheet's top edge would sit under the toast column (two toasts reach ~210px
-     from clamp(96px, …)); higher up, the middle of the sky is clear of the purse (left) and
-     the gauges (right) at every width this block covers. */
-  .toast-stack {
-    top: 56px;
-  }
-}
-
-/* ---------- Short viewports (landscape phones, small windows) ---------- */
-@media (max-height: 560px) {
-  :root {
-    --dock-h: 58px;
-  }
-  /* Three cells across the top: there is no vertical room for a second HUD row. */
-  .hud {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-  .hud-gauges {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: start;
-    gap: 14px;
-    margin-right: 14px;
-  }
-  .hud-meta-row {
-    grid-column: 3;
-  }
-  /* The treasury never yields its glyph run to the other two cells. */
-  .hud-purse {
-    min-width: 150px;
-  }
-  .dock-btn {
-    height: 44px;
-    width: 62px;
-    font-size: 9.5px;
-    gap: 1px;
-  }
-  .dock-btn .ico svg {
-    width: 18px;
-    height: 18px;
-  }
-  .hud {
-    padding-top: 10px;
-  }
-  .hud-city {
-    display: none;
-  }
-  .hud-money {
-    font-size: 27px;
-  }
-  .gauge-sub {
-    display: none;
-  }
-  .hud-goal {
-    padding: 5px 10px 6px;
-  }
-  /* One toast at a time: two would cover the whole sky on a 390px-tall screen. */
   .toast-stack .toast:not(:last-child) {
     display: none;
   }
 }
 
-/* A landscape phone has height to spare nowhere and width to spare on the right, so the sheet
-   stops being a bottom sheet and becomes a side panel: the city keeps the left half, the dock
-   stays under it, and the dismiss drag follows the panel (--sheet-axis, see sheet.js). */
-@media (max-height: 560px) and (min-width: 620px) {
-  .sheet {
-    --sheet-axis: x;
-    left: auto;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    margin: 0;
-    width: min(52vw, 460px);
-    max-width: none;
-    height: auto;
-    max-height: none;
-    border-radius: var(--radius-xl) 0 0 var(--radius-xl);
-    border: 1px solid var(--plate-edge);
-    border-right: 0;
-    box-shadow: -20px 0 50px rgba(3, 6, 16, 0.55);
+/* ---------- Round 4 (phone review): compact sticky header ---------- */
+@media (max-width: 700px) {
+  .topbar {
+    padding: 6px 10px 8px;
+    gap: 4px 8px;
   }
-  .sheet.is-closed {
-    transform: translateX(100%);
+  .chips {
+    gap: 6px;
   }
-  .sheet-grip {
-    padding: 10px 0 4px;
+  .chip {
+    padding: 6px 9px;
+    min-height: 0;
+    gap: 7px;
   }
-  .sheet-body {
-    margin-bottom: var(--dock-h);
+  .chip-icon {
+    font-size: 15px;
   }
-  .dock {
-    left: 0;
-    right: min(52vw, 460px);
-    transform: none;
-    justify-content: center;
-    transition: right var(--t-med) var(--ease);
+  .chip-label {
+    font-size: 9px;
+    letter-spacing: 0.06em;
   }
-  .stage:not(.is-sheet-open) .dock {
-    right: 0;
+  .chip-value {
+    font-size: 13.5px;
   }
-  /* The HUD keeps its readouts on the visible half of the sky — which is only wide enough for
-     the treasury and the clock, so the gauges stand down while the panel is up. */
-  .stage.is-sheet-open .hud {
-    padding-right: calc(min(52vw, 460px) + 14px);
-  }
-  .stage.is-sheet-open .hud-gauges {
+  /* The population chip keeps its sub-line on a phone: it is the housing figure, and text.js
+     popLine prints the short form ('303K / 303K homes') so it never wraps at six-plus digits. */
+  .chip:not(.chip-pop) .chip-sub {
     display: none;
   }
-  .stage.is-sheet-open .hud-money {
-    font-size: 24px;
-  }
-  .stage.is-sheet-open .toast-stack {
-    left: calc(50% - min(26vw, 230px));
-  }
-  .stage.is-sheet-open .city-hint {
-    display: none;
-  }
-  .toast-stack {
-    top: 76px;
-    width: min(400px, 60vw);
+  .chip-pop .chip-sub {
+    font-size: 10px;
+    white-space: nowrap;
   }
 }
 
-/* ---------- Very narrow (<= 380px): labels shrink before anything wraps ---------- */
-@media (max-width: 380px) {
-  .dock-btn {
-    font-size: 9.5px;
+/* ---------- Ported from the stage rework: features that outlived their panels ----------
+   The single-screen dashboard is back (topbar + hero / build / side columns). These blocks
+   carry the work done while the stage layout was in place — the happiness breakdown (F4), the
+   founding rule (F6), the bulk-sell controls (F14) and the embed fullscreen chip (F13) — into
+   the panels that now hold them. */
+
+/* F4 — Happiness breakdown, a card in the hero column. Every signed term is on screen at once;
+   that is the point of this layout, so nothing here hides behind a disclosure. */
+.panel-lead {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.happy-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.happy-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.happy-row:nth-child(odd) {
+  background: var(--glass);
+}
+
+.happy-label {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.happy-note {
+  font-size: 10.5px;
+  color: var(--text-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.happy-val {
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  justify-self: end;
+}
+
+.happy-row.is-pos .happy-val {
+  color: var(--money);
+}
+.happy-row.is-neg .happy-val {
+  color: var(--danger);
+}
+.happy-row.is-zero .happy-label,
+.happy-row.is-zero .happy-val {
+  color: var(--text-3);
+}
+
+.happy-row.happy-total {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-strong);
+  background: none;
+}
+.happy-total .happy-label {
+  color: var(--text);
+  font-weight: 600;
+  font-size: 13px;
+}
+.happy-total .happy-val {
+  color: var(--happy);
+  font-size: 15px;
+}
+
+.happy-mult {
+  font-size: 11px;
+  color: var(--text-3);
+  justify-self: end;
+}
+
+.happy-hint {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.panel-happy[data-limit='max'] .happy-hint,
+.panel-happy[data-limit='min'] .happy-hint {
+  color: var(--warn);
+}
+
+/* F6 — the founding rule in plain words, above the button it explains. */
+.prestige-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--c-prestige);
+  border-radius: var(--radius);
+  background: var(--glass);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.prestige-rule-line:first-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.prestige-rule.is-met {
+  border-left-color: var(--money);
+}
+
+/* F14 — the ×1 / ×10 / Max amount and the Sell toggle sit side by side in the panel head. */
+.build-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* A joy-reducing building says so on its card, in the danger colour. */
+.pill.pill-joy-cost {
+  color: var(--danger);
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(248, 113, 113, 0.09);
+}
+.pill.pill-joy-cost .stat-key {
+  color: inherit;
+  opacity: 0.85;
+}
+
+/* F13 — the fullscreen chip. The dock it used to sit beside is gone, so it rides the bottom
+   right of the viewport: clear of the topbar, of every column's Buy row and of the toasts, and
+   fixed, so it is reachable whichever column has been scrolled. One tap dismisses it for good. */
+.fs-prompt {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(11, 15, 26, 0.92);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(8px);
+}
+
+.fs-prompt.is-entering {
+  animation: fs-in var(--t-med) var(--ease) both;
+}
+
+@keyframes fs-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
-  .hud-money {
-    font-size: 28px;
+  to {
+    opacity: 1;
+    transform: none;
   }
-  .hud-meta-row {
-    font-size: 10.5px;
+}
+
+.fs-go,
+.fs-close {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.fs-go {
+  padding: 7px 12px;
+}
+.fs-go:hover:not(:disabled) {
+  background: var(--glass-2);
+}
+.fs-go:disabled {
+  cursor: default;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.fs-close {
+  padding: 7px 10px;
+  color: var(--text-3);
+  font-size: 14px;
+}
+.fs-close:hover {
+  color: var(--text);
+  background: var(--glass-2);
+}
+
+@media (max-width: 700px) {
+  .fs-prompt {
+    right: 8px;
+    bottom: 8px;
+  }
+  .fs-go {
+    padding: 6px 10px;
+    font-size: 11.5px;
   }
 }

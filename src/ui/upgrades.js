@@ -32,8 +32,8 @@ export function createUpgradesPanel(ui) {
   });
   const locked = h('p.locked-note', { text: '' });
   const empty = h('p.empty-note', { text: 'Nothing on the drawing board right now. Grow the city and new ideas will surface.' });
-  const el = h('div.page-body.page-upgrades', { hidden: true }, [
-    h('div.page-head', [h('span.page-head-label', { text: 'Ideas on the drawing board' }), countEl]),
+  const el = h('section.panel.panel-upgrades', { hidden: true }, [
+    h('div.panel-head', [h('h2.panel-title', { text: 'Upgrades' }), countEl]),
     list,
     empty,
     showMore,

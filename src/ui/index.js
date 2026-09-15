@@ -1,14 +1,11 @@
-// UI module: mounts the city stage (skyline + HUD + dock + sheet) and drives the render loop.
+// UI module: mounts the dashboard shell and drives the per-frame render loop.
 // The ONLY module that touches the DOM. Reads game.state / game.derived / game.api; never
 // mutates game state directly (settings are the one exception — see setSetting).
 import { reportError } from '../core/safe.js';
 import { h, setNumFormat, money, fmtTime, num } from './dom.js';
 import { loadContent } from './content.js';
-import { createHud } from './hud.js';
-import { createCityView } from './city.js';
-import { createCityHall } from './cityhall.js';
-import { createSheet } from './sheet.js';
-import { createDock } from './dock.js';
+import { createTopbar } from './topbar.js';
+import { createHero } from './hero.js';
 import { createBuildPanel } from './build.js';
 import { createUpgradesPanel } from './upgrades.js';
 import { createMilestonesPanel } from './milestones.js';
@@ -25,17 +22,31 @@ const REBUILD_EVERY = 30; // frames — safety net; events trigger immediate reb
 const REBUILD_EVENTS = ['buy', 'sell', 'upgrade', 'unlock', 'milestone', 'load', 'prestige', 'offline'];
 // State changes outside a tick that need a panel pass but no list rebuild (schedule.js).
 const REFRESH_EVENTS = ['tap', 'setting', 'brownout', 'catchup'];
-// Dock pages, in dock order. `visible` hides a button until the game has opened that part of
-// the city; `badge` is what the button shouts about (a count, `true` for a bare dot).
-const PAGES = [
-  { id: 'build', title: 'Build', icon: 'build', badge: (c) => c.rows.filter((r) => r.unlocked && r.affordable && r.count === 0 && !r.maxed).length },
-  { id: 'upgrades', title: 'Upgrades', icon: 'spark', visible: (c) => !!c.s.unlocks['panel:upgrades'], badge: (c) => c.ups.filter((u) => u.unlocked && !u.owned && u.affordable && u.currency !== 'legacy').length },
-  { id: 'goals', title: 'Goals', icon: 'goal' },
-  { id: 'city', title: 'City hall', icon: 'hall', badge: (c) => c.hallReady },
-];
 const UNLOCK_TOAST_DELAY = 350; // ms — batch unlocks that land in the same burst into one toast
 const UNLOCK_QUIET_MS = 1500; // ms — after a load or a founding, re-latched unlocks are not news
 const PERF_WINDOW = 120; // frames in the rolling render-cost average
+const LOG_IN_BUILD_MIN_WIDTH = 1240; // px — at or above, the City log sits under the build panel
+
+// Moves the City log panel between the build column (wide layouts) and the sidebar (narrow),
+// following a matchMedia query so a resize re-homes it without a reload. Reparenting keeps the
+// panel's DOM and per-entry cache intact; nothing rebuilds.
+function placeLog(logEl, buildCol, sideCol, minWidth) {
+  let query = null;
+  try {
+    query = window.matchMedia ? window.matchMedia(`(min-width: ${minWidth}px)`) : null;
+  } catch {
+    query = null;
+  }
+  const apply = (wide) => {
+    const target = wide ? buildCol : sideCol;
+    if (logEl.parentNode !== target) target.append(logEl);
+  };
+  if (!query) return apply(true);
+  apply(query.matches);
+  const onChange = (e) => apply(!!e.matches);
+  if (typeof query.addEventListener === 'function') query.addEventListener('change', onChange);
+  else if (typeof query.addListener === 'function') query.addListener(onChange);
+}
 
 export async function init(game) {
   try {
@@ -85,34 +96,27 @@ async function mount(game) {
     },
   };
 
-  const hud = createHud(ui);
-  const city = createCityView(ui);
+  const topbar = createTopbar(ui);
+  const hero = createHero(ui);
   const build = createBuildPanel(ui);
   const upgrades = createUpgradesPanel(ui);
   const milestones = createMilestonesPanel(ui);
   const log = createLogPanel(ui);
-  const hall = createCityHall(ui);
 
-  // One stage: the city fills it, the HUD floats on the sky, the dock sits on the road and the
-  // sheet slides up over the road when a dock button is pressed. Nothing else is chrome.
-  const pageEls = { build: build.el, upgrades: upgrades.el, goals: milestones.el, city: h('div.page-body.page-city', [hall.el, log.el]) };
-  const sheet = createSheet(ui, PAGES.map((p) => ({ id: p.id, title: p.title, el: pageEls[p.id] })));
-  const dock = createDock(ui, PAGES.map((p) => ({ id: p.id, label: p.title, icon: p.icon, visible: p.visible, badge: p.badge })));
-  ui.sheet = sheet;
-  ui.openSheet = (id, opts) => sheet.open(id, opts);
-  ui.toggleSheet = (id) => sheet.toggle(id);
-  const stage = h('div.stage', [city.el, hud.el, dock.el, sheet.el]);
-  app.replaceChildren(stage);
-  // Opening a page must show live figures at once, not at the next tick.
-  sheet.onChange((id) => {
-    dock.setActive(id);
-    stage.classList.toggle('is-sheet-open', id !== null);
-    gate.mark();
-  });
+  const right = h('section.col.col-side', [upgrades.el, milestones.el, log.el]);
+  const main = h('main.layout', [hero.el, build.el, right]);
+  const shell = h('div.shell', [topbar.el, main]);
+  app.replaceChildren(shell);
 
-  // Toasts drop in over the middle of the sky: clear of the HUD's two top corners, clear of
-  // the dock, and on the one surface where covering something costs the player nothing.
-  ui.toasts = createToasts(stage);
+  // City log placement: at desktop widths the build column is half empty early on (2-3 cards
+  // per category) while the sidebar overflows, so the log rides at the foot of the build
+  // column and the centre carries live information. Narrower layouts keep it in the sidebar.
+  placeLog(log.el, build.el, right, LOG_IN_BUILD_MIN_WIDTH);
+
+  // Toasts overlay the city panel (top of the skyline, a large forgiving tap target), so a
+  // burst can never sit on the Legacy panel's 'Found a new city' / 'Sign' buttons — whatever
+  // the hero column's scroll position — nor on the build column's Buy buttons or the sidebar.
+  ui.toasts = createToasts(hero.cityPanel);
   ui.modal = createModal(app);
   try {
     ui.sfx = createSfx(ui);
@@ -120,11 +124,14 @@ async function mount(game) {
     reportError('ui:sfx', e);
   }
   ui.settings = createSettingsModal(ui, ui.modal);
-  // Inside an iframe (itch.io's embed) the layout fits the frame as it is; a small chip
-  // offers fullscreen on first load and stays dismissed once tapped away (embed.js, F13).
+  // Inside an iframe (itch.io's embed) fullscreen is far better once found, so a small chip
+  // offers it on first load and stays dismissed once tapped away (embed.js, F13). The dock it
+  // used to sit beside is gone; it rides the bottom-right corner of the viewport instead, where
+  // it is clear of the topbar, of every column's Buy row and of the toast stack, and — being
+  // fixed — stays reachable whichever column the player has scrolled.
   try {
     document.documentElement.classList.toggle('is-framed', isFramed());
-    ui.fullscreen = createFullscreenPrompt(ui, stage);
+    ui.fullscreen = createFullscreenPrompt(ui, app);
   } catch (e) {
     reportError('ui:embed', e);
   }
@@ -213,10 +220,10 @@ async function mount(game) {
   });
 
   // ---- render loop ----
-  // Every frame: the HUD's number tweens and the skyline's sky/clouds (animation). Only on
-  // frames where the simulation ticked or an event landed (schedule.js): the api row fetches,
-  // the dock badges and whichever sheet page is open. Lists rebuild on their events or every
-  // REBUILD_EVERY frames as a safety net. ui.perf.full counts the full passes.
+  // Every frame: the topbar's number tweens and the skyline's sky/clouds (animation). Only on
+  // frames where the simulation ticked or an event landed (schedule.js): the api row fetches
+  // and the panels that draw state. Lists rebuild on their events or every REBUILD_EVERY
+  // frames as a safety net. ui.perf.full counts the full passes.
   let lastT = 0;
   let frames = 0;
   let rendering = false;
@@ -237,8 +244,8 @@ async function mount(game) {
 
       if (ui.dirty) gate.dirty();
       const plan = gate.next({ tick: game.state.tick, frame: frames });
-      hud.update(dt);
-      city.animate(dt);
+      topbar.update(dt);
+      hero.animate(dt);
       if (plan.refresh) {
         full = true;
         rows = game.api.buildings();
@@ -249,21 +256,14 @@ async function mount(game) {
           upgrades.rebuild(ups);
           milestones.rebuild();
           log.rebuild();
-          city.setBuildings(rows);
-          city.rebuild(ups);
-          hall.rebuild(ups);
+          hero.setBuildings(rows);
+          hero.rebuild(ups);
         }
-        city.update();
-        // Lists are always rebuilt (an unlock must be waiting when the sheet opens) but only
-        // the page actually on screen redraws its numbers, so a closed sheet costs nothing.
-        if (sheet.visible('build')) build.update(rows);
-        if (sheet.visible('upgrades')) upgrades.update(ups);
-        if (sheet.visible('goals')) milestones.update();
-        if (sheet.visible('city')) {
-          hall.update(ups);
-          log.update();
-        }
-        dock.update({ s: game.state, d: game.derived, rows, ups, hallReady: hall.ready() });
+        hero.update(ups);
+        build.update(rows);
+        upgrades.update(ups);
+        milestones.update();
+        log.update();
       }
     } catch (e) {
       reportError('ui:render', e);

@@ -1,4 +1,4 @@
-// Milestones list (reached + next 3) and shared milestone progress helper (used by the HUD goal line).
+// Milestones list (reached + next 3) and shared milestone progress helper (used by the hero card).
 import { h, icon, setText, setHidden, setProgress, fmtPct } from './dom.js';
 
 const RECENT = 3;
@@ -87,7 +87,7 @@ export function createMilestonesPanel(ui) {
   const countEl = h('span.panel-meta.mono', { text: '' });
   const list = h('ul.ms-list');
   const empty = h('p.empty-note', { text: 'No goals posted yet. The council is still drafting its plans.' });
-  const el = h('div.page-body.page-milestones', [h('div.page-head', [h('span.page-head-label', { text: 'Reached and up next' }), countEl]), list, empty]);
+  const el = h('section.panel.panel-milestones', [h('div.panel-head', [h('h2.panel-title', { text: 'Milestones' }), countEl]), list, empty]);
 
   const rows = new Map(); // id -> { el, fill, pct }
   let signature = '';

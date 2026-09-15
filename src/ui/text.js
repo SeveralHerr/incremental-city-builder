@@ -77,6 +77,19 @@ export function legacyPointBar({ earned, nextAt, prevAt, legacy = 0, gain = 0 } 
   return out;
 }
 
+// The citizens chip in the topbar: `shown` is the tweened count on screen, `pop` the real
+// figure the housing test reads. 'of 16 housing' reads as a warning to someone who has not met
+// housing yet, so the plain wording holds until the town is actually filling up. Under the
+// phone breakpoint the chip is ~140px wide and '303,455 of 303,455 housing' wrapped to three
+// lines, so `compact` prints the short form '303K / 303K homes' and shortens an eight-digit
+// count. Pure.
+export function popLine(shown, housing, compact = false, pop = shown) {
+  const filling = housing > 0 && pop > housing * 0.8;
+  if (compact && filling) return { count: short(shown), sub: `/ ${short(housing)} homes` };
+  if (compact && shown >= 1e7) return { count: short(shown), sub: 'citizens' };
+  return { count: num(shown), sub: filling ? `of ${num(housing)} housing` : shown === 1 ? 'citizen' : 'citizens' };
+}
+
 // 'Windmill, Corner Shop and 7 more' — a burst of unlocks folds into one line.
 export function nameList(defs, shown = 2) {
   const names = defs.map((d) => d.name);

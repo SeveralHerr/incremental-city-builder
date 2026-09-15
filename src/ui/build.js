@@ -144,13 +144,16 @@ export function createBuildPanel(ui) {
     }
     return null;
   }
-  // Sheet page: a sticky control row (categories + buy amount) over a scrolling card list.
-  // The page title lives on the sheet header, so there is no second 'Build' heading here.
-  const el = h('div.page-body.page-build', [
-    h('div.build-bar', [tabBar, modes]),
-    onboarding,
-    list,
-    empty,
+  // The build column of the dashboard: one panel, its head carrying the buy/sell amount
+  // controls, then the category tabs, the tutorial callout and the cards.
+  const el = h('section.col.col-build', [
+    h('section.panel.panel-build', [
+      h('div.panel-head', [h('h2.panel-title', { text: 'Build' }), modes]),
+      tabBar,
+      onboarding,
+      list,
+      empty,
+    ]),
   ]);
   let onboardingShown = 0;
 

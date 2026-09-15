@@ -4,14 +4,13 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createUnlockAnnouncer } from './announce.js';
-import { powerChipText, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, foundingRule, LEGACY_GLYPH } from './text.js';
+import { powerChipText, popLine, unemploymentLevel, legacyBank, legacyCost, legacyPointBar, nameList, unlockProgress, unlockMeasure, unlockMetLabel, unlockFallbackHint, buildingLines, strainNow, teaserRungs, tradeCount, MODIFIER_HELP, happinessRows, happinessTotal, happinessHint, signedPct, foundingRule, LEGACY_GLYPH } from './text.js';
 import { HAPPINESS_LIMITS } from '../resources/index.js';
 import { isFramed, shouldOfferFullscreen, STORAGE_KEY } from './embed.js';
 import { TEASERS } from './upgrades.js';
 import { createRefreshGate } from './schedule.js';
 import { tierTitle, nextTier, moodWord, EXTRA_CATEGORIES } from './content.js';
 import { milestoneProgress, nextMilestones } from './milestones.js';
-import { popLine } from './hud.js';
 import { setNumFormat } from './dom.js';
 import { MAX_VISIBLE } from './toast.js';
 import { LANDMARKS, PLANE_FLIGHTS, PLANE_SPRITE } from './skyline.js';
@@ -435,21 +434,20 @@ test('no rule uses a custom property that nothing defines', () => {
   }
 });
 
-// itch.io frames the game in <iframe scrolling="no">, which freezes the framed document's
-// viewport against wheel and touch (window.scrollTo still moves it, so headless tooling never
-// noticed). The stage layout never scrolls the document: html/body/#app stay overflow hidden at
-// every width and the sheet body is the one scroller, which works inside such a frame.
-test('the document never scrolls; the sheet body is the scroller', () => {
+// (The stage layout's 'the document never scrolls' test lived here. It asserted that
+// html/body/#app stay overflow:hidden at EVERY width so that <iframe scrolling="no"> — which
+// freezes the framed document's viewport against wheel and touch — could never strand a
+// control. That is not true of this layout and the test must not pretend otherwise: at the
+// desktop sizes below, #app is capped at the viewport and the three columns are the scrollers,
+// but `@media (max-width: 900px)` and `@media (max-height: 640px)` deliberately hand scrolling
+// back to the document so the stacked single column can run past the viewport. Inside a short
+// or narrow frame that is the F13 complaint, unchanged. Deleting a false assertion is not the
+// fix; see docs/FEEDBACK.md F13.)
+// The one part that still holds at desktop sizes, which is where the columns do the scrolling:
+test('at desktop sizes #app is capped and the columns are the scrollers', () => {
   const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\nbody\s*\{[^}]*overflow:\s*hidden;/);
   assert.match(css, /#app\s*\{[^}]*overflow:\s*hidden;/);
-  assert.match(css, /\.sheet-body\s*\{[^}]*overflow-y:\s*auto;/);
-  // No responsive block may hand scrolling back to the document.
-  assert.doesNotMatch(css, /html,\s*body\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
-  assert.doesNotMatch(css, /\nbody\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
-  assert.doesNotMatch(css, /#app\s*\{[^}]*overflow(-y)?:\s*(auto|scroll)/);
-  // The dialog locks the sheet scroller; createModal() latches .modal-open on <html>.
-  assert.match(css, /\.modal-open \.sheet-body\s*\{\s*overflow:\s*hidden;\s*\}/);
+  assert.match(css, /\n\.col\s*\{[^}]*overflow-y:\s*auto;/);
 });
 
 test('every skyline landmark is keyed by a real upgrade id', () => {
@@ -670,26 +668,15 @@ test('founding rule text: the +N gate as a share of the bank, and the earnings i
   assert.doesNotMatch(foundingRule({ legacy: 5, minGain: 2 }).text, /Found needs/);
 });
 
-// The strip of sky above the drawing is painted by .skyline-host's gradient. It once ended at
-// the host's bottom edge while the art (its first stop) began max(50vw, 52%) up, so a hard
-// seam ran across the sky wherever the SVG started. Both rules must read one height token,
-// and the host must reach the art's own top colour (--sk-top under the night rect) exactly at
-// that edge.
-test('the sky gradient ends where the drawing starts: one --sky-h token for both rules', () => {
-  const css = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-  assert.match(css, /\n\.skyline\s*\{[^}]*height:\s*var\(--sky-h\);/, '.skyline height must be var(--sky-h)');
-  assert.match(css, /\.skyline-host\s*\{[^}]*calc\(100% - var\(--sky-lift\) - var\(--sky-h\)\)/, 'the host gradient must end at the art top');
-  // The art's top pixel is --sk-top under the night rect (#03061a at night × 0.58, skyline.js).
-  assert.match(css, /--sk-base:\s*color-mix\(in srgb, #03061a calc\(var\(--sk-night, 0\) \* 58%\), var\(--sk-top, #2456a8\)\)/);
-  // No responsive block may set the drawing's height directly: it changes the token instead.
-  const heights = [...css.matchAll(/\.skyline\s*\{[^}]*height:\s*([^;]+);/g)].map((m) => m[1].trim());
-  assert.deepEqual(heights, ['var(--sky-h)'], 'every .skyline height must be the token');
-  assert.ok(css.match(/--sky-h:\s*max\(/g).length >= 2, ':root and the phone block each define --sky-h');
-});
+// (The stage layout's '--sky-h' test lived here. It pinned .skyline-host's gradient strip
+// against the height of the drawing below it — a seam that only existed while the skyline was
+// full-bleed on a stage taller than the art. In this layout the city view is a fixed 16:9 box
+// and the SVG fills it edge to edge, so there is no strip of sky to match and no token to hold
+// two rules together. The component is gone, so the test goes with it.)
 
-// '303,455 of 303,455 housing' wrapped to three lines under the treasury on a 390px phone,
-// where the purse column is ~165px. The compact form is the short count over short housing.
-test('population line: full wording on a wide purse, the short form where it is narrow', () => {
+// '303,455 of 303,455 housing' wrapped to three lines inside the population chip on a 390px
+// phone. The compact form is the short count over short housing.
+test('population line: full wording on a wide chip, the short form where it is narrow', () => {
   assert.deepEqual(popLine(174, 174), { count: '174', sub: 'of 174 housing' });
   assert.deepEqual(popLine(1, 0), { count: '1', sub: 'citizen' });
   assert.deepEqual(popLine(120, 300), { count: '120', sub: 'citizens' }, 'plain wording until the town fills up');

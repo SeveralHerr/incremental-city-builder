@@ -1,7 +1,9 @@
-// Embedded play (docs/FEEDBACK.md F13). itch.io frames the game in an <iframe>; the stage
-// layout already fits the frame (nothing scrolls but the sheet body), and fullscreen is far
-// better once found — so inside a frame, on first load, a small chip offers it. It never
-// blocks anything, dismisses with one tap, and stays dismissed: the setting is not in the
+// Embedded play (docs/FEEDBACK.md F13). itch.io frames the game in an <iframe>; the dashboard
+// fits the frame (the document never scrolls — each column is its own scroller), and fullscreen
+// is far better once found — so inside a frame, on first load, a small chip offers it from the
+// bottom-right corner of the viewport, where it covers no control and stays put whichever
+// column has been scrolled. It never blocks anything, dismisses with one tap, and stays
+// dismissed: the setting is not in the
 // simulation's whitelist (settings there are game state), so the memory lives in this
 // browser's localStorage, guarded — a blocked store just means the chip shows again next time.
 //

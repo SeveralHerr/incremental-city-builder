@@ -248,47 +248,71 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
   toward the next founding on a near-flat income — that is the plateau the cadence target asks for,
   not a stall).
 
-**Measured (2026-09-14 wave, round 4 — wave-3 integrator verification, 2026-09-15; `logs/sim-gauntlet.json`,
-`logs/sim-saver.json`, `logs/sim-human.json`, `logs/sim-human-24h.json`, `node src/buildings/cadence.mjs`,
-`node tools/verify.mjs --ticks 10000 --tag wave3`; the greedy bot is the round-3 honest grid-ahead player,
-`src/core/bot.js`, and the human bot now founds at share 1.0 — see "Human-profile calibration"):**
-Greedy PASS, **contract PASS, 0 issues, 0 errors** (round 3 read contract FAIL on two lines, both closed here:
-[variety] 2/29 late cycles empty → **0/29**, and [power] session under-power 0.8 % → **3.6 %** inside the 3–20 % band).
-34 foundings; cycles (min) 35.0 · 11.0 · 9.7 · 6.8 · 6.5 · 8.4 · 11.1 · 13.7 · 17.1 · 22.2 · 23.5 · 25.9 · 11.6 · 6.7 · 8.9 · 11.6 · 14.7 · 17.9 · 17.4 · 22.4 · 29.7 · 37.6 · 49.3 · 31.8 · 38.3 · 25.8 · 27.1 · 24.0 · 23.8 · 30.4 · 32.9 · 27.2 · 13.8 · 18.2
-(none over ×1.35 from the 5th; longest 49.3 at cycle 23, last 18.2); **0 empty late cycles** (the wave-3 tail re-placement
-moves the Superconductor Grid above the Galactic Charter so cities 27–33 get seven novelties for seven cities —
-`src/balance/plan.json` and the `cityOrder` table in `balance.test.mjs` record the shipped order);
-every building and all 94 upgrade rungs bought; reach 53 %;
-under-power **3.6 %** of the session (by hour 0.2 % · 0.4 % · 0.1 % · 0.3 % · 0.2 % · 16.8 % · 4.1 % · 1.6 % · 8.7 % · 11.0 % · 0.0 % · 0.0 %; ≥ 1 % in 5 of hours 3–12), floor 0.60;
-median cap/demand by hour 1.16 · 1.68 · 1.57 · 1.56 · 1.13 · 1.05 · 1.00 · 1.00 · 1.00 · 1.06 · 1.28 · 1.35 (none > 2.5 from hour 3, none < 1.0 from hour 2); happiness dips in
-21/34 cities (last half 4/17); legacy 530,998 (213,186 spent on all twelve charter perks), money peak 4.21e+17 (tick level).
-Saver (`--saver`, `logs/sim-saver.json`): PASS, contract PASS, 0 issues: 35 foundings, first 32.6 min, reach 63 %,
-under-power 3.1 %, legacy 743,544, money peak 6.28e+17, 4 empty late cities; the 36th founding (the one
-that crosses the 1e6 ceiling) still cannot land before ~728 min (`balance.test.mjs` holds ≥ 727).
-Human profile (`--profile human`, `logs/sim-human.json`; ten gates in `tools/economy-sim.mjs`): 8 of 10 PASS.
-Cycles 45.5 · 13.1 · 16.4 · 13.7 · 28.0 · 47.1 · 43.2 · 40.0 · 42.2 · 50.8 · 62.3 · 85.9 · 75.4 · 125.0 (14 foundings);
-**F1(a) PASS** — every complete city 4–9 is under the 90-min branch (13.7 · 28.0 · 47.1 · 43.2 · 40.0 · 42.2, was 63.0 · 76.1 · 73.1 · 105.6 · 164.1);
-**F1(b) still FAIL** — longest stretch with no DECISION purchase 26.3 · 46.8 · 43.2 · 40.0 · 27.2 min in cities 5–9 against a 20-min rule
-(was 61.3 · 76.1 · 48.1 · 104.8 · 51.0 in cities 4–8: better in every city, still open; the all-purchases gap over the same run reads 10 · 20 · 11 · 11 · 14);
-median cap/demand by hour 1.07 · 1.50 · 1.52 · 1.64 · 1.32 · 1.17 · 1.08 · 1.00 · 1.00 · 1.00 · 1.00 · 1.00
-(none > 4.0 from hour 3, none < 1.0, no city with a ≥ 3× median); median unemployment by hour 19 % · 0 % · 0 % · 0 % · 0 % · 0 % · 13 % · 0 % · 0 % · 0 % · 0 % · 1 %
-(**inside 2–15 % in 1 of hours 3–12 against a ≥ 3 rule — a regression from round 3's 3 (h7 14 %, h11 4 %, h12 3 %); it is content, not the profile:
-the same wave-3 tree run with the old share-2.0 rule reads 0 of 10 and fails the > 15 % line as well, so the new founding rule improves this line
-rather than causing the drop — see "Open" below**), by city none > 20 % from the 4th, jobs/pop 1.03 · 0.53 · 0.97 · 1.29 · 1.28 · 1.26 · 1.17 · 1.20 · 1.17 · 1.21 · 0.87 · 1.10 · 1.12 · 1.12 (0.85–1.3 in every complete city ≥ 4);
-Lights Out (≥ 30 s at ratio ≤ 0.95, strain-aware guard) in city 12 (258 s) — earned by content, one complete city ≥ 4 against a ≥ 1 rule;
-F12 segment hour 2 0.67 min, hour 3 0.62; legacy 40,965, money peak 2.84e+14.
-Human 24 h (`--ticks 864000`, `logs/sim-human-24h.json`): every gated line passes — power over hours 2–24 (none > 4.0 from hour 3,
-no ≥ 3× city in 20 cities), unemployment per-city and per-hour, jobs/pop 0.85–1.3 in all 17 complete cities ≥ 4,
-Lights Out in 4 complete cities (12, 15, 16, 17) against a ≥ 2 rule, F12 — and the run exits non-zero on the flat
-12 h magnitude ceiling alone (legacy 2,622,972 at 24 h; 20 foundings). See "Open" below: that ceiling is a contract
-question, not a balance miss, and it has not been loosened here.
-First-city building cadence (`node src/buildings/cadence.mjs`, `buildings.test.mjs` 19 and 20): **0 problems** — the four pairs
-round 3 read under the 90 s rule are office→tower **92 s** (was 28), nuclear→techpark **122 s** (was 88),
-financial→fusion **114 s** (was 70) and fusion→stadium **112 s** (was 30); first city founds at 35.0 min, 0 errors.
-Headless verify (`--ticks 10000 --tag wave3`, `logs/wave3.json`): PASS, 0 errors, tick avg 0.013 ms, p99 0.10 ms, **60.3 fps**, no overflow.
-Suite: `npm test` **10/10 files** (214 assertions).
-Control runs (`logs/sim-human-control-prewave.txt`, `logs/sim-human-control-round2.txt`, `logs/sim-human-sticker.txt`): the pre-wave content with the
-final bot fails every power line and Lights Out; the sticker guard latches 0 cities ≥ 4 on the round-3 content (hours of 0.95 < ratio < 1, never ≤ 0.95).
+**Measured (balance wave 3, shipped `a570de0`, 2026-09-15 — integrator run and reproduced independently
+by three skeptics; `logs/sim-gauntlet.*`, `logs/sim-saver.*`, `logs/sim-human.*`, `logs/sim-human-24h.*`,
+`node src/buildings/cadence.mjs`, `node tools/verify.mjs --ticks 10000 --tag wave3`. The greedy bot is the
+honest grid-ahead player, `src/core/bot.js`; the human bot founds at share 1.0 — see "Human-profile
+calibration". The wave's skeptic gate returned REFUTED; nothing in docs/FEEDBACK.md is ticked.):**
+
+*Greedy 12 h (`--ticks 432000`):* PASS, **contract PASS, 0 issues, 0 errors**. 34 foundings; cycles (min)
+35.0 · 11.0 · 9.7 · 6.8 · 6.5 · 8.4 · 11.1 · 13.7 · 17.1 · 22.2 · 23.5 · 25.9 · 11.6 · 6.7 · 8.9 · 11.6 · 14.7 · 17.9 · 17.4 · 22.4 · 29.7 · 37.6 · 49.3 · 31.8 · 38.3 · 25.8 · 27.1 · 24.0 · 23.8 · 30.4 · 32.9 · 27.2 · 13.8 · 18.2
+(none over ×1.35 from the 5th; longest non-last 49.3 against a `plan.json cycleMax` of 50 — 1.5 % of margin
+left, decide before the next income change). **0 empty late cycles** (was 2/29, first cycle 21) and
+`neverPurchased` empty: the tail re-placement moves the Superconductor Grid above the Galactic Charter
+($1.5Qa vs $853T) so cities 27–33 get seven novelties for seven cities, and no late city is filled by a
+fleet rung alone. reach 53 %; under-power **3.6 %** of the session (by hour 0.22 · 0.44 · 0.11 · 0.28 · 0.17 ·
+16.82 · 4.06 · 1.61 · 8.72 · 11.00 · 0.00 · 0.00 %; ≥ 1 % in 5 of hours 3–12), floor 0.60; median cap/demand by hour
+1.16 · 1.68 · 1.57 · 1.56 · 1.13 · 1.05 · 1.00 · 1.00 · 1.00 · 1.06 · 1.28 · 1.35 (none > 2.5 from hour 3, none < 1.0
+from hour 2); happiness dips in 21/34 cities (last half 4/17); legacy 530,998 (213,186 spent on all twelve
+perks), money tick-peak 4.21e17.
+
+*Saver 12 h (`--saver`):* PASS, contract PASS, 0 issues. 35 foundings, first 32.6 min, reach 63 %, under-power
+3.1 %, legacy 743,544, money tick-peak 6.28e17, longest non-last cycle 49.6. **Not gated and not green:**
+`GATED = PROFILE === 'default'` (`tools/economy-sim.mjs:89`), and the saver carries
+`emptyLateCycles [18, 30, 31, 34]` — the same metric whose greedy reading is the line this wave closed.
+
+*Human 12 h (`--profile human`; ten gates):* **8 of 10 PASS.** Cycles 45.5 · 13.1 · 16.4 · 13.7 · 28.0 · 47.1 ·
+43.2 · 40.0 · 42.2 · 50.8 · 62.3 · 85.9 · 75.4 · 125.0 (14 foundings). F1(a) prints PASS over complete cities 4–9
+— **but see "Open": that is a window artifact, not a closed line**; the same run's cities 10–14 read
+50.8 · 62.3 · 85.9 · 75.4 · 125.0 min (c12 ×1.38, c14 ×1.66) outside the window and unread. F1(b) **FAILS**:
+longest stretch with no DECISION purchase 26.3 · 46.8 · 43.2 · 40.0 · 27.2 min in cities 5–9 against a 20 min
+rule (HEAD 61.3 · 76.1 · 48.1 · 104.8 · 51.0; all-purchases gap over the same run 10 · 20 · 11 · 11 · 14; as a
+*fraction of the city* the gap is 1.00 in cities 7, 8 and 10). Median cap/demand by hour 1.07 · 1.50 · 1.52 ·
+1.64 · 1.32 · 1.17 · 1.08 · 1.00 · 1.00 · 1.00 · 1.00 · 1.00 (none > 4.0 from hour 3, none < 1.0, no city with a ≥ 3×
+median); session under-power 2.7 % (below the contract's 3 % floor, not gated on this profile); median
+unemployment by hour 19 · 0 · 0 · 0 · 0 · 0 · 13 · 0 · 0 · 0 · 0 · 1 % — **inside 2–15 % in 1 of hours 3–12 against a
+≥ 3 rule: FAIL, and a regression from 3 of 10** (see "Open"); by city none > 20 % from the 4th; jobs/pop
+1.03 · 0.53 · 0.97 · **1.29 · 1.28** · 1.26 · 1.17 · 1.20 · 1.17 · 1.21 · 0.87 · 1.10 · 1.12 · 1.12 (0.85–1.30 in every
+complete city ≥ 4, c4 on the rail); Lights Out (≥ 30 s at ≤ 0.95, strain-aware) in **city 12 alone** (258 s)
+against a ≥ 1 rule, with cities 1–11 at exactly 2 s under power; `reachShare` over complete cities 4–9
+**39 % of 212 samples against a reported ≥ 40 % target** (HEAD 48 % of 480; session 48 %; c4 reads 0 %);
+F12 hour 2 0.67 min, hour 3 0.62; legacy 40,965, money tick-peak 2.84e14.
+
+*Human 24 h (`--ticks 864000`):* **FAIL, contract FAIL, 3 issues, 0 errors.** `magnitude` (legacy 2,622,972 and
+money tick-max **9.99e17 against 1e18 — 0.1 % of headroom** — against a ceiling the contract states at 12 h),
+`unemployment` (1 of 10, same as 12 h) and `cadence` (F1(b), cities 5–12 at 26 · 47 · 43 · 40 · 27 · 51 · 53 · 74 min).
+Every *other* gated line passes: power over hours 2–24 (none > 4.0 from h3, none < 1.0 from h2, no ≥ 3× city
+in 20 cities), per-city and per-hour unemployment, jobs/pop 0.85–1.30 in all 17 complete cities ≥ 4, Lights
+Out in 4 cities (12, 15, 16, 17) against a ≥ 2 rule, F12. Cycles 13–20 read 75.4 · 125.0 · 130.8 · 109.5 · 123.9 ·
+58.2 · 113.2 · 120.4 min (c14 ×1.66, c19 ×1.95, six cities over the 90-min branch), all outside the cities-4–12
+window and unread; session reach 29 %, `emptyLateCycles [18, 19]`.
+
+*First-city building cadence (`node src/buildings/cadence.mjs`, `buildings.test.mjs` 19 and 20):* **0 problems.**
+office→tower **90–92 s** (was 28), nuclear→techpark **122–126 s** (was 88), financial→fusion **114 s** (was 70),
+fusion→stadium **108–112 s** (was 30); first city founds 35.0 min, peak pop 80,319 (−2.8 %), first shop 0.8 min,
+0 errors. Not bought at the first city's expense: `probe.mjs --trace 0` prints a byte-identical city-0 trace
+through minute 12 on both trees (pop 999 at 10.3 min, 2,291 at 12.0), tower and school *buy* times are unchanged
+at 9.9 / 11.6 min (only their open times moved), and first-city purchase tension reads 41 % → 43 %.
+
+*Headless verify (`--ticks 10000 --tag wave3`, `logs/wave3.json`):* PASS, 0 errors, tick avg 0.011–0.015 ms,
+p99 0.10 ms, **60.2–60.4 fps**, no overflow. *Suite:* `npm test` **10/10 files**, exit 0 (was 8/10).
+
+*Gate-tampering check, run first and independently by all three skeptics on `git diff 1c3ebfa a570de0`:*
+clean. `tools/economy-sim.mjs` comment-only; `buildings.test.mjs` no diff at all; `balance.test.mjs` only its
+hand-written `cityOrder` mirror re-ordered to the shipped ladder with the 22-rung monotonicity assertion
+byte-identical; `upgrades.test.mjs` **tightened** (all-owned demand pinned to the exact product ×1.105 ±0.002
+inside a two-sided 1.09–1.12, replacing a one-sided 0.95–1.05). One minor documented widening: the Blueprints
+per-city fold moved from exact `near(fold, 1.12^4)` to a 0.5 % relative band (1.078^6 = 1.5693 vs 1.5735).
 
 **Human-profile calibration (wave 3, 2026-09-15 — what the instrument is fitted to, and what that
 costs).** F1 is a wall-clock cadence contract, and the human profile is the instrument it is read
@@ -308,82 +332,117 @@ both columns and the F1 verdict per row, is tabulated above `HUMAN_FOUND_SHARE`;
 columns on every human run ("vs the player's screenshot") so the legacy cost stays visible. The
 shipped value is pinned two-sided in `src/core/core.test.mjs` — it is a measuring-instrument setting,
 not a tuning knob, and moving it re-times every F1 number in this file.
+**What the wave-3 skeptics established about this change, to be read with it:** the whole of F1(a)'s
+"PASS" is this one line. The shipped tree at the old rule (`--found triple`) still FAILS F1(a) at
+c7 ×1.46 / c8 ×1.58, and HEAD's untouched tree at the new rule (`--found double`) PASSES it — so the
+wave's content moved F1(a) by noise, and because the gate's window is indexed by city number rather
+than by the clock, the long cities moved out from under it rather than away (see "Open", Lens A).
 
-**Open (documented, not gated; 2026-09-14 wave, round 4 verification 2026-09-15 — the numbers are
-the logs named in "Measured" above):**
-- *The magnitude ceiling is a 12 h contract read on 24 h runs.* Principle 4 above says money ≤ 1e18
-  and legacy ≤ 1e6 **at 12 h**; `tools/economy-sim.mjs` applies the same two numbers at any
-  `--ticks`. On 12 h nothing is near them. On the 24 h human run the legacy half is decided by how
-  many cities the founding rule fits into the second twelve hours, not by balance: share 2.0 read
-  886,015 (12 foundings) and share 1.0 reads 2,622,972 (20 foundings, logs/sim-human-24h.json), so the 24 h run reports a
-  `magnitude` issue and exits non-zero while every gated 24 h line — power, unemployment, Lights
-  Out, F12 — passes. The check has not been loosened or made hours-aware here: whether the ceiling
-  should scale with the run, be read only at the 12 h mark, or stay flat is a contract decision, not
-  an integrator flip.
-- *F1 human cadence.* Two lines, and wave 3 splits them. **(a) The ratio line** (each complete city
-  4–9 ≤ 1.35× the previous or ≤ 90 min) read ×1.44 / ×1.55 on cities 7 and 8 of the share-2.0
-  profile, and it was never closable by fixed-threshold content: at "found once the haul is ≥ 2× the
-  bank" the bank triples every city, so lifetime earnings must grow 3^(1/0.488) = 8.5× per city —
-  that arithmetic, not a price, produces cycles 63.0 · 76.1 · 73.1 · 105.6 · 164.1, and buying the
-  ratio back needs a ~×1.25 plateau income term in cities 7–9 alone on a saver already at 35/35
-  foundings and 6.31e17 of a 7e17 ceiling. It is closed by re-fitting the instrument instead (see
-  "Human-profile calibration" above): at share 1.0 the complete cities 4–9 all sit under 90 min and
-  the line passes on its own escape clause, at the legacy cost recorded there. **(b) The decision-gap
-  line** (no stretch > 20 min without a purchase whose reach at unlock was ≥ 30 s) is content's, not
-  the profile's: on the share-2.0 tree the gap read 61 · 76 · 48 · 105 · 51 min in cities 4–8 while
-  the *all-purchases* gap over the same run read 28 · 18 · 23 · 28 · 45 — the whole difference being
-  the treasury-holds-the-price (`funded`) door on the fleet ladder, which makes reach-at-unlock 0 by
-  construction and hides every rung behind it from the metric. Shortening the cities does not by
-  itself close it (share 1.0 on the same content still reads 26 · 47 · 43 · 40 · 27 in cities 5–9).
-  **The named lever was built and refuted in round 4.** Dropping `funded` from the fleet columns
-  moved the decision gap only inside noise (cities 4–6: 61.3 · 76.1 · 48.1 → 58.9 · 76.7 · 46.0) and
-  cost `reachShare` two thirds (48 % → 16 %), because at the tick each count gate opens the rung is
-  worth 0.2–26.6 s of income *everywhere* in cities 4–9 — always under the 30 s threshold, with or
-  without the money door. The cause is arithmetic, not placement: a fleet rung is priced in fixed
-  dollars and re-bought every city while income triples per city, so the same rung is 4.4 s of
-  income in city 4 and 0.2 s in city 9. Closing it needs a price that scales with the city (the
-  gating building's *current* cost), and `cost` is a static number on the definition — a core API
-  change, not content. Round 4's 24-rung, six-gate ladder (60/90/115/140/160/180 per column) is what
-  took every city's gap down from the round-3 reading; the line stays open on that seam
-  (docs/FEEDBACK.md F1).
-- *The greedy's under-power floor — closed in round 4, and how.* Round 3's honest grid-ahead greedy
-  read 0.9 % of 12 h against the contract's 3–20 %, and the module header's sweep showed the only
-  knob that bought the line outright (a ×1.12 city-wide draw) overshot the other way, taking a
-  fully-upgraded city to ×1.16 of its stickers and breaking the invariant that all-owned demand sits
-  near ×1.0. Round 4 took the third option the sweep left open: spread the same bite over *more,
-  smaller* rungs — `FLEET_DRAW` 1.07 on six draw rungs (Trading Floors and Campus Expansion II/IV/VI)
-  instead of ×1.12 on two — which reads 3.6 % of the session (by hour ≥ 1 % in 5 of hours 3–12, peak
-  16.8 % in hour 6) and 328 · 278 · 146 · 302 · 334 s under power in greedy cities 21–28. The
-  all-owned demand invariant was **re-stated, not relaxed**: `upgrades.test.mjs` now pins the exact
-  product ×1.105 to ±0.002 with a two-sided 1.09–1.12 band and the card text says so, where before it
-  pinned ≈ ×1.0 — a tighter assertion against a deliberately different number. The human profile earns
-  its Lights Out from the same steps (city 12, 258 s on 12 h; cities 12/15/16/17 on 24 h).
-- *The human unemployment band regressed in round 4, and it is content.* The gate "median
-  unemployment inside 2–15 % in ≥ 3 of hours 3–12" read 3 of 10 on round 3 (h7 14 %, h11 4 %, h12 3 %
-  — passing by exactly the minimum) and reads **1 of 10** here (h7 13 %). Attributed by A/B rather
-  than by argument: the same round-4 tree run with the *old* share-2.0 founding rule reads **0 of 10**
-  and also trips the "> 15 %" line (h7 17 %), so the new founding rule improves this line and the
-  drop came with the content. The cause is the fleet ladder's two employer columns: six ×1.078 jobs
-  rungs per column per city compound to ×1.57, which lifts jobs/pop in the human's cities 4–10 to
-  1.17–1.29 (round 3: 0.89–1.27) and leaves structurally zero unemployment in the hours between.
-  Every other unemployment line still passes on both 12 h and 24 h (per-city ≤ 20 %, per-hour ≤ 15 %,
-  jobs/pop inside 0.85–1.3 in all 17 complete cities of the 24 h run). The lever is the ladder's
-  jobs-to-housing ratio (two employer columns against one housing column), which is upgrades content
-  and re-times F1 and the greedy contract if it moves — not an integrator patch.
-- *Happiness is decorative late.* Greedy dips below 1.0 sit in the first 21 cities (last half of
-  the cities 4 of 17 on the round-3 log); human 24 h cities 9–12 read minHappiness 1.06–1.4. The
-  ≥ 50 % line holds on the first half and is kept; civic content past greedy city 21 / human city 9
-  is accepted as decorative (docs/FEEDBACK.md F4's trade-off is what remains of the lever).
-- *F12b tempo.* The point bar is decorative past hour 4 on exponent 0.488 (a point every ≤ 5 s
-  from hour 4 in every profile); gated where it is readable — hour 2 within 0.5–30 min, hour 3
-  ≥ 0.5 (human) / ≥ 0.25 (greedy: hour 3 is cities 5–9 with 7–12-minute cycles on a ×1.4-per-
-  founding sequence). A ~0.35 exponent is a full re-placement wave (docs/FEEDBACK.md F12b).
-- *The post-stack surplus.* With the power fold bounded at ×5.49 supply / ×0.736 demand (net ×7.5
-  over a session) the human's mature grid settles at 1.0–1.4× demand on 24 h (hours 17–24 1.14 · 1.36 · 1.34 · 1.27 · 1.24 · 1.45 · 1.42 · 1.40) and the greedy's at 1.4–1.55× in hours 11–12: a
-  1.2–2.0× plateau is the accepted late surplus; the ≤ 4.0 / no-≥ 3×-city lines hold over every
-  hour played.
-- *Saver placement.* One price table cannot put both profiles 5 % inside: a saver's 30 s-of-income
-  reach lands every frontier rung ~2 cities before the greedy's spree pile (`config.js`, "What
-  the saver brake is"); the saver's empty late cities follow from the same gap. The first city's
-  purchase tension reads 0 % of its minute-samples (the core ladder opens a reflex buy every 1–2
-  min; needs re-spaced gates, not prices).
+**Open — standing refutations from the wave-3 skeptic gate (2026-09-15, verdict REFUTED by all three
+lenses on the shipped tree `a570de0`). Listed by lens; every number is from the logs named in "Measured".
+These are demands on the next wave, not documentation of a passing state.**
+
+*Lens A — "F1 and the shape of a city: did wave 3 give the player something to DO, or move the wait
+where the gate does not look?" (refuted, confidence 0.93)*
+- **F1(a) was closed by the instrument, not by the game, and must not be recorded as closed.** Matched
+  experiments: the shipped tree at the old founding rule (`--found triple`) FAILS at c7 ×1.46 / c8 ×1.58;
+  HEAD's untouched 16-rung tree at the new rule (`--found double`) PASSES. The delta is 100 %
+  `HUMAN_FOUND_SHARE 2.0 → 1.0` (`src/core/bot.js:293`) and 0 % content.
+- **Fix the window before any further F1 work.** `complete cities 4–9` (`lastRatioCity = hours >= 24 ? 12 : 9`)
+  is a city-INDEX window measuring a wall-CLOCK contract: at 8 foundings it covered run-minutes 83–565, at
+  14 it covers 75–207. Re-express it in game hours (every complete city that ENDS after hour N), or read
+  every complete city; then re-read F1(a) on HEAD and on the shipped tree under the new window and publish
+  both. Until then the gate prints its own counter-evidence as unread: 12 h cities 10–14 =
+  50.8 · 62.3 · 85.9 · 75.4 · 125.0 min; 24 h cities 14–20 = 125.0 · 130.8 · 109.5 · 123.9 · 58.2 · 113.2 · 120.4
+  with c19 ×1.95.
+- **Make the ratio clause able to fail.** With every windowed city at 13.7–47.1 min the `≤ 90 min` branch
+  carries the gate alone and c5 ×2.05 / c6 ×1.68 pass unremarked. Either drop the OR-branch past some index
+  or rename F1(a) here as what it actually is — a "no city over 90 min" check.
+- **Restore the unemployment band gate to PASS** (`≥ 3 of hours 3–12 inside [2 %, 15 %]`) before any wave is
+  called green: 3 of 10 at HEAD → **1 of 10** now (h7 13 %), on both 12 h and 24 h. A green line the wave
+  regressed and disclosed; disclosure is not closure.
+- **Fix the human 24 h magnitude failure rather than leaving it undecided.** The run exits 1 on legacy
+  2,622,972 vs a 1e6 ceiling *and* money tick-max 9.99e17 vs 1e18. Not by loosening: either the ceiling is a
+  per-12h-equivalent and the check must say so, or 20 foundings in 24 h is itself the defect. As it stands
+  the profile F1, F2 and F3 are all measured with cannot finish a 24 h run.
+- **Justify or revert the 8 extra fleet rungs per column.** At matched profile they move all-purchase gaps by
+  noise (10/20/11/11/14 vs HEAD 10/20/12/15/14), take `reachShare` over cities 4–9 from 44–48 % to 39 %
+  (target ≥ 40 %), and make city 8's decision gap 51 → 82.3 min at the old profile. `src/upgrades/data.js`
+  already states in the tree that this ladder cannot close F1(b).
+- **Gate the saver's variety line or state why it is exempt** (`emptyLateCycles [18, 30, 31, 34]`, read by no
+  contract, while the greedy's identical metric is the line this wave closed).
+
+*Lens B — "power, variety and the greedy contract" (refuted, confidence 0.79; three of four red lines
+independently confirmed closed)*
+- **Say `GATED = PROFILE === 'default'` out loud beside every "contract PASS".** "Variety: 0 empty late
+  cycles" is a greedy-12h sentence; the saver reads `[18, 30, 31, 34]` and the human 24 h `[18, 19]` with the
+  contract silent.
+- **Replace the per-city decision-gap MINUTES line with the gap as a fraction of the city, or print both.**
+  Minutes fall whenever cities shorten and say nothing about plateau density; the fraction is **1.00 in
+  cities 7, 8 and 10** on this tree (the whole city is one gap, all 36–37 purchases at minute 0) and was
+  0.97–1.00 in cities 4, 5 and 7 at HEAD. Any claim that a ladder "spaces purchases" must move the fraction.
+- **State the Lights Out line at the scope the record uses.** "Earned by content in cities 7–8" is now one
+  complete city (12) on the 12 h human with cities 1–11 at exactly 2 s under power. Either record that as a
+  regression alongside the unemployment one, or re-state the green line as the gate's actual contract
+  (≥ 1 city on 12 h, ≥ 2 on 24 h) and say so — the gate counts cities with index ≥ 4 and cannot see the move.
+- **F2 is not ticked.** Its own contract line (under-power 3–20 %) is met for the first time on the gated
+  profile, but its first stated consequence went the wrong way and the human 12 h session reads 2.7 %, under
+  the 3 % floor. If a later wave ticks it, the restated invariant goes in the box: all-owned demand is
+  **×1.105** of sticker, pinned two-sided at 1.09–1.12 — the old "net ≈ ×1.0 of sticker" claim must not survive.
+- **Run the F3 `--grant` what-if on this tree before F3 is judged again.** The founding rule moved unassisted
+  Megastructures from city 7 to **city 10 at ~326 min**, and every run printed `granted no city`, so F3's
+  evidence at the player's own point is missing from the record.
+- **One prose-over-check line in `src/upgrades/upgrades.test.mjs`:** the frontier comment claims "never wider
+  than ×6 / the widest step is the Ringworld District at ×6.5" while the loop beneath it starts after
+  `stellar-engine` and never reads that ×6.45 step. Widen the loop (correct) or stop quoting a bound the
+  assertion does not enforce.
+- **`plan.json cycleMax` is nearly spent:** greedy longest non-last cycle 49.27, saver 49.6, ceiling 50 (HEAD
+  46.4 / 46.5). Decide before the next income change rather than discovering it as a HARD exit mid-wave.
+
+*Lens C — "the first city, jobs, and everything that was green on 1c3ebfa" (refuted, confidence 0.86)*
+- **The first city is verified undamaged** (byte-identical city-0 trace to minute 12; tower/school buy times
+  unchanged; the cadence fix removed dead card-sitting rather than adding waiting), and F8 is verified
+  untouched — but **F1, F3 and F7 must not be ticked**, and F2 only with the ×1.105 restatement above.
+- **Publish `reachShare` over complete cities 4–9 (39 %, target ≥ 40 %, was 48 %) and the c4 = 0 % reading
+  next to every F1(b) decision-gap claim.** The two moved in opposite directions and only one was reported.
+- **Record the jobs/pop coupling in every hand-over:** c4 = 1.29 against a 1.30 limit, held by techpark 18,500
+  + stadium 73,000 — numbers chosen for the buildings cadence probe. Any future move of either re-opens the
+  unemployment gate, and the next wave must be told so.
+- **F7 is unchanged and not clean:** the sim's own probe still reads `green-belts 1.00` and `city-archives 1.00`
+  against its caption "a rung bought at 1.00 cannot deliver growth", and no skeptic has confirmed a player
+  feels the rungs.
+
+**Open (standing design items, carried; the numbers are the logs named in "Measured"):**
+- *The magnitude ceiling is a 12 h contract read on 24 h runs.* Principle 4 says money ≤ 1e18 and legacy ≤ 1e6
+  **at 12 h**; `tools/economy-sim.mjs:754` applies the same two numbers at any `--ticks`. On 12 h nothing is
+  near them. On 24 h the legacy half is decided by how many cities the founding rule fits into the second
+  twelve hours: share 2.0 read 886,015 (12 foundings), share 1.0 reads 2,622,972 (20 foundings) — and money
+  tick-max is 9.99e17 against 1e18, 0.1 % of headroom, which is a tail-income number in its own right.
+  Not loosened and not made hours-aware here; see Lens A's demand.
+- *F1, both halves.* (a) is a window artifact (Lens A) and (b) is content's: a fleet rung has a **static dollar
+  price** and is re-bought every city while income triples per city, so the same rung is worth 4.4 s of income
+  in city 4 and 0.2 s in city 9 — under the 30 s DECISION threshold everywhere, with or without the `funded`
+  money door (dropping that door was built and refuted in round 4: gaps moved inside noise, `reachShare` fell
+  48 % → 16 %). Closing it needs a price that scales with the city (the gating building's *current* cost), i.e.
+  a core API change, not content. docs/FEEDBACK.md F1.
+- *The greedy's under-power floor — closed, and how.* Round 3's honest greedy read 0.8 % against 3–20 %. The
+  knob that bought the line outright (a ×1.12 city-wide draw) overshot to ×1.16 of stickers; wave 3 spread the
+  same bite over six ×1.07 rungs instead (Trading Floors and Campus Expansion II/IV/VI), reading 3.6 % with
+  ≥ 1 % in 5 of hours 3–12 and 328 · 278 · 146 · 302 · 334 s under power in greedy cities 21–28. The invariant
+  was re-stated tighter (×1.105 ±0.002, two-sided 1.09–1.12) with card text `draw +7 %` matching.
+- *The human unemployment band regressed, and it is content.* 3 of 10 → 1 of 10 (h7 13 %). Attributed by A/B:
+  the same tree at share 2.0 reads 0 of 10 and trips > 15 %, so the founding rule improves the line. The cause
+  is the fleet ladder's two employer columns (six ×1.078 jobs rungs each, ×1.57 compounded), lifting jobs/pop
+  in cities 4–10 to 1.17–1.29. The lever is the ladder's jobs-to-housing ratio (two employer columns against
+  one housing column) — upgrades content, and it re-times F1 and the greedy contract if it moves.
+- *Happiness is decorative late.* Greedy dips sit in the first 21 cities (last half 4/17); human 24 h cities
+  9–12 read minHappiness 1.06–1.4. The ≥ 50 % line holds on the first half and is kept.
+- *F12b tempo.* The point bar is decorative past hour 4 on exponent 0.488; gated only where readable (hour 2
+  0.5–30 min, hour 3 ≥ 0.5 human / ≥ 0.25 greedy). A ~0.35 exponent is a full re-placement wave.
+- *The post-stack surplus.* With the fold bounded at ×5.49 supply / ×0.736 demand the human's mature grid
+  settles at 1.0–1.45× on 24 h and the greedy's at 1.28–1.35× in hours 11–12; a 1.2–2.0× plateau is the
+  accepted late surplus and the ≤ 4.0 / no-≥ 3×-city lines hold over every hour played.
+- *Saver placement.* One price table cannot put both profiles 5 % inside: a saver's 30 s reach lands every
+  frontier rung ~2 cities before the greedy's spree pile, and its empty late cities follow from the same gap.
+  The first city's purchase tension reads 0 % of its minute-samples (the core ladder opens a reflex buy every
+  1–2 min; re-spaced gates, not prices — docs/FEEDBACK.md F17).

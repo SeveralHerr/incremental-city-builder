@@ -147,6 +147,26 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
   → Done in `005183f`: lifetime count across every city (`stats.buildingsBuiltPrior + buildingsBuilt`); every profile crosses it in city 9 at ~125 min. Reward is now "taps pay 2×" — a reachable +10 % income pushed both 12 h profiles past the 1e18 ceiling; balance may re-grant an income reward in the F1 retune.
 - [ ] **F11 simulation — offline legacy (info).** Overnight idle earned ~5k legacy; feels
   logarithmic and acceptable. No action, but keep it that way.
+- [ ] **F17 upgrades/balance — early-game upgrades fire too fast (P2).** Reported by the owner
+  2026-09-15, playing the *current* deployed build (waves 1–2 live), not the original session:
+  "many of the early game upgrades happen really fast". Independently confirmed by the sim and
+  already on record as a known open item — `docs/DESIGN.md` "Open" says the first city's
+  purchase tension reads **0 % of its minute-samples**, i.e. the cheapest unlocked-unowned money
+  upgrade is essentially never the 30 s – 15 min of income away that the contract's `reachShare`
+  metric calls tension; the core ladder "opens a reflex buy every 1–2 min". So the player is
+  describing a measured property of the build, not an impression.
+  Diagnosis on record: **re-spaced gates, not prices.** A price only decides *which* city or
+  minute buys a rung; what makes the first city a stream of reflex buys is that the unlock
+  conditions open faster than the treasury can make any of them feel like a target. Note the
+  tension with F0, where the same player praised early cadence: F0 was about costs and building
+  unlock pacing overall, this is specifically the *upgrade* rungs, and the early game has since
+  been re-effected (wave 1 re-clause'd the dead growth rungs, wave 3 is moving first-city
+  building unlock spacing) — so re-read F0 against the current build before assuming they agree.
+  Care: `reachShare` over the whole session is a contract gate at ≥ 30 % and currently passes on
+  the greedy profile (~42 %); the first city is the part that reads 0 %. Any fix must raise the
+  first city without dropping the session line, and must not slow the opening beats config.js
+  pins (first shop < 60 s, 1k pop ~11 min, Legacy panel ~18.6 min). Wants a first-city-only
+  tension metric before tuning, the same way F16 demanded the human profile before F2/F3.
 
 ## UI
 

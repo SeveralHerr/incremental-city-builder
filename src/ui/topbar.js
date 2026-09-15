@@ -1,5 +1,5 @@
 // Top bar: brand + city tier, resource chips (money, population, power, happiness), settings.
-import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, num, moneyRate, fmtPct, fmtTime } from './dom.js';
+import { h, icon, setText, setClass, setHidden, setProgress, setAttr, tween, money, moneyRate, fmtPct, fmtTime } from './dom.js';
 import { tierTitle, moodWord } from './content.js';
 import { powerChipText, popLine } from './text.js';
 

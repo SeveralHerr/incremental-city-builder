@@ -2936,11 +2936,15 @@ input[type='checkbox'] {
   .panel-milestones {
     order: 6;
   }
-  .panel-stats {
+  /* The happiness breakdown reads with the stats: both are the ledger, not a control. */
+  .panel-happy {
     order: 7;
   }
-  .panel-log {
+  .panel-stats {
     order: 8;
+  }
+  .panel-log {
+    order: 9;
   }
 }
 
@@ -3049,7 +3053,9 @@ input[type='checkbox'] {
     display: none;
   }
   .chip-pop .chip-sub {
+    display: block; /* the @media (max-width: 1180px) rule above hides every other one */
     font-size: 10px;
+    min-width: 0;
     white-space: nowrap;
   }
 }

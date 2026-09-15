@@ -199,7 +199,7 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
 
 ## UI
 
-- [ ] **F18 ui — the stage layout hides the game; bring back the single screen (P1).** Owner,
+- [x] **F18 ui — the stage layout hides the game; bring back the single screen (P1).** Owner,
   2026-09-15, on the deployed build: "the old UI single screen was better. Please use the old
   UI setup." Commit `01dd022` replaced a three-column dashboard (topbar + hero column with the
   city, next milestone, prestige and stats cards; build column; side column with upgrades,
@@ -223,6 +223,19 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
   rather than re-architecting around it. If F13 does re-open, it is a genuine tension between
   two pieces of owner feedback and needs an explicit decision, not a silent compromise.
 
+  → **Done** `281b04f` (restore + retire), `f8c2411` (happiness card, phone population line),
+  `aa4e6f8` (dead import), `c06b40a` (framed inner scroller, touch targets). The three-column
+  dashboard is back: at 1440×900 and 1280×800 a player sees the city, next milestone, happiness
+  ledger, build panel, upgrades, milestones and the log at once, nothing behind a button.
+  `city.js`, `cityhall.js`, `dock.js`, `hud.js`, `sheet.js` are gone. Everything built on the
+  stage survived: F14 bulk sell verified live (the shown refund equals `api.sellRefund` to the
+  cent, and a real shift-click moved the treasury by exactly that), F4's ledger is a new
+  `.panel-happy` card in the hero column, F6's founding rule and F12's segment bar sit on the
+  Legacy card, and `popLine` moved out of the deleted `hud.js` into `text.js` (still pure, its
+  test kept) to feed the topbar. Three independent reviewers drove the live page. Two tests that
+  pinned deleted components were replaced with narrower ones plus a comment recording what they
+  used to guard, rather than rewritten into passing lies.
+
 - [x] **F12 ui — legacy progress bar fills from 0, not from the last point (P1).** "Next legacy
   point" bar reads as % of the whole target instead of last-point → next-point, so late
   game it looks permanently full. Fix in the Legacy / City Hall panel using
@@ -234,10 +247,24 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
   · 0.02 · 0.01 · 0.01 · 0.01 min). Gated only where it is a tempo a player can read — hour 2 within
   0.5–30 min and hour 3 ≥ 0.5 (human) / ≥ 0.25 (greedy: its hour 3 is cities 5–9 with 7–12-minute
   cycles on a ×1.4-per-founding sequence) — and written into DESIGN.md as decorative past hour 4.
-  A ~0.35 exponent is a full re-placement wave.- [x] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
+  A ~0.35 exponent is a full re-placement wave.
+
+- [x] **F13 ui — itch.io embed needs lots of scrolling to find controls (P2).** Fullscreen was
   much better once discovered. Check the embed viewport size on the itch page and make the
   layout fit it, or surface a fullscreen prompt on first load inside an iframe.
   → Done: measured inside a real `<iframe scrolling="no">` at 960×640 and 1280×720 — HUD, dock and sheet all fit, the framed document never scrolls (the sheet body is the only scroller). Inside a frame (`self !== top`, or `?embed=1` for tooling) a "Fullscreen ↗ ×" chip sits in the free corner by the dock on first load: one tap calls `requestFullscreen`, × dismisses; either is remembered in localStorage (`metropolis.ui.fullscreenPrompt`, guarded — the key is not in the simulation's `SETTINGS` whitelist). Settings › Display also has a Fullscreen button. `src/ui/embed.js`, decision helper tested.
+
+  → **Re-opened by F18's restore, then closed** `c06b40a`. The old layout's `@media (max-height:
+  640px)` and `@media (max-width: 900px)` rules hand scrolling to the *document*, which
+  `<iframe scrolling="no">` freezes: inside a 960×640 itch frame the document stood 2,448 px tall
+  and would not move under trusted wheel gestures, leaving Upgrades, Milestones and the City log
+  512 px below the fold and **unreachable** — worse than the original complaint, which was only
+  about scrolling. Caught by the restore's own measurement and confirmed independently by all
+  three reviewers. The fix hands framed play an inner scroller instead of the document.
+  Re-verified by the integrator at 960×640 in a real frozen iframe: the document no longer
+  scrolls (scrollHeight 640 = clientHeight, scrollTop stays 0), an inner pane takes the wheel
+  (scrollTop 1,600), and the Upgrades panel moves from 1,681 px below the fold to 81 px, visible.
+  No horizontal overflow. 1280×720 was fine throughout.
 - [x] **F14 ui — no bulk sell (P2).** Sell is one at a time. Add a modifier key (shift/ctrl/alt,
   the genre standard) and/or let the ×10 / Max segment apply to Sell.
   → Done: Sell is a toggle beside the ×1 / ×10 / Max switch and obeys it (×10 with 7 owned sells 7, Max sells all, never below 0); Shift-click = ×10, Ctrl/⌘-click = Max on any Buy or Sell button (rule on the tooltips and in Settings). The button shows core's own `api.sellRefund` for the exact amount, one `api.sell(id, n)` call per click (one debounced save). `text.js tradeCount`, tested.

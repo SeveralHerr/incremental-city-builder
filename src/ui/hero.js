@@ -170,9 +170,8 @@ export function createHero(ui) {
   const happyMult = h('span.happy-mult.mono', { text: '' });
   const happyTotalRow = h('div.happy-row.happy-total', [h('span.happy-label', { text: 'Happiness' }), happyMult, happyTotal]);
   const happyHint = h('p.happy-hint', { text: '' });
-  const happyMeta = h('span.panel-meta.mono', { text: '' });
   const happyPanel = h('section.panel.panel-happy', { hidden: true }, [
-    h('div.panel-head', [h('h2.panel-title', { text: 'Happiness' }), happyMeta]),
+    h('div.panel-head', [h('h2.panel-title', { text: 'Happiness' })]),
     h('p.panel-lead', { text: 'Every dollar the city earns is multiplied by 0.5 + 0.5 × happiness. The terms below add up to it.' }),
     happyList,
     happyTotalRow,
@@ -209,7 +208,11 @@ export function createHero(ui) {
 
   // The city panel is exposed so the toast overlay can mount inside it (see index.js).
   const cityPanel = h('section.panel.panel-city', [cityView]);
-  const el = h('section.col.col-hero', [cityPanel, nextPanel, prestigePanel, happyPanel, statsPanel]);
+  // Happiness sits above Legacy: happiness is a number read constantly, founding an occasional
+  // action, and the Legacy card is 500-600px tall — below it the happiness breakdown fell clean
+  // off a 900px viewport late game. The phone block in styles.css orders these explicitly, so
+  // this is the desktop order only.
+  const el = h('section.col.col-hero', [cityPanel, nextPanel, happyPanel, prestigePanel, statsPanel]);
 
   // Called on rebuild frames only (buy/sell/prestige/load/offline events + safety net).
   let lastRows = [];
@@ -390,7 +393,6 @@ export function createHero(ui) {
       const tot = happinessTotal(hb);
       setText(happyTotal, tot.text);
       setText(happyMult, tot.incomeText);
-      setText(happyMeta, tot.incomeText);
       const reason = hb ? hb.capReason : 'none';
       setText(happyHint, happinessHint(reason, hb));
       setAttr(happyPanel, 'data-limit', typeof reason === 'string' ? reason : 'none');

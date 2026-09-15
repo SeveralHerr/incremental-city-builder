@@ -1,8 +1,12 @@
-// Embedded play (docs/FEEDBACK.md F13). itch.io frames the game in an <iframe>; the dashboard
-// fits the frame (the document never scrolls — each column is its own scroller), and fullscreen
-// is far better once found — so inside a frame, on first load, a small chip offers it from the
-// bottom-right corner of the viewport, where it covers no control and stays put whichever
-// column has been scrolled. It never blocks anything, dismisses with one tap, and stays
+// Embedded play (docs/FEEDBACK.md F13). itch.io frames the game in an <iframe scrolling="no">.
+// At desktop sizes the dashboard fits the frame and each column is its own scroller, so the
+// document never moves. Below 900px wide or 640px tall the layout stacks and the page itself
+// becomes the scroller — which `scrolling="no"` freezes — so isFramed() below also drives an
+// `.is-framed` class (index.js) that hands that scroll to #app instead; without it three
+// panels are unreachable in a short embed. Fullscreen is still far better once found, so
+// inside a frame, on first load, a small chip offers it from the bottom-right corner of the
+// viewport, where it covers no control and stays put whichever column has been scrolled. It
+// never blocks anything, dismisses with one tap, and stays
 // dismissed: the setting is not in the
 // simulation's whitelist (settings there are game state), so the memory lives in this
 // browser's localStorage, guarded — a blocked store just means the chip shows again next time.

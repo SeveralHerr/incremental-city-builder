@@ -2849,6 +2849,21 @@ input[type='checkbox'] {
   .icon-btn {
     min-width: 44px;
   }
+  /* The x1 / x10 / Max / Sell switch (F14) sits in the Build panel head and decides what every
+     Buy button does, so it is a phone-primary control: 25px tall put Max and Sell 6px apart
+     and a missed tap on Max flipped the panel into sell mode. */
+  .seg-btn {
+    min-height: 44px;
+    padding: 4px 12px;
+  }
+  /* The fullscreen chip is the one escape from a short embed; its two buttons get tap size too. */
+  .fs-go,
+  .fs-close {
+    min-height: 44px;
+  }
+  .fs-close {
+    min-width: 40px;
+  }
   .bcard {
     grid-template-columns: 40px minmax(0, 1fr);
   }
@@ -2910,6 +2925,41 @@ input[type='checkbox'] {
     overflow: visible;
     max-height: none;
     padding-right: 0;
+  }
+}
+
+/* ---------- Framed play, short or narrow (docs/FEEDBACK.md F13) ----------
+   The two blocks above hand scrolling back to the DOCUMENT, which is right on a real phone
+   (the URL bar collapses, the rubber band feels native). Inside itch.io's
+   <iframe scrolling="no"> it is fatal: the document scroller is exactly the one the host
+   freezes, so at a 640px-tall embed the Upgrades, Milestones and City log panels are not
+   merely below the fold, they are unreachable by any gesture. So when the game knows it is
+   framed (index.js stamps .is-framed from embed.js isFramed()), lock the document again and
+   give the scroll to #app — an inner element, which `scrolling="no"` does not touch. The
+   unframed phone keeps page scroll untouched. Above these breakpoints the desktop grid
+   already scrolls per column and the document never moves, so this is scoped to the bands
+   where the page itself had become the scroller. */
+@media (max-width: 900px), (max-height: 640px) {
+  :root.is-framed,
+  :root.is-framed body {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  :root.is-framed #app {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* .shell is display:block in these modes; it must be allowed to grow past the frame so
+     #app has something to scroll. */
+  :root.is-framed .shell {
+    height: auto;
+    min-height: 0;
   }
 }
 

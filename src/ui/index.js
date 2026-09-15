@@ -129,6 +129,10 @@ async function mount(game) {
   // used to sit beside is gone; it rides the bottom-right corner of the viewport instead, where
   // it is clear of the topbar, of every column's Buy row and of the toast stack, and — being
   // fixed — stays reachable whichever column the player has scrolled.
+  // The `.is-framed` class does the other half of F13: in the stacked short/narrow modes the
+  // PAGE is the scroller, and `<iframe scrolling="no">` freezes exactly that, so the stylesheet
+  // uses this class to lock the document and make #app the scroller instead. An unframed phone
+  // never gets the class and keeps native page scroll.
   try {
     document.documentElement.classList.toggle('is-framed', isFramed());
     ui.fullscreen = createFullscreenPrompt(ui, app);

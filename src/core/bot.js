@@ -256,22 +256,15 @@ function humanStep({ maxBuys = 25, prestigeMin = 5, foundShare = HUMAN_FOUND_SHA
   // Draw (MW, mods applied) turned away by the grid this step; the power rule sizes its fix
   // for it and clears it once a generator batch is in.
   let refusedDraw = 0;
-  // Counts at the last tick: a building row's live per-unit powerUse (the buildings module's
-  // demandGrowth: draw = base × min(cap, 1 + (count − 1) / per), re-evaluated on the tick) was
-  // computed at these counts, so the sticker draw is powerUse / factor(startCount).
-  const startCount = { ...state.buildings };
-  // Total draw of `count` units of `b` (mods excluded), with the grid-strain growth folded in:
-  // every unit bought raises every unit's draw, and a spree of forty districts is a quarter
-  // more demand than forty stickers — booked here so the grid guard sees it before the tick.
-  const drawOf = (b, count) => {
-    const per = b.powerUse || 0;
-    if (!(count > 0) || !(per > 0)) return 0;
-    const g = b.demandGrowth;
-    if (!g || !(g.per > 0)) return per * count;
-    const gcap = g.cap > 0 ? g.cap : Infinity;
-    const f = (c) => Math.min(gcap, 1 + Math.max(0, c - 1) / g.per);
-    return (per / f(startCount[b.id] || 0)) * f(count) * count;
-  };
+  // The draw of `count` more units of `b` as the player reads it: the card's per-unit figure
+  // (the row's live powerUse at the count owned when the tick last ran) times the batch. The
+  // buildings module's grid strain (demandGrowth: every T4 unit bought raises every unit's
+  // draw, re-evaluated on the tick) is NOT foreseen here — a ×Max spree of arcologies on a
+  // fresh plot lands at several times the sticker, and that surprise is the one brownout the
+  // playtest's grid-ahead player can still walk into (docs/FEEDBACK.md F2: Lights Out; the
+  // greedy profile books the same sticker). The second cut folded the growth in, and the
+  // human profile then never latched Lights Out in 12 h (0/9 cities, sim 2026-09-14).
+  const drawOf = (b, count) => (count > 0 && b.powerUse > 0 ? b.powerUse * count : 0);
 
   // Units of `pick` that cover `need` stat points at `per` per unit; one when there is no need.
   const unitsFor = (need, per) => (per > 0 && need > 0 ? Math.ceil(need / per) : 1);
@@ -282,28 +275,24 @@ function humanStep({ maxBuys = 25, prestigeMin = 5, foundShare = HUMAN_FOUND_SHA
   // wallet: a full-wallet batch on a need would starve the rotation (the first cut's failure).
   const needBatch = (pick, need, per) => Math.min(unitsFor(need, per), shareBatch(pick));
   // Buy up to `n` units (≥ 1, never more than the wallet covers) and book their effects. A draw
-  // batch must fit the grid as this step has already changed it — the player never walked the
-  // city into a brownout — so it is trimmed to the units the capacity carries (none: nothing is
-  // bought, the caller moves on) and the draw turned away is remembered for the power rule.
+  // batch must fit the grid as this step has already changed it — the player never KNOWINGLY
+  // walked the city into a brownout — so it is trimmed to the units the capacity carries at
+  // the sticker draw (none: nothing is bought, the caller moves on) and the draw turned away
+  // is remembered for the power rule. What the tick then adds on top (grid strain, above) is
+  // met by the power rule on the next step, the way the player met a brownout: a plant.
   // The first cottage on an empty grid is the exception: the windmill only appears once
   // something draws (same as greedy).
   const buyBatch = (pick, n, reason) => {
     if (!pick) return false;
     n = Math.max(1, Math.min(Math.floor(n) || 1, api.maxAffordable(pick)));
     const m = humanMods(pick.id);
-    const added = (k) => (drawOf(pick, pick.count + k) - drawOf(pick, pick.count)) * m.demand;
+    const added = (k) => drawOf(pick, k) * m.demand;
     if (pick.powerUse > 0 && demand > 0) {
       const room = cap - demand;
       if (added(n) > room) {
-        let lo = 0;
-        let hi = n; // largest k with added(k) ≤ room (added is monotonic in k)
-        while (lo < hi) {
-          const mid = (lo + hi + 1) >> 1;
-          if (added(mid) <= room) lo = mid;
-          else hi = mid - 1;
-        }
-        refusedDraw = Math.max(refusedDraw, added(n) - added(lo));
-        n = lo;
+        const fit = Math.max(0, Math.floor(room / added(1))); // largest k with added(k) ≤ room
+        refusedDraw = Math.max(refusedDraw, added(n) - added(fit));
+        n = fit;
         if (n <= 0) return false;
       }
     }

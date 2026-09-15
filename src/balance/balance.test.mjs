@@ -367,8 +367,9 @@ test('12 h saver profile (run here): the 36th founding, which crosses the legacy
   // Margin is measured as the share of the session the saver would have to gain to make
   // that founding; the open 36th city has nothing new to buy, and a city with nothing new
   // reads x1.28–1.40 over the one before it on this content (config.js), so x1.25 of the
-  // last completed cycle is a floor on its length. Shipped: the 36th founding lands ~730
-  // min (config.js header), 1.3–1.6 % past the session; the line here is 1 %.
+  // last completed cycle is a floor on its length. Shipped (2026-09-14 wave): the 35th
+  // founding lands at 711 min after a 31 min city, so the 36th cannot land before ~750
+  // min (config.js header), 4 % past the session; the line here is 1 %.
   const log = usable(await SIM_RUNS.saver);
   const cycles = log.metrics.cycles;
   assert.ok(cycles.length <= 35, `${cycles.length} foundings <= 35 (the 36th banks 1.04e6)`);

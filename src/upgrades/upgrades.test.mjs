@@ -97,10 +97,10 @@ test('definitions: unique ids, categories, tiers, short descs, hints everywhere'
   assert.equal(UPGRADES.filter((d) => d.currency !== 'legacy').length, 58);
   assert.equal(MILESTONE_IDS.length, new Set(MILESTONE_IDS).size);
   // Card variety: the thirty identical Civic Bonds are gone for good. The repeats below
-  // are money rungs whose ids and effects predate this pass (the two "+50% growth" rungs,
-  // the three "−20% cost" rungs, Digital City Hall and the Legacy Archive); nothing else —
-  // no perk, no frontier rung, no two adjacent income rungs — reads the same as another card.
-  const ALLOWED_REPEATS = { 'Population grows +50% faster': 2, 'All buildings cost −20%': 3, 'All income +50%': 2 };
+  // are money rungs whose ids and effects predate this pass (the three "−20% cost" rungs,
+  // Digital City Hall and the Legacy Archive); nothing else — no perk, no frontier rung, no
+  // two adjacent income rungs — reads the same as another card.
+  const ALLOWED_REPEATS = { 'All buildings cost −20%': 3, 'All income +50%': 2 };
   const cards = new Map();
   for (const d of UPGRADES) cards.set(d.desc, (cards.get(d.desc) || 0) + 1);
   for (const [desc, n] of cards) assert.ok(n <= (ALLOWED_REPEATS[desc] || 1), `${n} cards read "${desc}"`);
@@ -158,7 +158,7 @@ test('hints read as the rule they mirror', () => {
   assert.deepEqual(byId('robotic-assembly').unlockAt, { money: 2.62e8 });
   assert.equal(byId('superconductor-grid').unlockHint, 'Hold $435T');
   assert.deepEqual(byId('superconductor-grid').unlockAt, { money: 4.35e14 });
-  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points, then earn $500B in this city');
+  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points, then earn $525B in this city');
   // Charter perks quote the spendable points they wait for (bank − spent, what the Sign
   // button checks), never the whole bank.
   assert.equal(byId('charter-homestead').unlockHint, 'Have 2 spendable legacy points');
@@ -174,7 +174,7 @@ test('happiness: flat city-wide adds only, descs quote the exact add in percent'
   // Rungs that open once a city is already happy (h ≈ 1.9+) carry no happiness clause: at
   // that point +10% happiness is a +3% income footnote, so they move jobs, growth or income.
   assert.equal(byId('modern-curriculum').desc, 'All jobs +25% and all income +8%');
-  assert.equal(byId('preventive-care').desc, 'Population grows +75% faster');
+  assert.equal(byId('preventive-care').desc, 'Civic buildings cost −25%: parks, schools, hospitals, stadiums');
   assert.equal(byId('championship-season').desc, 'Stadiums earn +100% income and provide +100% jobs');
   assert.equal(byId('veteran-planners').desc, 'Population grows +100% faster and happiness +10%');
   assert.equal(byId('charter-civic').desc, 'All jobs +50% · population grows +50% faster');
@@ -263,7 +263,7 @@ test('every unlock tolerates {} / undefined / frozen inputs and returns a boolea
   assert.equal(byId('charter-grid').unlock(FROZEN_STATE), false, '4 spendable of 12 banked is short of 10');
   assert.equal(byId('charter-grid').unlock({ prestige: { legacy: 12, spent: 0 } }), true);
   assert.equal(byId('city-archives').unlock(FROZEN_STATE), false, '12 points is short of 20');
-  assert.equal(byId('city-archives').unlock({ prestige: { legacy: 20 }, stats: { totalEarned: 5e11 } }), true);
+  assert.equal(byId('city-archives').unlock({ prestige: { legacy: 20 }, stats: { totalEarned: 5.25e11 } }), true);
 });
 
 test('legacy rungs: the three dear ones need their points and a quarter of the price earned this run; the door follows a config price', () => {
@@ -404,7 +404,7 @@ test('charter perks are strong and varied: each moves a multiplier by ≥50% (co
   for (const id of ['shop', 'office', 'mall', 'financial']) assert.ok(near(m4.byBuilding[id].income, 2), `merchant: ${id}`);
   const m5 = createMods();
   byId('charter-energy').effect(m5, {});
-  assert.ok(near(m5.power, 3) && near(m5.demand, 0.75));
+  assert.ok(near(m5.power, 1.5) && near(m5.demand, 0.75), 'Energy Charter: ×1.5 power, the perk floor, keeps the supply stack small (F2)');
   const m6 = createMods();
   byId('charter-imperial').effect(m6, {});
   assert.ok(near(m6.income, 3) && near(m6.cost, 0.85));
@@ -438,11 +438,15 @@ test('frontier ladder: nine named rungs at the shipped prices, ascending, openin
     descs.add(d.desc);
   }
   // Every rung is a different lever, and the ladder as a whole pulls income, housing,
-  // power, growth, jobs, cost and demand.
+  // power, jobs, cost and demand — no growth lever (F7: pop fills housing in under a
+  // second by the time the frontier opens, so a growth clause there is nil), and the power
+  // and demand terms are small on purpose (F2: Dyson ×1.5 · Helios ×1.5, Shipyard 0.85 ·
+  // Stellar 0.8 — part of the ≤ ×9.5 supply / ≥ ×0.33 demand global stack the header pins).
   const fold = createMods();
   for (const d of FRONTIER) d.effect(fold, FROZEN_STATE);
-  assert.ok(fold.income >= 5 && fold.housing >= 5 && fold.power >= 12 && fold.growth >= 3 && fold.jobs >= 2.5, 'frontier multipliers');
-  assert.ok(fold.cost < 0.7 && fold.demand < 0.5, 'frontier discounts');
+  assert.ok(fold.income >= 5 && fold.housing >= 5 && fold.power >= 2 && fold.power <= 2.5 && fold.jobs >= 2.5, 'frontier multipliers');
+  assert.ok(Math.abs(fold.growth - 1) < 1e-9, 'no frontier growth lever');
+  assert.ok(fold.cost < 0.7 && fold.demand <= 0.7 && fold.demand >= 0.6, 'frontier discounts');
   assert.ok(fold.byBuilding.financial.income >= 2 && fold.byBuilding.techpark.income >= 2 && fold.byBuilding.mall.jobs >= 2, 'frontier per-building');
   // earnedUnlock follows the price it is given (config overrides move the gate).
   const moved = earnedUnlock({ ...byId('dyson-swarm'), cost: 4e13 });
@@ -656,7 +660,7 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   assert.notEqual(byId('tourism-board').desc, byId('regional-airport').desc);
   const mh = createMods();
   byId('helios-array').effect(mh, {});
-  assert.ok(near(mh.power, 3) && near(mh.income, 1.25));
+  assert.ok(near(mh.power, 1.5) && near(mh.income, 1.25));
   const m3 = createMods();
   byId('founders-blueprints').effect(m3, {});
   assert.ok(near(m3.cost, 0.8));
@@ -679,13 +683,14 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   assert.ok(!/upkeep/i.test(byId('maintenance-contracts').desc), 'upkeep is inert (≤0.6% of gross): no rung may sell it as its felt term');
   const m5 = createMods();
   byId('superconductor-grid').effect(m5, {});
-  assert.ok(near(m5.demand, 0.7));
+  assert.ok(near(m5.demand, 0.8));
   const m6 = createMods();
   byId('modern-curriculum').effect(m6, {});
   assert.ok(near(m6.jobs, 1.25) && near(m6.income, 1.08) && m6.happiness === 0);
   const m10 = createMods();
   byId('preventive-care').effect(m10, {});
-  assert.ok(near(m10.growth, 1.75) && m10.happiness === 0);
+  assert.ok(near(m10.growth, 1) && m10.happiness === 0, 'Preventive Care: no growth, no happiness');
+  for (const id of ['park', 'school', 'hospital', 'stadium']) assert.ok(near(m10.byBuilding[id].cost, 0.75), `preventive care: ${id}`);
   const m11 = createMods();
   byId('city-archives').effect(m11, {});
   assert.ok(near(m11.growth, 1.5) && near(m11.jobs, 1.25));

@@ -28,10 +28,22 @@ Each item has an id (F1…), the owning module, a severity, and the player's wor
   - Superconductor Grid lands when power is already a non-issue; every later power upgrade
     widens the gap. Power stops mattering mid-game, which contradicts the design contract
     (under-power 3–20 % of the session).
+  → Round 1 (2026-09-14): global power stack compressed ×270 → ×9.5 supply, ×0.176 → ×0.33 demand
+  (`src/upgrades/data.js`; Dyson / Grid Charter / Orbital Solar / Energy / Helios ×1.5 each,
+  Superconductor 0.8, Shipyard 0.85, Stellar 0.8). Human profile: median cap/demand by hour 1.13 ·
+  1.84 · 1.80 · 2.30 · 2.04 · 1.73 · 1.63 · 1.48 · 1.44 · 1.35 · 1.29 · 1.30 (was 1.14 · 6.06 · 6.41 ·
+  16.55 … 9.11), no city with a ≥ 3× median (was city 3), Lights Out latched in 3/9 cities (was 0/9;
+  the human bot's grid guard now reads the card's sticker draw, `src/core/bot.js`). Greedy under-power
+  3.52 %, contract PASS. Still open: the power rungs are felt buys but ×1.0–1.1 as pace.
 - [ ] **F3 balance/upgrades — Megastructures unemployment cliff (P1).** After Megastructures,
   unemployment cannot drop below ~40 % (screenshot: 43 %). No comparable Commercial or
   Industrial jobs upgrade at that point. Arcology Gardens pushes it to ~70 %. Later upgrades
   fix it, but the middle stretch is off.
+  → Round 1 (2026-09-14): the housing rungs pair their own jobs (Megastructures housing ×2 · jobs
+  ×1.5; Arcology Gardens arcology housing ×1.5 · all jobs ×1.25; `src/upgrades/data.js`). Human
+  profile: Megastructures bought unassisted in city 7 at 313 min with median unemployment 0 % before
+  and 0 % with it; unemployment by hour 20 % (hour 1) then 0 % (was 21 / 0 / 0 / 0 / 0 / 34 / 24 …);
+  0 % median in every city from the 3rd. Both sim unemployment gates PASS.
 - [x] **F4 resources/ui — happiness is opaque (P2).** The max-happiness formula cannot be worked
   out in play: civic buildings stop raising it past some count, something (pollution?) lowers
   it, and more civics do not raise it again. The tooltip does not say what happiness does

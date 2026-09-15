@@ -59,8 +59,9 @@ campus, 15 % the stadium at ×3): 65–80 % of a tier-4 employer's job sticker w
 the wage term was capped by a residential column that was 84 % arcologies at a flat 1,000.
 
 Why a flat sticker cannot fix it: the upgrade rungs multiply the two columns at very
-different rates — housing ×1.9 by city 4, ×3.9 by city 14, ×19 by city 25, ×38 by city 30,
-against jobs ×1.6 / ×1.8 / ×5.3 / ×9.2 (the `×hous ×jobs` columns of the probe). A sticker
+different rates — housing ×1.9 by city 4, ×3.75 by city 14, ×18.75 by city 25, ×37.5 by
+city 31, against jobs ×1.25 / ×1.25 / ×9.9 / ×17.3 (the global `(hous/jobs)` mods of the
+probe on the 2026-09-14 upgrade stack; before that wave jobs ended at ×12). A sticker
 ratio that reads 1.5 mid-session reads 0.4 by the end; the old 4,000-job district was the
 number that made the *end* read 1.5, at the price of 3–7× for eight cities. So the catalogue
 carries three things instead of one number:
@@ -74,18 +75,26 @@ carries three things instead of one number:
    stays 1,000 because a 2,500 arcology tripped every later first-city gate within a minute,
    and the rule only reaches ×1.15 in the first city's last five minutes.
 3. **A late jobs engine that grows with the population:** the Orbital Ring hires +1 % per
-   1,000 citizens (×2 at 100,000) up to ×12 (600,000 jobs in a city of 1.1 M). It opens in the 14th city —
-   one city after the Megastructures rung doubles housing — and from then on it is 60–80 %
-   of the jobs column, the one term that scales with the thing the housing rungs inflate.
+   1,000 citizens (×2 at 100,000) up to ×5 (250,000 jobs in a city of 400,000). It opens in
+   the 14th city — one city after the Megastructures rung doubles housing — and from then on
+   it is 45–75 % of the jobs column, the one term that scales with the thing the housing
+   rungs inflate. The cap was ×12 while the session's jobs rungs ended at ×12; the
+   2026-09-14 upgrade wave lifted them to ×17.3 (and to ×4.39 against housing ×3.75 in
+   cities 20–23), and at ×12 the ring alone — 72–86 % of the column — held jobs/pop at
+   2.0–4.3 for the back half of 12 h (median 2.02, 41 % of mature samples inside 0.8–2.0).
 
-Measured (12 h, `columns.mjs`): median jobs/pop in mature cities (from the 5th) **1.48**,
-84 % of samples inside 0.8–2.0 (45 % inside 1.0–1.6; the readings outside are the opening
-two minutes of a replay, an all-housing spree by design), employed share 1.0 wherever the
-ratio is ≥ 1. The probe's rule is that median inside 1.0–1.6 and ≥ 75 % of mature samples
-inside 0.8–2.0 — 20 % unemployment at worst, at most half a sticker decorative — because the
-1.0–1.6 band is 1.6× wide and the rung asymmetry above swings the ratio ~3.5× over a
-session; holding the narrow band everywhere needs the housing and jobs rungs (upgrades) to
-grow at the same rate, not a buildings number.
+Measured (12 h, `columns.mjs`, 2026-09-14): median jobs/pop in mature cities (from the 5th,
+past run-minute 2) **1.32**, 77 % of 57 samples inside 0.8–2.0 (65 % inside 1.0–1.6; min
+0.97, max 2.38 — the cities above 2.0 are 20–23 and 29–30, where the global jobs mod runs
+ahead of housing), employed share 1.0 at every sample. A replay's opening two minutes are
+an all-housing spree by design (a 13th city at run-minute 0.2 reads two factories and a
+house, 2.7 jobs per citizen), so the probe sets those samples aside rather than reading
+them as a column fault. The probe's rule is that median inside 1.0–1.6 and ≥ 75 % of mature
+samples inside 0.8–2.0 — 20 % unemployment at worst, at most half a sticker decorative —
+because the 1.0–1.6 band is 1.6× wide and the rung asymmetry above swings the ratio ~2.5×
+over a session (housing/jobs mods 0.85 in city 20, 1.9 in city 25, 2.2 in city 31); holding
+the narrow band everywhere needs the housing and jobs rungs (upgrades) to grow at the same
+rate, not a buildings number.
 
 ## Tier 5
 
@@ -95,16 +104,17 @@ megastructures fix that, each on a legacy tier the simulation already announces:
 
 | card | column | gate | opens (12 h bot) | price | curve | identity |
 |---|---|---|---|---|---|---|
-| Orbital Ring 🛸 | residential | legacy ≥ 500 | city 14 (~3.8 h) | $2e11 | ×3 | 80,000 housing (eighty arcologies), 50,000 jobs ×(1 + pop/100k) up to ×12, +0.5 joy, draws 1.2 GW ("≈ 20 × Fusion Reactor") |
-| Space Elevator 🚀 | power | legacy ≥ 300,000 | city 33 (~11.4 h) | $2e13 | ×3 | 3 GW (fifty fusion reactors) +10 % per ring up to ×3, 40,000 jobs, +0.3 joy, upkeep $75k/s (nuclear's $0.025/MW/s, a third of it at ×3) |
+| Orbital Ring 🛸 | residential | legacy ≥ 500 | city 14 (~3.6 h) | $2e11 | ×3 | 80,000 housing (eighty arcologies), 50,000 jobs ×(1 + pop/100k) up to ×5, +0.5 joy, draws 1.2 GW ("≈ 20 × Fusion Reactor") |
+| Space Elevator 🚀 | power | legacy ≥ 300,000 | city 33 (~11.8 h) | $2e13 | ×3 | 3 GW (fifty fusion reactors) +10 % per ring up to ×3, 40,000 jobs, +0.3 joy, upkeep $75k/s (nuclear's $0.025/MW/s, a third of it at ×3) |
 
 Both are pace-inert by construction — housing, jobs, power and joy are "variety, not pace"
 in a replay (config.js) — and priced at seconds of their opening city's income so they are
 bought in the city they open (measured: both first bought 1.7–2.6 min after opening). The
 ×3 curve is what keeps them a target rather than a spree: a city buys a handful in its
 opening minutes and the next one costs more than the spree reached, so the bot buys rings
-in every one of the 21 cities from the 14th (148 in 12 h, `columns.mjs`) and elevators in
-both cities from the 33rd (20), without eating the cash that re-buys the core ladder. (The
+in every one of the 20 cities from the 14th (132 in 12 h, `columns.mjs`, 2026-09-14) and
+elevators in the 33rd (10, the city open at 12 h), without eating the cash that re-buys the
+core ladder. (The
 elevator's gate was re-pinned from 15,000 legacy / city 24 to 300,000 / city 33 by the
 integrator so it follows the Imperial Charter's city and stays the never-bought item of
 its own; config and `data.js` agree, the gate-table test below holds this row to both.) Their rules are the
@@ -187,7 +197,7 @@ base counts) is reported through `reportError` and registers nothing, like a mal
 | techpark | income | schools (20 → +100 %) | ×1.75 |
 | financial | income | employed citizens (20,000 → +100 %) | ×2.5 |
 | stadium | jobs | population (20,000 → +100 %) | ×2 |
-| ring | jobs | population (100,000 → +100 %) | ×12 |
+| ring | jobs | population (100,000 → +100 %) | ×5 |
 | solar | powerGen | city parks (50 → +100 %) | ×1.5 |
 | fusion | powerGen | nuclear plants (10 → +100 %) | ×3 |
 | elevator | powerGen | orbital rings (10 → +100 %) | ×3 |

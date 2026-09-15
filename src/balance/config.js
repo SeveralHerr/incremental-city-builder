@@ -3,11 +3,12 @@
 // balance owner can retune the game without touching any other folder.
 // DOM-free: this file must import cleanly in Node (economy-sim) and the browser.
 //
-// Pacing (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out logs/sim-fix-balance.json`,
-// 12 game-hours; measured on the 2026-09-07 saver-gate tree — the sibling folders were
-// being edited in parallel during this pass, so re-measure before quoting: a 1% change
-// of income moves the 12 h mark ~7 min, and the default profile's last novelty city
-// (33) opens at 697 min, 3.3% before the mark). The tools that produced every number
+// Pacing (greedy bot, `node tools/economy-sim.mjs --ticks 432000 --out logs/sim-gauntlet.json`,
+// 12 game-hours; measured on the 2026-09-14 F2/F3 tree — the upgrades module's compressed
+// grid stack and paired housing rungs, see "The 2026-09-14 wave" below — with the sibling
+// folders being edited in parallel, so re-measure before quoting: a 1% change of income
+// moves the 12 h mark ~7 min, and the default profile's last novelty city (33, the Space
+// Elevator's) opens at 709 min, 1.5% before the mark). The tools that produced every number
 // below live in this folder: `node src/balance/probe.mjs [--save N] [--set path=value]
 // [--cities] [--first]` prints the readings the pass is tuned against (strict cycle
 // ratios, which city and minute each rung lands in, per-city spree/plateau reach,
@@ -17,44 +18,93 @@
 // ladder from that plan, one rung per city (run it after every sibling retune).
 //   Opening: cottage 0 s · two windmills, three more cottages and the Welcome Sign by 4 s ·
 //   first corner shop 50 s · first brownout ~2.3 min · 1k citizens ~11 min · Legacy panel
-//   at $1.1M earned (18.6 min) · Found button arms at $11M (27.4 min; a 1-point founding
-//   is possible from there, the bot holds out for 5 points) · first founding 41.1 min with
-//   5 legacy (the saver's, which hoards for the core rungs it can see, 38.1).
+//   at $1.1M earned (18.4 min) · Found button arms at $11M (27.4 min; a 1-point founding
+//   is possible from there, the bot holds out for 5 points) · first founding 40.9 min with
+//   5 legacy (the saver's, which hoards for the core rungs it can see, 37.4).
 //   Purchase tension in the first city: the cheapest open money upgrade is 30 s – 15 min
-//   of income away in ~51% of its minute samples (the upgrades module's funded door — a
+//   of income away in ~55% of its minute samples (the upgrades module's funded door — a
 //   core rung opens only when the treasury holds its price — measured here, not priced).
 //   Power: the first city runs under full power for ~31% of its minutes, hour 2 of the
-//   session ~8%, hours 3–5 0.3–0.6%, hours 6–12 ≤ 0.2%; the session 3.4% (contract 3–20%;
-//   plan target ≥ 3.2%), never below the 0.6 floor. See the buildings block for why hours
-//   3–12 are out of this file's reach.
-//   Cycles (minutes): 41 · 13 · 12 · 7.7 · 7.1 · 9.2 · 12 · 14 · 17 · 21 · 22 · 25 · 11 ·
-//   6.5 · 8.7 · 11 · 15 · 18 · 16 · 21 · 28 · 35 · 43 · 30 · 30 · 24 · 32 · 36 · 25 · 31 ·
-//   33 · 29 · 14 · 18 — 34 foundings, the 35th city open at 12 h (it opens at 715 min; a
-//   city with nothing new needs ≥ 22 min there, so it cannot complete before ~737). Shape:
-//   the first founding at 41 min, two 12–13 minute replays, a 7–9 minute floor at cities
-//   3–5, a ramp to ~25 min by city 11, the Merchant Charter (12) and the Quantum Exchange
-//   (13) cutting that to 6.5, a second ramp to a 28–36 minute plateau, then the Imperial
-//   Charter's ×3 (city 32, 14 min) and the Space Elevator's city (33, 18 min). Strictly,
-//   no cycle from the 5th founding on is more than ×1.343 the one before it (contract
-//   ≤ 1.35; the step is the Settlers' city after the Quantum spree, the same step the
-//   previous pass read at ×1.345 — pop.growthRate 0.11 is what holds it there); the
-//   longest cycle after the first city is 43 min (contract: last ≤ 40; plan target: every
-//   cycle ≤ 50, last ≤ 38). Legacy 530,718 (213,186 spent on all twelve charter perks),
-//   money peak 3.1e+17, income 4.4e+15/s at 12 h.
-//   Purchase tension over the session: 41% of samples (contract ≥ 30%, target ≥ 35%).
-//   Happiness dips under 1.0 in 21 of 34 cities (the opening minute of a replay; 3 cities
+//   session ~8%, hours 3–4 0.6–0.7%, hours 5–12 0.1–0.3%; the session 3.5% (contract
+//   3–20%; plan target ≥ 3.2%), never below the 0.6 floor. The grid now *binds* in a
+//   replay — median capacity/demand 1.0–1.3× in cities 1–4 and 1.3–2.4× in cities 5–28;
+//   by hour 1.11 · 1.74 · 1.91 · 2.30 · 1.77 · 1.59 · 1.49 · 1.39 · 1.56 · 2.03 · 6.00 ·
+//   6.05 — but the greedy bot keeps a plant ahead of it, so the under-power *share* of
+//   hours 3–12 is what it was: see the buildings block.
+//   Cycles (minutes): 41 · 13 · 12 · 7.7 · 7.0 · 9.0 · 12 · 14 · 17 · 21 · 22 · 25 · 11 ·
+//   6.5 · 8.7 · 11 · 13 · 17 · 16 · 21 · 29 · 37 · 44 · 31 · 32 · 25 · 33 · 36 · 26 · 33 ·
+//   36 · 30 · 15 — 33 foundings, the Space Elevator's city (33) open at 12 h (it opens at
+//   709 min and has 10.9 min played, ten elevators bought; a city with nothing new needs
+//   ≥ 18 min there, so it cannot complete before ~727). Shape: the first founding at 41
+//   min, two 12–13 minute replays, a 7–9 minute floor at cities 3–5, a ramp to ~25 min by
+//   city 11, the Merchant Charter (12) and the Quantum Exchange (13) cutting that to 6.5,
+//   a second ramp to a 29–44 minute plateau, then the Imperial Charter's ×3 (city 32,
+//   14.6 min). Strictly, no cycle from the 5th founding on is more than ×1.339 the one
+//   before it (contract ≤ 1.35, plan target ≤ 1.345): the two steps at ×1.339 are
+//   Algorithmic Trading → City Archives (16.0 → 21.4) and City Archives → Civic Charter
+//   (21.4 → 28.7) — with the Megastructures / Gardens jobs terms the Archives' and the
+//   Civic Charter's jobs clauses are decorative, so 19–21 are three nil cities in a row
+//   with no lifetime-earnings milestone between them (simulation: +15% at $1e14 lands in
+//   city 18, +15% at $1e15 mid-city 21), and City Archives at $2.1e12 is what balances
+//   the two steps (see the wave note below and the Legacy rungs note); the longest cycle
+//   after the first city is 44 min (contract: last ≤ 40; plan target: every cycle ≤ 50,
+//   last ≤ 38). Legacy 378,959 (213,186 spent on all twelve charter perks), money peak
+//   2.0e+17, income 2.9e+15/s at 12 h.
+//   Purchase tension over the session: 43% of samples (contract ≥ 30%, target ≥ 35%).
+//   Happiness dips under 1.0 in 21 of 33 cities (the opening minute of a replay; 3 cities
 //   dip mid-city). Coverage: every building and every one of the 70 registered upgrades.
 //   Saver profile (`node src/balance/probe.mjs --save 30`, the sim's `--saver`,
-//   logs/sim-fix-balance-saver.json): PASS, contract PASS on the hard gates. 35 foundings,
-//   first founding 38.1 min, reach 62%, under-power 2.8%, legacy 746,168, money peak
-//   4.8e+17, 9 late cities with nothing new (13, 15, 19, 21, 22, 24, 30, 31, 34). The
-//   36th founding — the one that banks 1.04e6 and crosses the legacy ceiling — lands at
-//   ~730 min, 1.3–1.6% past the session (its 35th city opens at 694 min and is 27.8 min
-//   long; the open 36th cannot be shorter than ~35). That margin, and the default's 3.3%
-//   on its Elevator city, are what this content allows: see "What the saver brake is" and
-//   the final-gate section for why the two profiles cannot both sit 5% inside.
+//   logs/sim-saver.json): PASS, contract PASS on the hard gates. 35 foundings, first
+//   founding 37.4 min, reach 63%, under-power 3.0%, legacy 745,031, money peak 4.6e+17,
+//   9 late cities with nothing new (13, 15, 19, 21, 22, 24, 30, 31, 34). The 36th founding
+//   — the one that banks 1.04e6 and crosses the legacy ceiling — cannot land before ~750
+//   min, 4% past the session (its 35th founding is at 711 min after a 31 min city, and a
+//   city with nothing new is ≥ ×1.25 of the one before it). That margin, and the default's
+//   1.5% on its Elevator city, are what this content allows: see "What the saver brake is"
+//   and the final-gate section for why the two profiles cannot both sit 5% inside.
+//   Human profile (`--profile human`, logs/sim-human.json — docs/FEEDBACK.md F2/F3 as the
+//   sim's five gates, `tools/economy-sim.mjs` "human-profile contract gates"): 4 of 5 PASS.
+//   Median capacity/demand by hour 1.10 · 1.85 · 1.79 · 2.31 · 2.03 · 1.73 · 1.63 · 1.48 ·
+//   1.44 · 1.35 · 1.29 · 1.30 (gate ≤ 4.0 from hour 3 and ≥ 1.0 from hour 2; the tree
+//   before the wave read 6.4–16.6× from hour 3); no city with a median ≥ 3× (gate: none,
+//   or the 8th or later; was city 3); median unemployment 17% in hour 1 and 0% in every
+//   later hour and in every city from the 3rd (gates ≤ 15% by hour from hour 2, ≤ 20% per
+//   city from the 4th; was 24–34% in hours 6–7, 23% in city 7). Lights Out latched in 0 of
+//   9 replay cities FAILS the fifth gate (≥ 1): the human bot trims every purchase batch to
+//   its grid (core/bot.js humanStep), so it never browns out by construction — an
+//   integrator item, not a price. 9 foundings (45.9 · 17.3 · 22.1 · 59.4 · 73.3 · 63.8 ·
+//   88.3 · 146.1 · 153.4), legacy 32,809, money peak 1.5e+14; Megastructures bought in
+//   city 7 at run-minute 29.7 with 0% unemployment before and after it.
 //
-// What the saver brake is (this pass). The previous tree's saver read 37 foundings,
+// The 2026-09-14 wave (docs/FEEDBACK.md F2/F3/F7; the lever map is
+// docs/feedback/2026-09-14-levers.md). The upgrades module compressed the global grid
+// stack from ×270 supply / ×0.176 demand to ×9.5 / ×0.33 over a session (Dyson Swarm,
+// Orbital Solar, Grid Charter, Energy Charter and Helios Array ×1.5 each with Grid
+// Substations' ×1.25; Superconductor 0.8, Shipyard 0.85 and the Stellar Engine 0.8 on
+// demand, the Stellar's dead growth term replaced by cost −20%), paired the housing rungs
+// with jobs (Megastructures housing ×2 · jobs ×1.5; Arcology Gardens arcology housing ×1.5
+// · jobs ×1.25) and turned the three dead growth rungs into cost / per-building jobs
+// clauses. No income clause moved, so the wave is income-neutral late by design and the
+// ladder below is the saver-gate ladder with one price moved. What the wave cost: ~18 min
+// over the greedy session (cities 19–31 read 1–2.5 min longer each, so the Elevator's city
+// opens at 709 min instead of 697 and no longer completes) and 0.009 of ratio at the City
+// Archives → Civic Charter step (×1.338 → ×1.347, the plan's 1.345 target missed): the
+// pair leaves the Archives' and the Civic Charter's jobs terms decorative. Measured and
+// not shipped: `place.mjs --plan plan.json` re-placed at the geometric means reads ×1.349
+// (the Settlers step, with the Quantum Exchange off the top of its window at $1.96e10)
+// and ×1.346 at the same Archives step, no better than the shipped prices; the levers that
+// held the analogous Settlers step do not move this one (tierGrowth[4] 1.11 → ×1.348,
+// pop.growthRate 0.12 → ×1.347, 0.10 → ×1.338 here but ×1.349 at the Settlers step). What
+// does: City Archives $2.0e12 → $2.1e12. The rung is bought at the peak of city 19's spree,
+// and any price from $2.05e12 to $2.3e12 makes the bot's spree sequence end 8 s later
+// (21.3 → 21.43 min — a discrete step of the two-second bot, not the half-second of income
+// the extra $1e11 is), which balances the two steps at ×1.339 / ×1.339; $2.1e12 sits 12%
+// under the spree's ceiling ($2.40e12 with nothing bought in city 19; $2.5e12 skips to
+// city 20 and empties 19) and 2.3× above city 18's reach ($9.3e11). Read the step as
+// ×1.34 ± 0.01: it is bot-timing noise on three nil cities, and a felt clause on one of
+// them (upgrades) is the structural fix, not a price.
+//
+// What the saver brake is (the 2026-09-07 saver-gate pass; still the shipped ladder). The previous tree's saver read 37 foundings,
 // legacy 1.46e6 and money 2.1e18, over both ceilings, and every uniform lever (threshold,
 // exponent, legacyPower, firstBonus, the tier-4 growth, the late employers' incomes,
 // civicCap) was measured to move both profiles by the same share: the saver reaches a
@@ -79,8 +129,9 @@
 //   Together they take the saver from 37 to 35 foundings; prestige.firstBonus 0.18 →
 //   0.15 (the one uniform lever that scales every replay and nothing in the first city)
 //   then puts the 36th founding past the mark for the saver while the bot's Elevator city
-//   still opens 3.3% early. City Archives ($2.0e12, city 19) is priced above the saver's
-//   city-17 reach so its hoard no longer opens Algorithmic Trading a city early, and the
+//   still opens 3.3% early (1.5% after the 2026-09-14 wave). City Archives ($2.0e12 in
+//   that pass, $2.1e12 since the wave, city 19) is priced above the saver's city-17
+//   reach so its hoard no longer opens Algorithmic Trading a city early, and the
 //   Mass-Driver Port ($9e12, city 22) and Ringworld District ($7e13, city 24) follow the
 //   moved Treasury. What was measured and not shipped: quantum priced for a mid-city
 //   purchase (no plateau window exists in city 13 once the Merchant sits in 12); the
@@ -132,8 +183,8 @@
 //     Standing Orders (city 21), which re-grants every Legacy rung at each founding after it;
 //   • the ladder has exactly 20 money rungs for the 19 non-perk cities from the 4th to
 //     the 31st plus the Galactic double, so no other double is possible without leaving a
-//     city empty, and the session must end inside the 35th city: firstBonus and the
-//     growth rate are the uniform levers that put the 12 h mark there.
+//     city empty, and the session must end inside the Space Elevator's city (33):
+//     firstBonus and the growth rate are the uniform levers that put the 12 h mark there.
 //
 // Why the saver profile has empty cities (and why the default one does not). A charter
 // perk lands in a city fixed by the legacy sequence and a pace rung opens once the city
@@ -147,31 +198,44 @@
 // (docs/DESIGN.md); making it hold for a saver needs the frontier gate (upgrades) or the
 // bot (core) to change, or six to eight more late rungs — not a price.
 //
-// Final gate (2026-09-07, the saver-gate pass). Cross-module requests, with the
-// balance-side measurement each rests on (every price in this file is mirrored by a
-// data.js literal that the owning module's test pins — the mirrors are listed in the
-// pass report):
+// Final gate (2026-09-07, the saver-gate pass; status after the 2026-09-14 wave in
+// brackets). Cross-module requests, with the balance-side measurement each rests on
+// (every price in this file is mirrored by a data.js literal that the owning module's
+// test pins — the mirrors are listed in the pass report):
 //   simulation — mirror `prestige.firstBonus: 0.15` in tuning.js DEFAULTS.prestige (the
 //   mirror test pins the block knob for knob, so balance cannot move it alone); the tail
-//   brake the saver gate needs is uniform and re-order-free only on this knob.
+//   brake the saver gate needs is uniform and re-order-free only on this knob. [Done;
+//   nothing in the prestige block moved in the wave.]
 //   upgrades — (1) copy the placed prices into data.js (the "literals match config" test)
-//   and the frontier literal list; CHARTER_MAX_COST is now 150,500; (2) the frontier gate
-//   at earned ≥ cost/2 instead of cost/4, or a "no hoard" rule for the pace door, would
-//   let both profiles land the tail rungs in the same city — the 3-founding gap between
-//   them is the whole reason the saver sits 1.5% inside its ceiling; (3) six to eight
-//   more late money rungs (×3–5 apart from 1e16 to 1e17) so the saver's placement
-//   (`place.mjs --save 30`) and the default plan can both be satisfied and the greedy
-//   bot's 35th city has something to buy; (4) a felt clause on the power content
-//   (`--boost charter-energy=income:1.25` in the probe) so a power-perk city stops
-//   reading ×1.33 after a felt rung; (5) the grid perk stack compressed from ×30 supply /
-//   ×0.2 demand to ≤ ×8 / ×0.5, without which no draw this file can set puts hour 3 or
-//   later under power (buildings block).
+//   and the frontier literal list; CHARTER_MAX_COST is now 150,500 [open for the wave:
+//   City Archives $2.1e12]; (2) the frontier gate at earned ≥ cost/2 instead of cost/4,
+//   or a "no hoard" rule for the pace door, would let both profiles land the tail rungs
+//   in the same city — the 3-founding gap between them is the whole reason the saver
+//   sits 4% inside its ceiling; (3) six to eight more late money rungs (×3–5 apart from
+//   1e16 to 1e17) so the saver's placement (`place.mjs --save 30`) and the default plan
+//   can both be satisfied and the greedy bot's Elevator city has a rung to buy; (4) a
+//   felt clause on the power content (`--boost charter-energy=income:1.25` in the probe)
+//   so a power-perk city stops reading ×1.33 after a felt rung [partly: with the stack
+//   compressed the grid binds in a replay, so a power rung is a real purchase — it saves
+//   the city a plant — but not a pace one: Orbital Solar's, the Superconductor's and the
+//   Helios's cities read the same minutes as before the compression (22.2 / 36.4 / 33.0
+//   against 22.2 / 35.7 / 33.0), and the Energy Charter's city still needs the Galactic
+//   double]; (5) the grid perk stack compressed from ×30 supply / ×0.2 demand to ≤ ×8 /
+//   ×0.5, without which no draw this file can set puts hour 3 or later under power
+//   [delivered as ×9.5 supply / ×0.33 demand over 12 h (×4.2 / ×0.8 through city 10): the
+//   replay grid reads a median 1.0–2.4× its demand through hour 9 and 6.0× in hours 11–12
+//   on the greedy profile, 1.1–2.3× in every hour on the human one — but the under-power
+//   share of hours 3–12 is unchanged, see the buildings block for the half that is core's].
 //   core — stop the bot scoring generators past 2× surplus (bot.js), and consider a
 //   saver that hoards only for rungs it has *earned* a share of: the "30 s of income"
-//   reach is what pulls every frontier rung two cities early.
+//   reach is what pulls every frontier rung two cities early. [Open; and for the wave:
+//   the human bot's batch trim (humanStep buyBatch) is why Lights Out never latches after
+//   city 1 — the one human gate this tree fails.]
 //   buildings — the Elevator gate is pinned to {500, 15000, 300000}; a 250,000 gate
-//   (city 32, beside the Imperial) would widen the greedy bot's 12 h window from 3.3% to
-//   ~5% on the slow side.
+//   (city 32, beside the Imperial) would widen the greedy bot's 12 h window from 1.5% to
+//   ~4% on the slow side. [Open; and for the wave: the columns probe reads 70% of mature
+//   samples inside 0.8–2 jobs/pop (rule ≥ 75%) on this tree — cities 19–21 at 2.2–3.8 with
+//   the Orbital Ring 67–74% of jobs under a ×2.9–4.4 global jobs mod; no price moves it.]
 //
 // Consumers: resources.computeDerived (economy/pop/power/happiness), buildings (cost +
 // per-building overrides), upgrades (cost overrides), simulation (prestige, milestones,
@@ -238,8 +302,11 @@ export const config = {
    *   which alone put the first founding past 43.5 min; together they read ~42.5, the
    *   clock the first city had before the trim. 0.1 → 0.11 in the saver-gate pass, for
    *   the same step: with the Quantum Exchange bought at the peak of city 13's spree the
-   *   Settlers' city read ×1.349 at 0.1 and reads ×1.343 at 0.11 (first founding 41.1
-   *   either way). Mirrored in src/resources (its DEFAULTS copy of this section).
+   *   Settlers' city read ×1.349 at 0.1 and reads ×1.343 at 0.11 (×1.337 after the
+   *   2026-09-14 wave; first founding 41 either way). Measured in that wave and not
+   *   moved: 0.12 leaves the Archives → Civic step at ×1.347 and 0.10 puts the Settlers
+   *   step back at ×1.349 — the rate is not a lever on the 19–21 stretch. Mirrored in
+   *   src/resources (its DEFAULTS copy of this section).
    *   1k citizens arrive at ~11 min in the first city (pop 1,218
    *   at minute 12, `probe.mjs --trace 0`).
    * - shrinkRate: fraction of the overflow (pop − housing) lost per second when housing is
@@ -341,7 +408,9 @@ export const config = {
    *   steeper tier-4 curve makes every city with nothing new read a little longer over
    *   its predecessor (at 1.12 the housing and power rungs' cities read ×1.36, over the
    *   contract's 1.35; at 1.11–1.112 they read ×1.345). Measured on the first city: the
-   *   tier trim moves the first founding by −0.3 min.
+   *   tier trim moves the first founding by −0.3 min. Measured in the 2026-09-14 wave:
+   *   1.11 reads ×1.348 at the Archives → Civic step (1.112: ×1.347 before the Archives
+   *   move), so the knob does not narrow a nil → nil step; it stays at 1.112.
    * - sellRefund: fraction of the *current* price returned on sell. 0.5 makes reshuffling
    *   possible but never free.
    */
@@ -367,10 +436,10 @@ export const config = {
    *   uniformly (+5% threshold ≈ +5% on every cycle, no city re-ordered). It is mirrored
    *   in src/simulation/tuning.js, so the second 2026-09-07 pass left it alone and placed
    *   the 12 h mark with the balance-owned levers instead (tier-4 cost growth, the
-   *   district and campus incomes, the growth rate and civicCap): the mark now falls 13
-   *   minutes after the Exchange Ring is bought in the 32nd city and 16 minutes before
-   *   that city, empty, could complete. Both profiles keep the first founding inside
-   *   30–45 min at $11M (41 min default, 39 min for the 30 s saver).
+   *   district and campus incomes, the growth rate and civicCap): the mark now falls 11
+   *   minutes into the Space Elevator's city (33), which opens at 709 min and needs ≥ 18
+   *   (header). Both profiles keep the first founding inside 30–45 min at $11M (41 min
+   *   default, 37 min for the 30 s saver).
    * - exponent: 0.488. The bot resets for +40% legacy (minGainShare), which at exponent e
    *   means each run out-earns everything before it by 1.4^(1/e) − 1: ×0.99 at 0.488.
    *   Extremely sensitive and non-monotone on this tree (0.47 → 22 foundings with eight
@@ -385,9 +454,9 @@ export const config = {
    *   above it the bonus grows ×1.4^p per founding. legacyPower is the tail brake: each
    *   −0.001 costs ~0.7% of income at 1e5 points and ~0.1% at 100, i.e. it slows the last
    *   ten cities ~5× more than the first ten. 0.548 is mirrored in the simulation's
-   *   DEFAULTS and was not touched in the second pass; with the ladder re-placed around
-   *   it the 12 h mark sits 16 minutes before the 32nd city could complete empty, and the
-   *   saver profiles' 1e6 legacy ceiling is two foundings away (33 foundings, 3.8e5).
+   *   DEFAULTS and was not touched since; with the ladder placed around it the 12 h mark
+   *   sits 11 minutes into the Elevator's city (33 foundings, 3.8e5 legacy), and the
+   *   saver's 1e6 legacy ceiling is one founding away (35 foundings, 7.5e5 — header).
    * - firstBonus: 0.15 — the first founding is a jump a player can feel (×1.15 on top of
    *   the points' ×1.03). This is the one knob that scales every replay's income and
    *   nothing in the first city, so it moves the whole clock after the first founding
@@ -397,7 +466,9 @@ export const config = {
    *   empty city. 0.18 → 0.15 in the saver-gate pass (header, "What the saver brake is"):
    *   the uniform half of the saver brake, sized so the saver's 36th founding — the one
    *   that crosses the 1e6 legacy ceiling — lands past 12 h while the greedy bot's
-   *   Elevator city (33) still opens at 697 min. Mirrored in src/simulation/tuning.js.
+   *   Elevator city (33) still opens before it (697 min on that tree, 709 after the
+   *   2026-09-14 wave; the saver's 36th cannot land before ~750). Mirrored in
+   *   src/simulation/tuning.js.
    * - startMoneyPerLegacy: post-reset seed cash = startMoney · (1 + 1·legacy): $1,800 with
    *   5 points, $3,300 with 10, $6,600 with 21. This is what turns cities 2–3 from a
    *   16-minute replay of the first city into 11–12 minutes: with the four Legacy rungs
@@ -414,8 +485,8 @@ export const config = {
    *   ×2.5 perk ladder needs 30 foundings to reach the Imperial Charter, which the 12 h
    *   session delivers in its last hour. It also pins the legacy ceiling to a founding
    *   count: any profile that completes 35 foundings in 12 h banks ~7.4e5, and a 36th
-   *   crosses 1e6 — the default profile founds 34 times and the 30 s saver 35 (its 36th
-   *   founding lands ~730 min; header).
+   *   crosses 1e6 — the default profile founds 33 times and the 30 s saver 35 (its 36th
+   *   founding cannot land before ~750 min; header).
    * - prestigePanelShare: 0.1 — the Legacy panel opens once this run has earned
    *   threshold × 0.1 = $1.1M (17.8 min into the first city, ten minutes before the Found
    *   button arms); a mayor with a bank keeps it from the first second.
@@ -482,29 +553,39 @@ export const config = {
    * ~1.7× it and the 250th ~19× until the ×40 cap; the buildings module's own rule is
    * +2.5%/unit up to ×1.5). A nuclear plant (12,000 MW, $400k) carries one of them rather
    * than three to five, and the Power tab keeps asking for money through the end of the
-   * first city and the first six replays. Measured (final gate, `probe.mjs`): under-power
-   * 34% of the first city, 9–14% of hour 2, 0.3–0.9% of hours 3–4, ≤ 0.2% after — the
-   * session reads 3.7–4.1% (contract 3–20%, target ≥ 4% in plan.json), never below the
-   * 0.6 floor. The flat draw of the previous pass (10,500 / 16,500 / 18,700 / 6,200) read
-   * 30.7% / 5.3% / 0.4% / 0.8% and 3.1% overall — 0.14 points over the floor, the margin
-   * the final-gate critic flagged; the strain buys the rest of the margin out of hour 2,
-   * where the replays' first arcologies and districts now outrun their plants again. What
-   * strain cannot do: bite after hour 3. Measured with caps of ×40 (per 10), ×80 (per 6,
-   * sticker ×0.57) and ×200 (per 20): every variant leaves hours 3–12 at 0.0–0.9%, because
-   * a mature replay's capacity is 10–1,500× its demand (below); nuclear upkeep ×10 and
-   * fusion upkeep ×13 ($3,000 / $20,000 per second) change no hour after the first by
-   * more than 0.3 points and are not shipped.
-   * Why nothing after city 8 sits under power, and why this file cannot change that: a
-   * mature replay's capacity is 10–1,500× its demand. The grid perks (Grid and Energy
-   * Charters, Orbital Solar, Breeder Reactors, the Dyson Swarm, Superconductor Grid,
-   * Stellar Engine, the Shipyard — ×30 supply and ×0.2 demand together, upgrades module)
-   * multiply whatever the generators produce, and the greedy bot scores a generator by its
-   * MW regardless of surplus, so it holds ~200 nuclear and ~200 fusion plants by city 26.
-   * Measured: nuclear/fusion cost growth 1.15–1.2 (instead of the tier's 1.11), nuclear at
-   * 10,000 MW, or a $500k plant all leave the late share at 0.0–0.5% and only move the
-   * first founding; a ×5 draw that would bite late crushes the first city (three plants
-   * per campus). Making late power a decision needs the perk stack compressed to ~×15
-   * (upgrades) and/or the bot's generator scoring to stop past 2× surplus (core).
+   * first city and the first six replays. Measured (2026-09-14 wave, `probe.mjs`):
+   * under-power 31% of the first city, 8% of hour 2, 0.6–0.7% of hours 3–4, 0.1–0.3%
+   * after — the session reads 3.5% (contract 3–20%, target ≥ 3.2% in plan.json), never
+   * below the 0.6 floor. The flat draw of the pass before the strain (10,500 / 16,500 /
+   * 18,700 / 6,200) read 30.7% / 5.3% / 0.4% / 0.8% and 3.1% overall — 0.14 points over
+   * the floor, the margin the final-gate critic flagged; the strain buys the rest of the
+   * margin out of hour 2, where the replays' first arcologies and districts outrun their
+   * plants. What strain cannot do on its own: bite after hour 3. Measured with caps of
+   * ×40 (per 10), ×80 (per 6, sticker ×0.57) and ×200 (per 20): every variant leaves
+   * hours 3–12 at 0.0–0.9%; nuclear upkeep ×10 and fusion upkeep ×13 ($3,000 / $20,000
+   * per second) change no hour after the first by more than 0.3 points and are not
+   * shipped.
+   * What a mature replay's grid reads now, and why hours 3–12 still sit at 0.1–0.7%
+   * under power. Before the 2026-09-14 wave the grid perks (Grid and Energy Charters,
+   * Orbital Solar, the Dyson Swarm, Helios, Superconductor, Stellar Engine, the Shipyard)
+   * folded to ×270 supply and ×0.176 demand, and a mature replay's capacity was 10–1,500×
+   * its demand: no draw this file could set bit after hour 3. The upgrades module
+   * compressed the stack to ×9.5 / ×0.33 (header, "The 2026-09-14 wave"), and the replay
+   * grid now binds: greedy medians by city 1.09 · 1.08 · 1.11 · 1.02 · 1.25 · 1.49 · 2.17
+   * · 2.09 · 1.98 · 1.86 · 1.91 · 2.32 · 2.37 · 2.17 · 2.06 · 2.02 · 1.95 · 1.81 · 1.73 ·
+   * 1.68 · 1.60 · 1.55 · 1.47 · 1.41 · 1.36 · 1.31 (cities 1–26), 1.6–1.9 in 27–28, then
+   * 3.7–6.2 from city 29 once the Energy Charter, Shipyard and Helios stack (by hour 1.11
+   * · 1.74 · 1.91 · 2.30 · 1.77 · 1.59 · 1.49 · 1.39 · 1.56 · 2.03 · 6.00 · 6.05); the
+   * human profile reads 1.1–2.3× in every hour. What has not changed is the *share* of
+   * ticks under power after hour 2 (0.1–0.7%, against 0.0–0.9% before), because the
+   * greedy bot scores a generator by its MW the moment its grid is short and buys one in
+   * the same two-second step, so the ratio hovers just above 1 instead of dipping under
+   * it: the 3.5% the session reads is the first city's 31% and hour 2's 8%, as before.
+   * Measured earlier and still true: nuclear/fusion cost growth 1.15–1.2 (instead of the
+   * tier's 1.11), nuclear at 10,000 MW, or a $500k plant only move the first founding; a
+   * ×5 draw that would bite late crushes the first city (three plants per campus). Making
+   * a mature replay's power a *felt* share of the session is now the bot's generator
+   * scoring (core), not a draw or a perk.
    */
   buildings: {
     // Windmills: $40 keeps the first one in reach right after the opening cottage, 4 MW
@@ -563,7 +644,7 @@ export const config = {
     // ninth frontier rung had no city to land in; at −10% the 34th city still completed,
     // empty, eight minutes before 12 h, and at −15% the last rung had no city. The trim
     // (with growthRate 0.1 and the tier-1/2/3 nudges above paying the first city back)
-    // ends the session inside the 35th city with every rung bought. Both
+    // ends the session inside the Space Elevator's city with every rung bought. Both
     // move together so the district keeps ≥ 0.8× the campus's value per dollar, the band
     // the buildings test holds (the ratio is unchanged by a common factor).
     // Gates: the campus at 16,500 (was 14,500), the nuclear plant at 12,500 (was 11,000),
@@ -589,8 +670,9 @@ export const config = {
     // left there; the Space Elevator's gate is re-pinned from 15,000 to 300,000 legacy so it
     // is the never-bought item of city 33 (plays with 379,733; city 32 with 271,053) — the
     // one novelty that can follow the Imperial Charter's city without shortening its own
-    // (a power building is nil in a replay), which is what keeps the open 34th city from
-    // completing before 12 h. At 15,000 it landed in city 24 and pushed the Ringworld
+    // (a power building is nil as pace even now that the grid binds: ten are bought in the
+    // open city 33, which is what keeps that city from completing before 12 h). At 15,000
+    // it landed in city 24 and pushed the Ringworld
     // District out of it, and the tail had two rungs for four slots. See the placement
     // table in the upgrades block.
     elevator: { ...legacyUnlock(300000, '300,000') },
@@ -654,51 +736,69 @@ export const config = {
    *   Megastructures (1.5) · 16 Arcology Gardens (1.8) · [17 Masons] · 18 Algorithmic
    *   Trading (1.8) · 19 City Archives (2.3) · [20 Civic] · 21 Standing Orders (2) · 22
    *   Mass-Driver Port (2) · [23 Treasury] · 24 Ringworld District (2.4) · [25 Skyline] ·
-   *   26 Stellar Engine (2.7) · 27 Superconductor Grid (2.9) · [28 Energy + Galactic
+   *   26 Stellar Engine (2.6) · 27 Superconductor Grid (2.9) · [28 Energy + Galactic
    *   Charter] · 29 Orbital Shipyard · 30 Helios Array · 31 Exchange Ring · [32 Imperial]
-   *   · 33 {Space Elevator} · 34 open at 12 h.
+   *   · 33 {Space Elevator}, open at 12 h (10.9 min in).
    * Every city from the 4th on gets at least one never-before-bought item — 20 money
    * rungs, two megastructures and twelve perks for 31 late cities, with one double (the
    * Galactic Charter in the Energy Charter's city, so the Energy city reads ×0.7 instead
-   * of ×1.37) and no spare — which is why the session has to end inside the 35th city
-   * (header) and why no second double is possible (a double anywhere leaves one late
+   * of ×1.37) and no spare — which is why the session has to end inside the Elevator's
+   * city (header) and why no second double is possible (a double anywhere leaves one late
    * city with nothing new; only city 4, before the variety line starts, may be empty).
    * The tail is the delicate part: the Imperial Charter's ×3 is priced to land in city 32
    * (×4 after the Energy Charter, the top of the ×2.5–4 band; a city earlier it makes the
    * tail short enough for a 36th founding), the Space Elevator's legacy gate (buildings
    * block) puts the one nil novelty after it, and firstBonus 0.15 is what puts the 12 h
-   * mark inside the 35th city: it opens at 715 min and a city with nothing new needs
-   * ≥ 22 min there.
+   * mark inside that city: it opens at 709 min and a city with nothing new needs ≥ 18
+   * min there. The Stellar Engine now carries cost −20% (a felt clause, upgrades), so the
+   * DESIGN.md open note's "Galactic Charter to city 27" is available if the 26–28 stretch
+   * ever needs it; it reads 25.1 · 33.0 · 36.4 · 25.9 (×1.31 at the Stellar step) and
+   * does not.
    * Each spree price is the geometric mean of the reach of the city before it and the
    * reach of its own city (place.mjs prints both), ±10–25% of margin; the narrowest
-   * windows are Orbital Solar (city 16, ±12%) and the Ringworld District (24, ±10%).
-   * After any change to income, cost, gates or the perk effects run
+   * windows are Orbital Solar (city 10, ±12%), the Ringworld District (24, ±10%) and
+   * City Archives (19, 12% under the spree ceiling, see below). After any change to
+   * income, cost, gates or the perk effects run
    * `node src/balance/place.mjs --plan src/balance/plan.json` and copy the prices in;
    * its last line reports the placed session against plan.json's safety-margin targets.
    * The Quantum Exchange is priced at the top of its spree window ($3.2e10 against a
-   * $1.2e10–3.5e10 spree) so it is bought at the spree's peak of city 13 (1.4 min) and
-   * the Settlers step after it reads ×1.343; there is no plateau window in city 13 on
+   * $1.2e10–3.5e10 spree) so it is bought at the spree's peak of city 13 (1.5 min) and
+   * the Settlers step after it reads ×1.337; there is no plateau window in city 13 on
    * this ladder (with the Merchant Charter in city 12 the spree outruns the plateau), so
    * a mid-city purchase, which read ×0.6 into city 14 on the previous ladder, is not
-   * available — growthRate 0.11 holds the step instead.
+   * available — growthRate 0.11 holds the step instead (a geometric-mean placement,
+   * $1.96e10, reads ×1.349 there).
    * The second city takes the rest of the tier-4 core (Breeder Reactors at $20M, the
    * fusion reactor and the stadium); Institutional Memory ($30M) is priced above the
    * second city's plateau so it lands in the third city, beside the Mint Charter — its
    * founding re-grant of the tier-1/2 ladder then reaches city 4.
    * Legacy rungs: the four replay accelerators ($1k · $5k · $12k · $25k) are priced for
    * the first two minutes of a 5–10 point replay (see prestige.startMoneyPerLegacy);
-   * City Archives ($2.0T) is the 19th city's novelty and Standing Orders ($4.0T) the
+   * City Archives ($2.1T) is the 19th city's novelty and Standing Orders ($4.0T) the
    * 21st's — in that order of necessity: Standing Orders re-grants every Legacy rung at
    * each founding after it, so no Legacy rung can be a first purchase once it is owned.
+   * The Archives' price is the 2026-09-14 wave's one cadence move ($2.0T → $2.1T, header):
+   * bought at the peak of city 19's spree, anything from $2.05T to $2.3T ends the spree
+   * sequence 8 s later and balances the Algorithmic Trading → Archives → Civic Charter
+   * steps at ×1.339 / ×1.339 (at $2.0T they read ×1.331 / ×1.347); $2.1T is 12% under
+   * the spree's ceiling ($2.40T with nothing bought; $2.5T lands in city 20 and empties
+   * 19) and still above a saver's city-17 reach.
    * Measured strengths (how much shorter the city after the rung is, over the ~×1.3 a
    * city with nothing new grows): Imperial Charter ×2.5, Quantum Exchange ×2.5, Galactic
    * Charter ×2.3, Exchange Ring ×2.2, Planetary Charter ×1.6, AI Governance ×1.4,
-   * Algorithmic Trading ×1.2, Robotic Assembly ×1.15; the power rungs (Orbital Solar,
-   * Superconductor Grid, Stellar Engine, Helios Array, the Dyson Swarm's grid half), the
-   * housing rungs and the jobs rungs (Shipyard, Ringworld) are ×1.0–1.1 in a replay, whose
-   * grid, housing and payroll are never the constraint — they are variety, not pace.
-   * That is the floor on the cadence contract: a nil rung's city reads ×1.28–1.40 over
-   * its predecessor with a spread this file cannot narrow.
+   * Algorithmic Trading ×1.2, Robotic Assembly ×1.15, Mass-Driver Port ×1.1 (its cost
+   * −25% and industry ×2 are felt in its own city, 44 min against a nil ×1.3 of 48). The
+   * power rungs (Orbital Solar, Superconductor Grid, Stellar Engine, Helios Array, the
+   * Dyson Swarm's grid half) are felt purchases since the 2026-09-14 wave — the replay
+   * grid binds at a median 1.3–2.4× its demand, so each one is a plant the city does not
+   * buy — but still ×1.0–1.1 as pace: the plant they save is 1–3% of a city's outlay, and
+   * their cities read the same minutes as before the compression. The housing rungs and
+   * the jobs rungs (Shipyard, Ringworld, and now the Archives' and the Civic Charter's
+   * jobs terms, decorative once Megastructures and the Gardens carry jobs) are ×1.0 —
+   * variety, not pace. That is the floor on the cadence contract: a nil rung's city reads
+   * ×1.28–1.40 over its predecessor with a spread this file cannot narrow; the widest
+   * steps are where two or three nil cities sit between lifetime-earnings milestones
+   * (18 → 21), and the wave's own re-measure of that stretch is in the header.
    * The frontier keeps its canonical order (Dyson < Quantum < Mass-Driver < Ringworld <
    * Stellar < Galactic < Shipyard < Helios < Exchange Ring) and its earnings gate (a
    * quarter of the price) but not the module's ×10 spacing: ×10 apart the nine rungs
@@ -764,7 +864,7 @@ export const config = {
     'veteran-planners': { cost: 12000 },
     'dynasty-ledger': { cost: 25000 },
     'institutional-memory': { cost: 3e7 }, // city 3, with the Mint Charter
-    'city-archives': { cost: 2.0e12 }, // city 19 (was city 4): above a saver's 30 s reach in city 17, so its hoard no longer opens Algorithmic Trading a city early
+    'city-archives': { cost: 2.1e12 }, // city 19 (was city 4): above a saver's 30 s reach in city 17, so its hoard no longer opens Algorithmic Trading a city early; $2.1e12 (was $2.0e12) is the F2/F3 wave's cadence nudge — see the Legacy rungs note above
     'standing-orders': { cost: 4.03e12 }, // city 21 (re-grants the Legacy rungs from city 22 on, so no Legacy rung can be a novelty after it)
     // charter perks (legacy points): ×2.5–4 apart (whole points, never under), 3 → 150,500
     'charter-homestead': { cost: 3 },

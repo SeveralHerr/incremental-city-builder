@@ -1,0 +1,20 @@
+[sim] PASS (contract FAIL) 6h game in 5198ms (41554 t/s) money=7.40e+11 income=6.10e+10/s pop=4659075 prestiges=6 legacy=1215 (spent 620) issues=5 errors=0
+[sim] cycles(min): 46.2 17.6 22.3 60.6 73.5 64.2
+[sim] profile=human reach=49% bigRatio=23% (next-step 10%) underPower=0.1% minRatio=0.60 happyDips=6/6 emptyLate=0
+[sim] human by hour: power cap/demand 1.14 6.06 6.41 16.55 14.45 12.30 | unemployment 21% 0% 0% 0% 0% 34% | next legacy (min) 44.1 0.4 0.3 0.1 0.0 0.0 | lightsOut 0.0% 0.0% 0.0% 0.0% 0.0% 0.0% of grid samples (0.0% overall, latched in 0/6 cities)
+[sim] human by city (≥ 2 min in): median cap/demand 1.16 1.10 3.59 6.55 16.04 14.73 12.39 | median unemployment 0% 35% 0% 0% 0% 0% 23% | first city with median ≥ 3×: 3 | Megastructures: first owned in city 7 at 315.4 min; median unemployment before 0% / with 34% (≥ 40% in 0% of owned samples)
+[sim] human F3 by how Megastructures arrived: mid-city cities 7: unemployment before 0% / with 34% (≥ 40% in 0%, max 35%, 45 samples) | replay no city | granted no city
+[sim] human F2 attribution by city: generator units need/rotation 101/34 167/41 152/125 35/321 9/423 10/498 5/569 | median cap/demand without the rotation's generators 0.93 1.02 2.13 0.27 0.07 0.22 0.09
+[sim] human founding rule default: 6 foundings in 6h, legacy at end of city 6 405 (player 415), Megastructures city 7 @ run-min 30.43 (314.8 min), Arcology Gardens city 7 @ run-min 32.63 (317 min), lightsOutReachable 0.0%
+[sim] human gate FAIL [power-surplus] median cap/demand by hour: > 4.0 in h3 6.41, h4 16.55, h5 14.45, h6 12.30; none < 1.0 (hours 2–12)
+[sim] human gate FAIL [power-surplus] first city with median cap/demand ≥ 3×: 3 (contract ≥ 8 or none)
+[sim] human gate FAIL [unemployment] per-city median unemployment > 20 % (cities ≥ 4): city 7 23%
+[sim] human gate FAIL [unemployment] median unemployment by hour > 15 % (hours 2–12): h6 34%
+[sim] human gate FAIL [lights-out] Lights Out latched in 0/6 cities after city 1 (contract ≥ 1)
+[sim] human vs the player's screenshot (city 6 @ 92 min: $7.89e9/s, 1.53M pop, legacy 415, 1,727 bldg, 43% unemployment, cap/demand 3.52, Megastructures yes): at 92 min → city 4 @ 92 min: income 3.28e+7/s (×0.0042), pop 331397 (×0.2166), legacy 45 (×0.1084), 1186 bldg, unemployment 0%, cap/demand 6.98, Megastructures no | end of city 6 → city 6 @ 284.1 min: income 1.03e+10/s (×1.3031), pop 869355 (×0.5682), legacy 405 (×0.9759), 2381 bldg, unemployment 0%, cap/demand 13.59, Megastructures no | first at the player's income → city 6 @ 256.1 min: income 8.35e+9/s (×1.0582), pop 784794 (×0.5129), legacy 405 (×0.9759), 2163 bldg, unemployment 0%, cap/demand 15.04, Megastructures no
+  - [power-surplus] t=0 median cap/demand by hour: > 4.0 in h3 6.41, h4 16.55, h5 14.45, h6 12.30; none < 1.0 (hours 2–12)
+  - [power-surplus] t=0 first city with median cap/demand ≥ 3×: 3 (contract ≥ 8 or none)
+  - [unemployment] t=0 per-city median unemployment > 20 % (cities ≥ 4): city 7 23%
+  - [unemployment] t=0 median unemployment by hour > 15 % (hours 2–12): h6 34%
+  - [lights-out] t=0 Lights Out latched in 0/6 cities after city 1 (contract ≥ 1)
+[sim] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\sim-build-buildings.json

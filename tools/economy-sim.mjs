@@ -601,8 +601,10 @@ if (hours >= 12 && (neverPurchased.buildings.length || neverPurchased.upgrades.l
 
 // ---- human-profile contract gates (docs/FEEDBACK.md F2/F3/F16; --profile human, no --grant) ----
 // The reproduction of F2 (power runaway) and F3 (unemployment cliff) as gates, fed into `issues`
-// so contractPass reflects them. They are MEANT to fail on the 2026-09-14 balance (numbers in
-// the header); a later balance wave makes them pass. Hours are 1-based game-hours of playtime
+// so contractPass reflects them. They FAILED on the 2026-09-14 balance (numbers in the header)
+// and pass since the F2/F3 wave, round 1 (stack ×9.5 / ×0.33, paired housing rungs, the human
+// bot's sticker-draw grid guard): cap/demand ≤ 2.3 by hour, no ≥ 3× city, unemployment 0 % from
+// hour 2, Lights Out 3/9. Hours are 1-based game-hours of playtime
 // (hour 1 = array index 0); city medians are the warmed-up per-city samples (cityStats).
 //   power-surplus  median cap/demand ≤ 4.0 in hours 3–12 and ≥ 1.0 in hours 2–12;
 //                  firstCityWithSurplus3x ≥ 8 or none

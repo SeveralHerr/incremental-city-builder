@@ -697,9 +697,13 @@ test('tier 5: two legacy-gated megastructures open after the first founding, pin
   assert.equal(data('ring').synergy.source, 'pop');
   // Stickers: the ring is eighty arcologies of housing and a jobs engine that at its cap
   // out-hires its own citizens (that is the late column balance, README "Jobs and
-  // housing"); the elevator is a fusion fleet of output with nuclear's upkeep per MW.
+  // housing"; ×5 = 250,000 jobs over 80,000 housing — it was ×12 until the 2026-09-14
+  // upgrade wave lifted the session's jobs rungs from ×12 to ×17.3 and the ring alone
+  // held jobs/pop at 2–4 for the back half of 12 h); the elevator is a fusion fleet of
+  // output with nuclear's upkeep per MW.
   assert.equal(data('ring').housing, 80 * data('arcology').housing);
-  assert.ok(data('ring').jobs * data('ring').synergy.cap >= data('ring').housing * 4, 'ring at its cap hires ≥ 4× its housing');
+  assert.equal(data('ring').synergy.cap, 5);
+  assert.ok(data('ring').jobs * data('ring').synergy.cap >= data('ring').housing * 3, 'ring at its cap hires ≥ 3× its housing');
   assert.ok(data('elevator').powerGen >= 50 * data('fusion').powerGen);
   assert.ok(data('elevator').upkeep / data('elevator').powerGen <= data('nuclear').upkeep / data('nuclear').powerGen + 1e-9, 'elevator upkeep/MW ≤ nuclear');
   // The ring's bill is stated against the fusion reactor, not against the elevator (a card
@@ -834,9 +838,10 @@ test('every synergy / strain card line quotes the rate and cap its own rule deri
     if (d.demandGrowth) { check('shipped', id, 'growth', d.demandGrowth); n++; }
   }
   assert.equal(n, 32, 'sixteen rules, checked in data.js and as shipped');
-  // The ring's rule, in numbers: ×2 at 100,000 citizens, ×12 from 1.1 M.
+  // The ring's rule, in numbers: ×2 at 100,000 citizens, ×5 from 400,000 (and still ×5 at 1.1 M).
   assert.equal(synergyFactor(data('ring').synergy, cityState(100000), grid(0)), 2);
-  assert.equal(synergyFactor(data('ring').synergy, cityState(1100000), grid(0)), 12);
+  assert.equal(synergyFactor(data('ring').synergy, cityState(400000), grid(0)), 5);
+  assert.equal(synergyFactor(data('ring').synergy, cityState(1100000), grid(0)), 5);
   assert.ok(data('ring').synergy.text.includes('+1% jobs per 1,000 citizens'), 'the ring line reads +1 % per 1,000');
   // A strain rule re-pinned by config without a text gets one that quotes its numbers.
   const bare = resolveBuilding(data('arcology'), { config: { buildings: { arcology: { demandGrowth: { per: 8, cap: 40 } } } } });

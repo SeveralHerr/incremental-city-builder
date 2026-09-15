@@ -869,6 +869,50 @@ test('botStep human profile: homes before jobs on the stale population, a civic 
   resetState();
 });
 
+test('botStep human profile: a draw batch is trimmed at the sticker draw, not the grid-strain draw the tick will add', () => {
+  clearErrors();
+  // Draw grows with the fleet (buildings demandGrowth: per-unit × min(cap, 1 + (count − 1) / per)):
+  // with per = 1 the k-th unit's fleet draws k × k stickers. The card shows the sticker, and so
+  // does the player's arithmetic — the grid guard must not foresee the growth, or the profile
+  // never walks into the one brownout the playtest's player could (docs/FEEDBACK.md F2, Lights
+  // Out latched 0/9 cities with the growth folded in, 3/9 at the sticker; sim 2026-09-14).
+  const strained = registerBuilding({ id: 'h-strain', name: 'Human tower', baseCost: 30, costGrowth: 1.15, tier: 3, category: 'residential', housing: 4, powerUse: 1, demandGrowth: { per: 1, cap: 40 } });
+  assert.ok(strained);
+  // Stale snapshot: housing full (14 homes open the 5 % vacancy), grid 10 / 5 → room for 5
+  // stickers. The strain-aware guard of the second cut would have let 2 through (2 × 2 = 4 ≤ 5,
+  // 3 × 3 = 9 > 5); the sticker guard lets 5 through.
+  freshPlot();
+  state.res.pop = 1000;
+  derived.housing = 1000;
+  derived.jobs = 2000;
+  derived.employed = 1000;
+  derived.powerCap = 10;
+  derived.powerDemand = 5;
+  let { log, reasons } = humanRun();
+  assert.deepEqual(log[0], { id: 'h-strain', n: 5 }, `5 stickers fit the room: ${JSON.stringify(log[0])}`);
+  assert.equal(reasons[0], 'housing');
+  // The draw turned away (14 − 5 = 9 stickers) is met in the same step by the power rule: the
+  // grid 1.2× ahead of demand 10 + refused 9 → 22.8 at 4 MW per mill over the 10 there = 4 mills.
+  assert.equal(log[1].id, 'h-gen', reasons.join(' '));
+  assert.equal(reasons[1], 'power');
+  assert.equal(log[1].n, 4);
+  // No room at all (grid 10 / 10): nothing that draws is bought before a generator, same as
+  // before — the profile never KNOWINGLY browns out; the guard only stops foreseeing strain.
+  freshPlot();
+  state.res.pop = 1000;
+  derived.housing = 1000;
+  derived.jobs = 2000;
+  derived.employed = 1000;
+  derived.powerCap = 10;
+  derived.powerDemand = 10;
+  ({ log, reasons } = humanRun());
+  assert.equal(log[0].id, 'h-gen', `generator first at no room: ${reasons.join(' ')}`);
+  assert.equal(reasons[0], 'power');
+  assert.equal(errors.length, 0);
+  state.buildings['h-strain'] = 400; // priced out for the tests below
+  resetState();
+});
+
 // The deep-push founding rule (docs/FEEDBACK.md F16): the game's gate is necessary, not
 // sufficient. The prestige actions are the simulation module's, so they are stubbed here.
 test('humanShouldFound: waits past an open gate until the haul is foundShare × the bank, then founds', () => {

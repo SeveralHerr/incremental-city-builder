@@ -5,16 +5,19 @@
 // every --every game-minutes: which city, population, jobs, the jobs-to-population ratio,
 // and the biggest sources of each column. Two rules, both measured on mature cities only
 // (from the 5th founding on — the first city and the early replays are still assembling
-// their ladder, and a replay's opening minute is an all-housing spree by design):
+// their ladder — and past a replay's first MATURE_RUN_MIN minutes: its opening minute is
+// an all-housing spree by design, a sample there reads the fleet mid-assembly, e.g. a
+// 13th city at run-minute 0.2 with two factories and a house at 2.7 jobs per citizen):
 //   columns   the median jobs/pop ratio sits inside RATIO_MIN..RATIO_MAX and at least
 //             RATIO_SHARE of the samples sit inside the wider SPAN_MIN..SPAN_MAX —
 //             employed = min(pop, jobs), so a ratio far above the band is a jobs column
 //             nobody fills (a tier-4 employer's sticker that is decoration) and a ratio
 //             under 1 is a city that cannot employ its citizens. The wider span is the
 //             swing the upgrade rungs impose (their housing multipliers outrun the jobs
-//             multipliers ×42 to ×12 across a session, the `×hous ×jobs` columns); the
-//             catalogue's stickers and the ring's population-scaled hiring hold the
-//             ratio inside it, they cannot hold a 1.6× band across a 3.5× swing;
+//             multipliers ×37.5 to ×17.3 across a session, and run behind them ×3.75 to
+//             ×4.39 in cities 20–23 — the global `(hous/jobs)` mods); the catalogue's
+//             stickers and the ring's population-scaled hiring hold the ratio inside
+//             it, they cannot hold a 1.6× band across a ~2.5× swing;
 //   tier 5    every legacy-gated card opens during the session, is bought within
 //             T5_BUY_CITIES cities of opening, and keeps being bought afterwards (a
 //             megastructure is a rolling target, not a one-off trophy).
@@ -39,6 +42,7 @@ export const SPAN_MIN = 0.8; // 20% unemployment at worst …
 export const SPAN_MAX = 2.0; // … and at most half a job sticker decorative
 export const RATIO_SHARE = 0.75; // of mature samples inside the span
 export const MATURE_FROM_CITY = 5;
+export const MATURE_RUN_MIN = 2; // game-minutes into a city before its samples count
 export const T5_BUY_CITIES = 2; // a legacy-gated card is bought within this many cities of opening
 
 const toUrl = (p) => p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:');
@@ -124,7 +128,8 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
 }
 
 const problems = [];
-const mature = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.ratio !== null);
+const mature = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.runMin >= MATURE_RUN_MIN && s.ratio !== null);
+const opening = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.runMin < MATURE_RUN_MIN && s.ratio !== null).length;
 const ratios = mature.map((s) => s.ratio).sort((a, b) => a - b);
 const median = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
 const inBand = mature.filter((s) => s.ratio >= RATIO_MIN && s.ratio <= RATIO_MAX).length;
@@ -160,8 +165,8 @@ const report = {
   ticks: TICKS,
   gameHours: +(TICKS / 36000).toFixed(2),
   foundings: finalCity,
-  rules: { ratioMin: RATIO_MIN, ratioMax: RATIO_MAX, spanMin: SPAN_MIN, spanMax: SPAN_MAX, ratioShare: RATIO_SHARE, matureFromCity: MATURE_FROM_CITY, t5BuyCities: T5_BUY_CITIES },
-  ratio: { median, inBandShare: +bandShare.toFixed(3), inSpanShare: +share.toFixed(3), matureSamples: mature.length, min: ratios[0] ?? null, max: ratios[ratios.length - 1] ?? null },
+  rules: { ratioMin: RATIO_MIN, ratioMax: RATIO_MAX, spanMin: SPAN_MIN, spanMax: SPAN_MAX, ratioShare: RATIO_SHARE, matureFromCity: MATURE_FROM_CITY, matureRunMin: MATURE_RUN_MIN, t5BuyCities: T5_BUY_CITIES },
+  ratio: { median, inBandShare: +bandShare.toFixed(3), inSpanShare: +share.toFixed(3), matureSamples: mature.length, openingSamples: opening, min: ratios[0] ?? null, max: ratios[ratios.length - 1] ?? null },
   tier5: [...t5.values()].map((r) => ({ ...r, citiesBought: [...r.citiesBought] })),
   samples,
   problems,
@@ -175,7 +180,7 @@ if (JSON_OUT) {
   for (const s of samples) {
     console.log(`${String(s.min).padStart(5)}  ${String(s.city).padStart(4)}  ${String(s.runMin).padStart(4)}  ${s.pop.toExponential(2).padStart(8)}  ${s.jobs.toExponential(2).padStart(8)}  ${String(s.ratio ?? '—').padStart(5)}  ${String(s.employedShare ?? '—').padStart(5)}  ${String(s.happiness).padStart(4)}  ${String(s.housingMult ?? '—').padStart(5)} ${String(s.jobsMult ?? '—').padStart(5)} (${s.globalHousingMod}/${s.globalJobsMod})  ${s.topJobs} / ${s.topHousing}`);
   }
-  console.log(`mature cities (≥ ${MATURE_FROM_CITY}): median jobs/pop ${median}, ${Math.round(bandShare * 100)}% of ${mature.length} samples inside ${RATIO_MIN}–${RATIO_MAX}, ${Math.round(share * 100)}% inside ${SPAN_MIN}–${SPAN_MAX} (min ${report.ratio.min}, max ${report.ratio.max})`);
+  console.log(`mature cities (≥ ${MATURE_FROM_CITY}, past run-minute ${MATURE_RUN_MIN}): median jobs/pop ${median}, ${Math.round(bandShare * 100)}% of ${mature.length} samples inside ${RATIO_MIN}–${RATIO_MAX}, ${Math.round(share * 100)}% inside ${SPAN_MIN}–${SPAN_MAX} (min ${report.ratio.min}, max ${report.ratio.max}; ${opening} opening-minute samples set aside)`);
   for (const r of report.tier5) {
     if (r.note) console.log(`${r.id.padEnd(9)} legacy ${r.gate.toLocaleString('en-US').padStart(6)}: ${r.note}`);
     else console.log(`${r.id.padEnd(9)} legacy ${r.gate.toLocaleString('en-US').padStart(6)}: opened city ${r.openCity} (${r.openMin} min), first bought city ${r.buyCity ?? '—'} (${r.buyMin ?? '—'} min), ${r.buys} bought across ${r.citiesBought.length} cities [${r.citiesBought.join(' ')}]`);

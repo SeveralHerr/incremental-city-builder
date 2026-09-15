@@ -136,14 +136,18 @@ export const BUILDINGS = [
     costGrowth: 3,
     housing: 80000, // eighty arcologies' worth
     // Orbital industry: the ring's yards hire from the city below, +1% per 1,000
-    // citizens (×2 at 100,000) up to ×12 (600,000 jobs in a city of 1.1 M). This is the late jobs engine:
-    // from the 14th city on the housing rungs outrun the jobs rungs (×42 against ×12 by
-    // the 30th, columns.mjs) and a static sticker cannot follow — a jobs number that
-    // grows with the population can, and it comes online as a replay's citizens arrive,
-    // which is what keeps the jobs column within reach of the housing column through 12 h
-    // (README "Jobs and housing").
+    // citizens (×2 at 100,000) up to ×5 (250,000 jobs in a city of 400,000). This is the
+    // late jobs engine: from the 14th city on the housing rungs outrun the jobs rungs
+    // (×37.5 against ×17.3 by the 31st on the 2026-09-14 upgrade stack, columns.mjs) and a
+    // static sticker cannot follow — a jobs number that grows with the population can, and
+    // it comes online as a replay's citizens arrive. The cap was ×12 when the jobs rungs
+    // reached ×12 over a session; the 2026-09-14 upgrade wave lifted them to ×17.3 (jobs
+    // ahead of housing, ×4.39 / ×3.75, in cities 20–23) and at ×12 the ring — 72–86 % of
+    // the jobs column from the 20th city — held jobs/pop at 2.0–4.3 for the back half of
+    // 12 h (median 2.02, 41 % of mature samples inside 0.8–2.0). ×5 keeps every mature
+    // city at or above 1 job per citizen (README "Jobs and housing").
     jobs: 50000,
-    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 12, text: 'Orbital industry: +1% jobs per 1,000 citizens (up to ×12)' },
+    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 5, text: 'Orbital industry: +1% jobs per 1,000 citizens (up to ×5)' },
     powerUse: 1.2e6, // 12 MW per citizen, twice the arcology's 6.5: the card says "≈ 20 × Fusion Reactor"
     happiness: 0.5, // ten parks: a sealed world with weather it chose
     unlock: legacy(500),

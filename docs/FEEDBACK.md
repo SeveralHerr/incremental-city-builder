@@ -59,7 +59,36 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
   ≥ 2× its bank must out-earn everything before it ~8.5× per city, and its plateau fleet grows
   2–4 units a minute, so no fixed-threshold rung can fall inside a 20-minute window every city.
   Open with the lever named: a leveled / repeatable upgrade type (core) or an income term in the
-  Masons / Archives slot with its own brake wave.- [ ] **F2 balance/buildings — power runaway (P1).** By the 3rd founding the carried bonuses give
+  Masons / Archives slot with its own brake wave.
+  → Wave 3, core half (2026-09-15, `src/core/bot.js`). The round-3 note above is right that F1(a)
+  is arithmetic and wrong about where the arithmetic lives: the ≥ 2× founding rule is not a fact
+  about the economy, it is a setting on the *instrument*, and it was fitted on 2026-09-14 to one
+  of the two observables in the playtest screenshot (415 legacy at the end of city 6) while the
+  other one in the same frame — the player is in **city 6 at 92 min** — went unread. F1 is a
+  wall-clock line, and at share 2.0 the profile reaches city 6 only at 182–295 min and first
+  matches the player's income at 270.8 min: ×3.0 on the clock it claims to reproduce. Re-swept on
+  HEAD 1c3ebfa (12 h, `--found <rule>`), both columns and the F1(a) verdict recorded per row:
+  gate 27 foundings / city 6 @ 92 min / legacy 30 / PASS · share 1.0 14 / city 5 / 80 / **PASS** ·
+  share 1.5 10 / city 4 / 208 / FAIL (c9 110.1 > 1.35× c8 75.6) · share 2.0 8 / city 4 / 405 /
+  FAIL (c7 105.6, c8 164.1) · share 3.0 6 / city 3 / 1280 / FAIL. Monotone: every rung that buys
+  legacy spends clock. Shipped: **share 1.0** — the deepest push that stays within one city of the
+  player's clock and keeps F1(a) on its ≤ 90-min branch. Cost, recorded not hidden: city-6 legacy
+  405 → 80 (×0.98 → ×0.19 of the player) and Megastructures unassisted city 7 → city 10.
+  Isolated reading of the bot change alone, HEAD content, 12 h (`logs/sim-human-share1.txt`):
+  cycles 45.5 · 13.0 · 16.4 · 13.5 · 27.9 · 46.9 · 43.5 · 39.5 · 41.8 · 50.4 · 62.9 · 86.0 · 74.5 · 115.7,
+  complete cities 4–9 all < 90 min → **F1(a) PASS**; every other human gate still PASS (power
+  cap/demand none > 4.0 and none < 1.0, no ≥ 3× city; unemployment per-city / by-hour / jobs/pop
+  1.10–1.28 on complete cities ≥ 4 / 3-of-hours all in band; Lights Out cities 11 62 s and 12 44 s;
+  F12 hour 2 0.67 min, hour 3 0.62). 24 h (`logs/sim-human-24h-share1.txt`): the same five gates
+  PASS over 20 cities — but the flat `legacy ≤ 1e6` magnitude check, which the contract states as a
+  *12 h* ceiling, now trips at 2,623,606 on 20 foundings (it read 886,015 on 12) and the 24 h run
+  exits non-zero. Not touched here; see DESIGN.md "Open" for why that is a contract decision.
+  **F1(b) is content's and is not bought by this change**: the same share-1.0 run still reads
+  decision gaps 24 · 47 · 44 · 40 · 27 min in cities 5–9 against all-purchase gaps of 10 · 20 · 12 ·
+  15 · 14 over the identical purchases — the difference is the `funded` hold door on the fleet
+  ladder making reach-at-unlock 0 by construction, which is an upgrades-module fix.
+
+- [ ] **F2 balance/buildings — power runaway (P1).** By the 3rd founding the carried bonuses give
   ~10× the power that can be used when buying comparable amounts of everything. Screenshot:
   127M MW cap vs 36.1M demand. Consequences:
   - Lights Out milestone is nearly unreachable once available unless the player deliberately
@@ -170,6 +199,30 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
 
 ## UI
 
+- [ ] **F18 ui — the stage layout hides the game; bring back the single screen (P1).** Owner,
+  2026-09-15, on the deployed build: "the old UI single screen was better. Please use the old
+  UI setup." Commit `01dd022` replaced a three-column dashboard (topbar + hero column with the
+  city, next milestone, prestige and stats cards; build column; side column with upgrades,
+  milestones and the log — all visible at once) with a full-bleed stage: fullscreen skyline,
+  floating HUD, four-button dock, and a bottom sheet holding Build / Upgrades / Goals / City
+  hall. The complaint is the information hiding: everything now costs a tap to see.
+  Note the stage layout was **never playtested** — the 2026-09-14 session ran on the old
+  three-column layout (see the note under this file's title), and that session's verdict F0
+  praised its cadence. So the layout the owner is asking to restore is the one the praise
+  was about.
+  Restoration is under way (workflow, 2026-09-15): the four base files come back from
+  `01dd022~1` (`index.js`, `hero.js`, `topbar.js`, `styles.css`), the five stage components
+  are retired (`city.js`, `cityhall.js`, `dock.js`, `hud.js`, `sheet.js`), and the work built
+  on top of the stage is carried across — F14 bulk sell and the −Joy pill live in `build.js`
+  and survive untouched; F4's happiness rows, F6's founding rule, F12's legacy point bar and
+  the phone population line are **pure helpers in `text.js`**, so the old panels call them
+  directly; `embed.js` keeps the fullscreen chip but loses the dock it was anchored to.
+  **Watch F13.** "The itch embed needs lots of scrolling to find controls" was a complaint
+  made *about this old layout*, so restoring it may re-open F13. The restoration is required
+  to measure the old layout inside a real 960×640 and 1280×720 iframe and report honestly
+  rather than re-architecting around it. If F13 does re-open, it is a genuine tension between
+  two pieces of owner feedback and needs an explicit decision, not a silent compromise.
+
 - [x] **F12 ui — legacy progress bar fills from 0, not from the last point (P1).** "Next legacy
   point" bar reads as % of the whole target instead of last-point → next-point, so late
   game it looks permanently full. Fix in the Legacy / City Hall panel using
@@ -202,3 +255,16 @@ decision, not an integrator flip, so it was measured and left. Variety does not 
   add those as contract metrics before re-tuning.
 
   → Done: `--profile human` bot (`757a244`), deep-push founding rule + five human-only contract gates in the sim (`877437c`; power cap/demand ≤ 4 by hour, first ≥ 3× city ≥ 8, unemployment ≤ 20 % per city / ≤ 15 % by hour, Lights Out after city 1). Reproduces the playtest on the shipped balance: cap/demand 6.4–16.6× from hour 3, unemployment 24–34 % in hours 6–7, Lights Out 0/9 — the gates FAIL until F2/F3 are fixed. Lever map: `docs/feedback/2026-09-14-levers.md`.
+
+  → Correction, wave 3 (2026-09-15): the deep-push founding rule this item shipped was calibrated
+  on ONE of the screenshot's two observables. The frame says both "415 legacy at the end of city 6"
+  and "city 6 at 92 min of playtime", and on this economy they imply ~90-minute and ~15-minute
+  cities respectively — the sweep read the first and share 2.0 came out of it, which left the
+  instrument ×3 slow on the clock. Since F1 is a wall-clock contract, the rule is re-fitted to the
+  clock at share 1.0 and the legacy cost is written down rather than dropped (see F1 above and the
+  table above `HUMAN_FOUND_SHARE` in `src/core/bot.js`). F16's own finding is unchanged and still
+  binding: a bot that founds the moment the gate opens is not the player (legacy ×0.07, does not
+  buy Megastructures on its own until city 19), so the gate rule is still ruled out. The lesson
+  that generalises: when a probe is fitted to a screenshot, enumerate *every* observable the frame
+  carries and say which one the fit is to — an unread column is how an instrument ends up
+  measuring the wrong thing while reporting a pass.

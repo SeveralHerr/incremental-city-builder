@@ -2,23 +2,45 @@
 // game (default 6 game-hours = 216,000 ticks) with prestige, detects stalls/bottlenecks/overflow,
 // and reports the late-game contract metrics from docs/DESIGN.md "Late game contract".
 // node tools/economy-sim.mjs [--ticks 216000] [--out logs/sim.json] [--sample 600] [--profile default|saver|human]
-//                            [--grant megastructures,arcology-gardens[@6]]
+//                            [--grant megastructures,arcology-gardens[@6]] [--guard strain|sticker]
+//
+// --guard (human profile only): the grid guard the human bot sizes a draw batch with.
+// `strain` (default) foresees the fleet strain the tick will add (src/core/bot.js humanStep);
+// `sticker` is the round-1/2 booking (per-unit sticker × count) kept as the CONTROL line — a
+// round report prints the Lights Out seconds by city under both so a pass can be attributed
+// to content, not to the guard.
+//
+// In-process before/after probes (a script that imports src/boot.js once and loadState()s two
+// trees into the same game): set game._sim.pendingDirty = true (or call the simulation's
+// recompute) after EVERY loadState, or the control branch keeps the money milestones the
+// bookkeeping latched for the previous tree and the treatment cannot — round-1 skeptic 2's
+// −5 % to −21 % artefact. This tool boots once per process and never loadStates, so it is
+// not exposed; a fork that does is.
+//
+// Gate lines print the window they read AND the unread part (hours 13–24 on a 12 h gate, the
+// gaps of cities past the window, the cycles > 40 min that are not the last) so a windowed
+// pass can never read as a session pass.
 //
 // Profiles: `default` (greedy bot; the only one held to the cadence/tension/power/happiness
 // gates), `saver` (`--saver` is an alias: saves toward a rung within 30 s of income) and
 // `human` (src/core/bot.js humanStep — the 2026-09-14 playtest's purchase policy, docs/FEEDBACK.md
 // F16: every lit card, homes → jobs → power to demand, then comparable amounts of everything,
 // never saves, founds as soon as allowed). Every profile reports the F2/F3 probes — by hour
-// (powerRatioByHour, unemploymentByHour, nextLegacyMinutesByHour, lightsOutByHour,
-// lightsOutReachable) and by city (median cap/demand, median unemployment, share of samples at
-// ≥ 3× surplus / ≥ 40 % unemployment, taken ≥ 2 min into each city so the replay-start burst
-// does not dominate), the F3 block (the run-minute Megastructures / Arcology Gardens landed in
+// (powerRatioByHour, unemploymentByHour, nextLegacyMinutesByHour = the F12 legacy segment,
+// underPowerByHour, lightsOutByHour, lightsOutReachable) and by city (median cap/demand, median
+// unemployment, jobs/pop, brownout seconds, upgrade purchase run-minutes and the longest gap,
+// share of samples at ≥ 3× surplus / ≥ 40 % unemployment, taken ≥ 2 min into each city so the
+// replay-start burst does not dominate), the F3 block (the run-minute Megastructures / Arcology Gardens landed in
 // each city, and the unemployment split over the cities where they landed mid-city — the
 // player's case — separately from the replay cities that re-buy them into an empty plot), the
 // F2 attribution (human profile only: generator units bought to cover demand vs by the
 // rotation, and the cap/demand the city would have had without the rotation's generators) and
 // the player checkpoint (the screenshot's numbers against the sample at the same playtime, the
-// end of the same city, and the first sample at the same income). None of those gate.
+// end of the same city, and the first sample at the same income). Of those, the human profile
+// is gated on the F1/F2/F3/F12 lines listed at "human-profile contract gates" below, the greedy
+// on the F12 legacy-tempo line and the two by-hour power lines (under-power ≥ 1 % of ticks in
+// ≥ 3 of hours 3–12; median cap/demand ≤ 2.5 in hours 3–12 and ≥ 1.0 in hours 2–12) in
+// addition to the DESIGN.md contract; the rest report.
 //
 // Scale gap, stated plainly: the screenshot (city 6, clock 1h32m, $130B, $7.89B/s, 1.53M pop,
 // legacy 415, 1,727 buildings, Megastructures owned) is not the economy any found-as-soon-as-
@@ -101,7 +123,17 @@ if (FOUND && PROFILE !== 'human') {
   console.error('[sim] --found applies to --profile human only');
   process.exit(2);
 }
-const BOT_OPTS = SAVER ? { saveSeconds: 30 } : PROFILE === 'human' ? { profile: 'human', trace, ...(FOUND ? { foundShare: FOUND.foundShare, foundReachMinutes: FOUND.foundReachMinutes } : {}) } : {};
+// --guard strain|sticker (human profile): the grid guard, see the header. Default 'strain'.
+const GUARD = String(opt('--guard', 'strain')).toLowerCase();
+if (!['strain', 'sticker'].includes(GUARD)) {
+  console.error(`[sim] unknown --guard "${GUARD}" (strain | sticker)`);
+  process.exit(2);
+}
+if (GUARD !== 'strain' && PROFILE !== 'human') {
+  console.error('[sim] --guard applies to --profile human only');
+  process.exit(2);
+}
+const BOT_OPTS = SAVER ? { saveSeconds: 30 } : PROFILE === 'human' ? { profile: 'human', trace, guard: GUARD, ...(FOUND ? { foundShare: FOUND.foundShare, foundReachMinutes: FOUND.foundReachMinutes } : {}) } : {};
 
 const { boot, game } = await import(path.join(ROOT, 'src/boot.js').replace(/\\/g, '/').replace(/^([A-Za-z]):/, 'file:///$1:'));
 await boot();
@@ -115,9 +147,47 @@ const cycles = []; // per founding: { n, startMin, endMin, minutes, legacyAfter,
 // landed: F3 upgrade id → run-minute it was bought (or granted) in this city, from the
 // purchase log (not from the first sample that sees it owned).
 const F3_UPGRADES = ['megastructures', 'arcology-gardens'];
-const freshCycle = (n, startMin) => ({ n, startMin, peakIncome: 0, minHappiness: Infinity, newItems: [], brownoutTicks: 0, ticks: 0, maxPowerSurplus: 0, maxUnemployment: 0, landed: {}, granted: false });
+// F7 (docs/FEEDBACK.md): the growth-titled rungs — pop/housing at the moment each is bought is
+// recorded on the 'upgrade' event and reported as a median across cities (a rung bought at
+// pop/housing 1.00 cannot deliver growth; its clause must bind elsewhere).
+const F7_UPGRADES = ['welcome-sign', 'green-belts', 'veteran-planners', 'planetary-charter', 'city-archives', 'community-events', 'charter-settlers'];
+const popHousingAt = {}; // id → [pop/housing at each purchase]
+const freshCycle = (n, startMin) => ({ n, startMin, peakIncome: 0, minHappiness: Infinity, newItems: [], brownoutTicks: 0, brownoutDeepTicks: 0, ticks: 0, maxPowerSurplus: 0, maxUnemployment: 0, landed: {}, granted: false });
 let cur = freshCycle(0, 0);
 const runMin = () => +(state.time / 60).toFixed(2);
+
+// Reach at unlock (F1 decision gap): seconds of income until the rung is affordable, read the
+// moment its unlock latched in this city ((cost − cash) / income; 0 when already affordable;
+// Infinity when nothing comes in). Carried onto the purchase log as `reachAtUnlock`, so the
+// decision-gap metric can discount a rung that was already affordable when its gate opened
+// (a reflex buy, not a decision). Money rungs only; a legacy perk reads 0 when affordable at
+// unlock and Infinity otherwise. A rung without an unlock rule never fires 'unlock' (core
+// latches it silently), so noteCityUnlocks() stamps those at the first bot step of each city.
+const unlockReach = {}; // id → { city, reachSec }
+const reachOf = (def) => {
+  if (!def) return null;
+  if (def.currency === 'legacy') return api.legacyAvailable() >= def.cost ? 0 : Infinity;
+  const cash = Number.isFinite(state.res.money) ? state.res.money : 0;
+  if (def.cost <= cash) return 0;
+  const income = Number.isFinite(derived.income) ? derived.income : 0;
+  return income > 0 ? (def.cost - cash) / income : Infinity;
+};
+game.events.on('unlock', (e) => {
+  if (!e || e.kind !== 'upgrade') return;
+  unlockReach[e.id] = { city: state.stats.prestiges + 1, reachSec: reachOf(registry.upgrades.get(e.id)) };
+});
+let unlocksStampedCity = 0;
+function noteCityUnlocks() {
+  const city = state.stats.prestiges + 1;
+  if (unlocksStampedCity === city) return;
+  unlocksStampedCity = city;
+  for (const u of api.upgrades()) {
+    if (!u.unlocked || u.owned) continue;
+    const r = unlockReach[u.id];
+    if (r && r.city === city) continue;
+    unlockReach[u.id] = { city, reachSec: reachOf(u) };
+  }
+}
 
 // The Lights Out milestone's own predicate (src/simulation/milestones.js isBrownout: a grid
 // exists and demand outruns it), read off the registered milestone so the probe cannot drift
@@ -142,13 +212,16 @@ function noteFirst(key, id) {
   cur.newItems.push(id);
 }
 game.events.on('buy', (e) => {
-  purchases.push({ tick: state.tick, kind: 'b', id: e.id });
+  purchases.push({ tick: state.tick, kind: 'b', id: e.id, city: state.stats.prestiges + 1 });
   noteFirst('b:' + e.id, e.id);
 });
 game.events.on('upgrade', (e) => {
-  purchases.push({ tick: state.tick, kind: 'u', id: e.id, currency: e.currency });
+  const city = state.stats.prestiges + 1;
+  const r = unlockReach[e.id];
+  purchases.push({ tick: state.tick, kind: 'u', id: e.id, currency: e.currency, city, reachAtUnlock: r && r.city === city ? r.reachSec : null });
   noteFirst('u:' + e.id, e.id);
   if (F3_UPGRADES.includes(e.id) && cur.landed[e.id] === undefined) cur.landed[e.id] = runMin();
+  if (F7_UPGRADES.includes(e.id) && derived.housing > 0) (popHousingAt[e.id] = popHousingAt[e.id] || []).push(+(state.res.pop / derived.housing).toFixed(3));
 });
 // The --grant what-if: own the listed upgrades from GRANT.fromCity on. Applied before every bot
 // step (so a founding into that city grants them at run-minute 0); nothing is paid, the
@@ -167,7 +240,7 @@ function applyGrant() {
     if (state.upgrades[id]) continue;
     state.upgrades[id] = true;
     state.unlocks['u:' + id] = true;
-    purchases.push({ tick: state.tick, kind: 'g', id });
+    purchases.push({ tick: state.tick, kind: 'g', id, city: state.stats.prestiges + 1 });
     if (F3_UPGRADES.includes(id) && cur.landed[id] === undefined) cur.landed[id] = runMin();
     cur.granted = true;
   }
@@ -186,6 +259,13 @@ game.events.on('prestige', (e) => {
     peakIncome: cur.peakIncome,
     minHappiness: cur.minHappiness === Infinity ? null : +cur.minHappiness.toFixed(3),
     brownoutShare: cur.ticks ? +(cur.brownoutTicks / cur.ticks).toFixed(3) : 0,
+    // Seconds this city spent under power (ticks with ratio < 1, exact: 10 ticks per second),
+    // the round-2 Lights Out gate's unit — brownoutShare × minutes × 60 rounded to the tick.
+    brownoutSeconds: +(cur.brownoutTicks / 10).toFixed(1),
+    // Seconds at ratio ≤ 0.95 — the round-3 Lights Out gate's unit: a 0.999 boundary flicker
+    // (the strain re-evaluation on the tick after a batch) is under power but not a brownout
+    // a player sees; a 5 % shortfall is.
+    brownoutDeepSeconds: +(cur.brownoutDeepTicks / 10).toFixed(1),
     newItems: cur.newItems,
     // Debug maxima only (both are dominated by the replay-start burst: the first windmill over
     // one cottage, the first cottage before the first shop): cap / demand at the city's most
@@ -227,6 +307,13 @@ let lastBuyTick = 0;
 let stallStart = -1;
 let brownoutTicks = 0; // ratio < 0.9
 let underPowerTicks = 0; // ratio < 1
+// Under-power ticks per playtime hour (index = hour − 1), counted in the tick loop rather than
+// from the 60 s samples: the greedy contract's 3–20 % line is carried by hours 1–2 alone (round
+// 1: 0.1–0.7 % in hours 3–12), and this is the line that says so per hour — gated ≥ 1 % in
+// ≥ 3 of hours 3–12 for the greedy since round 3. `Deep` = ratio ≤ 0.95 (the Lights Out unit).
+const underPowerTicksByHour = [];
+const underPowerDeepTicksByHour = [];
+const ticksByHour = [];
 let minRatio = 1;
 let bestIncome = 0;
 let maxMoney = 0;
@@ -270,16 +357,24 @@ function frontierPrices(cash) {
 for (let t = 0; t < TICKS; t += BOT_EVERY) {
   const before = purchases.length;
   applyGrant();
+  noteCityUnlocks();
   game.botStep(BOT_OPTS);
   if (purchases.length > before) lastBuyTick = state.tick;
   const n = Math.min(BOT_EVERY, TICKS - t);
   game.step(n);
 
   cur.ticks += n;
+  const hourNow = Math.floor(state.stats.playtime / 3600);
+  ticksByHour[hourNow] = (ticksByHour[hourNow] || 0) + n;
   if (derived.powerRatio < 0.9) brownoutTicks += n;
   if (derived.powerRatio < 1) {
     underPowerTicks += n;
     cur.brownoutTicks += n;
+    underPowerTicksByHour[hourNow] = (underPowerTicksByHour[hourNow] || 0) + n;
+  }
+  if (derived.powerRatio <= 0.95) {
+    cur.brownoutDeepTicks += n;
+    underPowerDeepTicksByHour[hourNow] = (underPowerDeepTicksByHour[hourNow] || 0) + n;
   }
   if (derived.powerRatio < minRatio) minRatio = derived.powerRatio;
   if (derived.income > bestIncome) bestIncome = derived.income;
@@ -307,7 +402,17 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
     // Minutes at the current earning rate until the next legacy point: the game's own
     // countdown (prestigeStatus nextIn: seconds until this run's totalEarned reaches nextAt
     // at the rate the score accrues); Infinity when nothing is coming in → null in JSON.
+    // Report-only since round 2 (nextLegacyRemainingMin): a countdown read at a random moment
+    // is uniformly short once points come fast, so it said 0.0 from hour 4 whatever the tempo.
     const nextLegacySec = px && Number.isFinite(px.nextIn) ? px.nextIn : Infinity;
+    // The F12 segment (docs/FEEDBACK.md F12: the point N → N+1 bar): minutes the WHOLE current
+    // segment (prevAt → nextAt) takes at the rate nextIn is priced at — the game's earningRate
+    // (recovered as (nextAt − totalEarned) / nextIn when the countdown is finite, else
+    // derived.income). This is the tempo of the bar the player watches, independent of where
+    // in the segment the sample lands; gated by hour below (legacySegmentMin).
+    const earnedNow = Number.isFinite(state.stats.totalEarned) ? state.stats.totalEarned : 0;
+    const earningRate = px && Number.isFinite(px.nextIn) && px.nextIn > 0 && Number.isFinite(px.nextAt) ? (px.nextAt - earnedNow) / px.nextIn : Number.isFinite(derived.income) ? derived.income : 0;
+    const segmentSec = px && Number.isFinite(px.nextAt) && Number.isFinite(px.prevAt) && earningRate > 0 ? (px.nextAt - px.prevAt) / earningRate : Infinity;
     const employed = Number.isFinite(derived.employed) ? derived.employed : 0;
     const unemployment = state.res.pop > 0 ? (state.res.pop - employed) / state.res.pop : 0;
     const { max: big, next } = frontierPrices(state.res.money);
@@ -342,7 +447,12 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
       powerDemand: derived.powerDemand,
       employed,
       unemployment: +unemployment.toFixed(4),
-      nextLegacyMin: Number.isFinite(nextLegacySec) ? +(nextLegacySec / 60).toFixed(2) : null,
+      nextLegacyRemainingMin: Number.isFinite(nextLegacySec) ? +(nextLegacySec / 60).toFixed(2) : null,
+      legacySegmentMin: Number.isFinite(segmentSec) ? +(segmentSec / 60).toFixed(3) : null,
+      // Seconds of income to the cheapest unlocked, unowned money upgrade (reachSeconds; null
+      // when none exists or nothing comes in) — reachShare's per-sample reading, so the share
+      // can be re-read over a window of cities (reachShareCities4to9).
+      reach: Number.isFinite(reach) ? +reach.toFixed(1) : null,
       grid: gridExists(),
       lightsOut: lightsOutNow(),
       // Money upgrades reset every founding, so this is "owned in the current city".
@@ -375,8 +485,15 @@ const hours = TICKS / 36000;
 // One value per game-hour of playtime (samples are every SAMPLE ticks; `min` is playtime):
 //   powerRatioByHour         median cap / demand over the hour's samples with demand > 0
 //   unemploymentByHour       median (pop − employed) / pop over the hour's samples with pop > 0
-//   nextLegacyMinutesByHour  median minutes at the current earning rate until the next legacy
-//                            point (finite samples only)
+//   nextLegacyMinutesByHour  median minutes the current legacy segment (point N → N+1, the
+//                            F12 bar) takes at the earning rate the countdown is priced at
+//                            (finite samples only) — gated in hours 2–3 for greedy + human
+//   nextLegacyRemainingByHour  the pre-round-2 reading: median minutes LEFT until the next
+//                            point at a random sample (report-only)
+//   underPowerByHour         share of the hour's ticks with cap/demand < 1 (tick loop, every
+//                            profile; gated for the greedy: ≥ 1 % in ≥ 3 of hours 3–12)
+//   underPowerDeepByHour     share of the hour's ticks with cap/demand ≤ 0.95 (the Lights Out
+//                            unit; reported for every profile)
 // lightsOutReachable: share of samples after a grid exists (the milestone is available) where
 // the Lights Out condition evaluates true; lightsOutCities: cities that latched it.
 const median = (xs) => {
@@ -402,7 +519,14 @@ const byHour = (pick) => {
 };
 const powerRatioByHour = byHour((s) => (s.powerDemand > 0 ? s.powerCap / s.powerDemand : NaN));
 const unemploymentByHour = byHour((s) => (s.pop > 0 ? s.unemployment : NaN));
-const nextLegacyMinutesByHour = byHour((s) => (s.nextLegacyMin === null ? NaN : s.nextLegacyMin));
+const nextLegacyMinutesByHour = byHour((s) => (s.legacySegmentMin === null ? NaN : s.legacySegmentMin));
+const nextLegacyRemainingByHour = byHour((s) => (s.nextLegacyRemainingMin === null ? NaN : s.nextLegacyRemainingMin));
+const underPowerByHour = [];
+const underPowerDeepByHour = [];
+for (let h = 0; h < HOURS; h++) {
+  underPowerByHour.push(ticksByHour[h] ? +((underPowerTicksByHour[h] || 0) / ticksByHour[h]).toFixed(4) : null);
+  underPowerDeepByHour.push(ticksByHour[h] ? +((underPowerDeepTicksByHour[h] || 0) / ticksByHour[h]).toFixed(4) : null);
+}
 const gridSamples = samples.filter((s) => s.grid);
 const lightsOutReachable = gridSamples.length ? gridSamples.filter((s) => s.lightsOut).length / gridSamples.length : 0;
 // A share (mean of the 0/1 indicator over the hour's grid samples), not a median: the median
@@ -435,7 +559,25 @@ const lightsOutByHour = (() => {
 //   medianPowerRatioWithoutRotation   median (cap − rotation generators' cap) / demand: the
 //                      surplus the city would carry had the rotation bought no generators
 //   rotationGenShare   rotation share of the city's generator units
+//   medianJobsPerPop   median jobs / pop (pop > 0): the F3 overshoot reading (round 1: 1.06–2.34,
+//                      unemployment pinned at 0 %); gated ≤ 1.3 for complete cities ≥ 4 (human)
+//   brownoutSeconds    seconds under power (cycles[].brownoutSeconds; the city in progress so far)
+//   brownoutDeepSeconds  seconds at ratio ≤ 0.95 (the Lights Out gate's unit since round 3)
+//   upgradeRunMinutes  run-minute of every upgrade bought in the city (purchase log, kind 'u')
+//   maxUpgradeGapMin   longest stretch with nothing new bought: from the founding to the first,
+//                      between consecutive, and from the last to the next founding (a complete
+//                      city; the city in progress measures to its last sample) — F1's dead
+//                      stretch over ALL upgrade purchases (the pre-round-3 reading, unread)
+//   decisionRunMinutes / maxDecisionGapMin   the same over DECISION purchases only: a rung whose
+//                      reach at the moment its unlock latched was ≥ 30 s of income (purchase
+//                      log `reachAtUnlock`; a rung already affordable when its gate opened is
+//                      a reflex buy and is discounted; unknown reach counts) — gated ≤ 20 min
+//                      for complete cities 3–9 (3–12 on runs ≥ 24 h) (human)
+//   reachHits / reachSamples   samples in the city with the cheapest unlocked, unowned money
+//                      upgrade 30 s – 15 min of income away, over all its samples (reachShare
+//                      by city; reachShareCities4to9 pools complete cities 4–9)
 const CITY_WARMUP_MIN = 2;
+const DECISION_REACH_SEC = 30;
 const warm = (s) => s.runMin >= CITY_WARMUP_MIN && s.pop >= 100;
 const r3 = (v) => (v === null ? null : +v.toFixed(3));
 const cityStats = [];
@@ -444,8 +586,27 @@ for (let k = 0; k <= state.stats.prestiges; k++) {
   const ratios = xs.filter((s) => s.powerDemand > 0).map((s) => s.powerCap / s.powerDemand);
   const ratiosNoRot = xs.filter((s) => s.powerDemand > 0).map((s) => Math.max(0, s.powerCap - (s.powerCapRotation || 0)) / s.powerDemand);
   const unemp = xs.filter((s) => s.pop > 0).map((s) => s.unemployment);
+  const jobsPerPop = xs.filter((s) => s.pop > 0).map((s) => s.jobs / s.pop);
   const unempMega = xs.filter((s) => s.pop > 0 && s.megaOwned).map((s) => s.unemployment);
   const cyc = cycles[k];
+  const cityUps = purchases.filter((p) => p.kind === 'u' && p.city === k + 1);
+  const upMins = cityUps.map((p) => +(p.tick / 600).toFixed(1));
+  const isDecision = (p) => p.reachAtUnlock === null || p.reachAtUnlock === undefined || !(p.reachAtUnlock < DECISION_REACH_SEC);
+  const decisionMins = cityUps.filter(isDecision).map((p) => +(p.tick / 600).toFixed(1));
+  const cityEndMin = cyc ? cyc.minutes : +(state.time / 60).toFixed(2);
+  const gapOf = (mins) => {
+    let maxGap = 0;
+    let prevMin = 0;
+    for (const m of mins) {
+      maxGap = Math.max(maxGap, m - prevMin);
+      prevMin = m;
+    }
+    return Math.max(maxGap, cityEndMin - prevMin);
+  };
+  const maxGap = gapOf(upMins);
+  const maxDecisionGap = gapOf(decisionMins);
+  const all = samples.filter((s) => s.prestiges === k);
+  const cityReachHits = all.filter((s) => s.reach !== null && s.reach >= 30 && s.reach <= 900).length;
   const landed = cyc ? cyc.landed : cur.landed;
   const gu = cyc ? cyc.genUnits : { ...genUnits };
   const guTotal = gu.need + gu.rotation;
@@ -466,6 +627,15 @@ for (let k = 0; k <= state.stats.prestiges; k++) {
     genUnits: gu,
     medianPowerRatioWithoutRotation: r3(median(ratiosNoRot)),
     rotationGenShare: guTotal ? r3(gu.rotation / guTotal) : null,
+    medianJobsPerPop: r3(median(jobsPerPop)),
+    brownoutSeconds: cyc ? cyc.brownoutSeconds : +(cur.brownoutTicks / 10).toFixed(1),
+    brownoutDeepSeconds: cyc ? cyc.brownoutDeepSeconds : +(cur.brownoutDeepTicks / 10).toFixed(1),
+    upgradeRunMinutes: upMins,
+    maxUpgradeGapMin: +maxGap.toFixed(1),
+    decisionRunMinutes: decisionMins,
+    maxDecisionGapMin: +maxDecisionGap.toFixed(1),
+    reachHits: cityReachHits,
+    reachSamples: all.length,
   });
 }
 for (const c of cycles) {
@@ -475,7 +645,18 @@ for (const c of cycles) {
   c.shareSurplus3x = cs.shareSurplus3x;
   c.medianUnemployment = cs.medianUnemployment;
   c.shareUnemp40 = cs.shareUnemp40;
+  c.medianJobsPerPop = cs.medianJobsPerPop;
+  c.maxUpgradeGapMin = cs.maxUpgradeGapMin;
+  c.maxDecisionGapMin = cs.maxDecisionGapMin;
 }
+// reachShare over the samples of complete cities 4–9 — the decision share the plateau offers
+// (the session figure is dominated by the first city's reflex ladder and the replays' first
+// minutes). Reported target ≥ 40 %; not gated this round.
+const plateauCities = cityStats.filter((c) => c.complete && c.city >= 4 && c.city <= 9);
+const plateauSamples = plateauCities.reduce((a, c) => a + c.reachSamples, 0);
+const reachShareCities4to9 = plateauSamples ? plateauCities.reduce((a, c) => a + c.reachHits, 0) / plateauSamples : null;
+// F7: median pop/housing at purchase per growth-titled rung (across the cities that bought it).
+const popHousingAtPurchase = Object.fromEntries(F7_UPGRADES.map((id) => [id, { n: (popHousingAt[id] || []).length, median: r3(median(popHousingAt[id] || [])) }]));
 const firstSurplusCity = cityStats.find((c) => c.medianPowerRatio !== null && c.medianPowerRatio >= 3);
 // Megastructures (F3): the first city that owned it, the playtime minute it was first bought,
 // and the median unemployment over warmed-up samples with it owned vs without.
@@ -556,6 +737,12 @@ const playerCheckpoint = {
 };
 
 // ---- contract checks (see docs/DESIGN.md "Late game contract") ----
+const H12 = Math.min(HOURS, 12);
+const hourly = (xs, f) => xs.map((v) => (v === null ? '-' : f(v))).join(' ');
+const pct = (v) => (v * 100).toFixed(0) + '%';
+const hourIdx0 = (h) => h - 1; // 1-based hour → array index
+// The unread tail of a by-hour series past hour `to` (nothing on a run that ends there).
+const unreadHours = (xs, to, f) => (HOURS > to ? `; hours ${to + 1}–${HOURS} unread: ${hourly(xs.slice(to), f)}` : '');
 if (brownoutTicks > TICKS * 0.25) issues.push({ tick: state.tick, kind: 'bottleneck', msg: `brownout (<0.9) for ${((brownoutTicks / TICKS) * 100).toFixed(0)}% of run` });
 if (state.stats.prestiges === 0 && TICKS >= 100000) issues.push({ tick: state.tick, kind: 'pacing', msg: 'no prestige reached in run' });
 if (maxMoney > 1e18 || state.prestige.legacy > 1e6) issues.push({ tick: state.tick, kind: 'magnitude', msg: `money peak ${maxMoney.toExponential(2)}, legacy ${state.prestige.legacy} (contract: ≤1e18 / ≤1e6 at 12h)` });
@@ -568,15 +755,62 @@ for (let i = 1; i < cycles.length; i++) {
 const lateCycles = cycles.filter((c) => c.n >= 5);
 const emptyCycles = lateCycles.filter((c) => c.newItems.length === 0);
 if (GATED && emptyCycles.length) issues.push({ tick: 0, kind: 'variety', msg: `${emptyCycles.length}/${lateCycles.length} cycles after the 5th introduced nothing new (first: cycle ${emptyCycles[0].n})` });
-if (GATED && cycles.length && cycles[cycles.length - 1].minutes > 40 && hours >= 12) issues.push({ tick: 0, kind: 'cadence', msg: `last cycle ${cycles[cycles.length - 1].minutes} min > 40 min` });
+// Last cycle ≤ 40 min reads ONE cycle; the cycles > 40 min that are not last are the unread part.
+const over40NotLast = cycles.slice(0, -1).filter((c) => c.minutes > 40);
+const over40Note = `cycles > 40 min that are not last: ${over40NotLast.length ? over40NotLast.map((c) => `${c.n} (${c.minutes.toFixed(1)})`).join(', ') : 'none'}`;
+if (GATED && cycles.length && cycles[cycles.length - 1].minutes > 40 && hours >= 12) issues.push({ tick: 0, kind: 'cadence', msg: `last cycle ${cycles[cycles.length - 1].minutes} min > 40 min; ${over40Note}` });
 const tensionShare = samples.length ? tensionHits / samples.length : 0;
 const reachShare = samples.length ? reachHits / samples.length : 0;
 if (hours >= 6 && GATED && reachShare < 0.3) issues.push({ tick: 0, kind: 'tension', msg: `next upgrade is 30 s–15 min of income away in only ${(reachShare * 100).toFixed(0)}% of samples (contract ≥ 30%; big-ratio reading ${(tensionShare * 100).toFixed(0)}%)` });
 const underPowerShare = underPowerTicks / TICKS;
-if (GATED && hours >= 6 && (underPowerShare < 0.03 || underPowerShare > 0.2)) issues.push({ tick: 0, kind: 'power', msg: `under-power share ${(underPowerShare * 100).toFixed(1)}% (contract 3–20%)` });
-if (minRatio < 0.6) issues.push({ tick: 0, kind: 'power', msg: `power ratio floor ${minRatio.toFixed(2)} < 0.6` });
+if (GATED && hours >= 6 && (underPowerShare < 0.03 || underPowerShare > 0.2)) issues.push({ tick: 0, kind: 'power', msg: `under-power share ${(underPowerShare * 100).toFixed(1)}% of the whole session (contract 3–20%; by hour ${hourly(underPowerByHour, (v) => (v * 100).toFixed(2) + '%')})` });
+// Sanity only, not a contract line (round 3): config.power.brownoutFloor clamps the ratio at
+// 0.6, so this cannot fail; it stays as the check that the clamp is in place.
+if (minRatio < 0.6) issues.push({ tick: 0, kind: 'power', msg: `power ratio floor ${minRatio.toFixed(2)} < 0.6 (sanity: config.power.brownoutFloor's clamp; not a contract line)` });
+// Greedy by-hour power lines (round 3, replacing the un-failable floor line as the contract's
+// "power matters" reading after hour 2): under-power ≥ 1 % of ticks in ≥ 3 of hours 3–12, and
+// median cap/demand ≤ 2.5 in hours 3–12 and ≥ 1.0 in hours 2–12 (round 2 read 0.61 0.67 0.44
+// 0.11 … and max 2.38 / min 1.05).
+const underHours = [];
+for (let h = 3; h <= H12; h++) {
+  const v = underPowerByHour[hourIdx0(h)];
+  if (v !== null && v >= 0.01) underHours.push(`h${h} ${(v * 100).toFixed(2)}%`);
+}
+const underHoursMsg = `under-power share of ticks ≥ 1 % in ${underHours.length} of hours 3–${H12} (contract ≥ 3)${underHours.length ? `: ${underHours.join(', ')}` : ''}; by hour ${hourly(underPowerByHour, (v) => (v * 100).toFixed(2) + '%')}${unreadHours(underPowerByHour, 12, (v) => (v * 100).toFixed(2) + '%')}`;
+if (GATED && hours >= 6 && underHours.length < 3) issues.push({ tick: 0, kind: 'power', msg: underHoursMsg });
+const capOver = [];
+const capUnder = [];
+for (let h = 2; h <= H12; h++) {
+  const v = powerRatioByHour[hourIdx0(h)];
+  if (v === null) continue;
+  if (h >= 3 && v > 2.5) capOver.push(`h${h} ${v.toFixed(2)}`);
+  if (v < 1.0) capUnder.push(`h${h} ${v.toFixed(2)}`);
+}
+const capHoursMsg = `median cap/demand by hour: ${capOver.length ? `> 2.5 in ${capOver.join(', ')}` : `none > 2.5 (hours 3–${H12})`}; ${capUnder.length ? `< 1.0 in ${capUnder.join(', ')}` : `none < 1.0 (hours 2–${H12})`}; by hour ${hourly(powerRatioByHour, (v) => v.toFixed(2))}${unreadHours(powerRatioByHour, 12, (v) => v.toFixed(2))}`;
+if (GATED && hours >= 6 && (capOver.length || capUnder.length)) issues.push({ tick: 0, kind: 'power', msg: capHoursMsg });
 const happyDips = cycles.filter((c) => c.minHappiness !== null && c.minHappiness < 1).length;
 if (GATED && hours >= 6 && cycles.length >= 4 && happyDips < cycles.length * 0.5) issues.push({ tick: 0, kind: 'happiness', msg: `happiness dipped below 1.0 in only ${happyDips}/${cycles.length} cities (contract ≥ 50%)` });
+// Reported, not gated (round 2): the dips among the LAST half of the cities (round 1: every
+// dip sat in cities 1–21 of 33; cities 22–33 read minHappiness 1.10–1.36 — happiness is
+// decorative past city 21, docs/DESIGN.md "Open").
+const lastHalf = cycles.slice(Math.floor(cycles.length / 2));
+const happinessDipsLastHalf = { dips: lastHalf.filter((c) => c.minHappiness !== null && c.minHappiness < 1).length, cities: lastHalf.length, from: lastHalf.length ? lastHalf[0].n + 1 : null };
+// F12 tempo (greedy AND human, runs ≥ 6 h): the median legacy segment (point N → N+1 at the
+// countdown's earning rate) in hour 2 within 0.5–30 min and in hour 3 above a profile floor:
+// human ≥ 0.5 (round 2 measured 0.72), greedy ≥ 0.25 (its hour 3 is cities 5–9 with 7–12-minute
+// cycles on a ×1.4-per-founding legacy sequence, so the segment there is a fraction of the
+// human's; round 2 measured 0.45). Hours 4–12 are printed, not gated: the bar is decorative
+// past hour 4 on exponent 0.488 (docs/DESIGN.md "Open", docs/FEEDBACK.md F12b).
+const legacyTempoFor = (h3Floor, why) => {
+  const h2 = nextLegacyMinutesByHour[1] ?? null;
+  const h3 = nextLegacyMinutesByHour[2] ?? null;
+  const okH2 = h2 !== null && h2 >= 0.5 && h2 <= 30;
+  const okH3 = h3 !== null && h3 >= h3Floor;
+  const late = nextLegacyMinutesByHour.slice(3, 12).map((v) => (v === null ? '-' : v.toFixed(2))).join(' ');
+  return { ok: okH2 && okH3, h3Floor, msg: `median legacy segment (F12 point bar) hour 2 ${h2 === null ? '-' : h2.toFixed(2)} min (contract 0.5–30), hour 3 ${h3 === null ? '-' : h3.toFixed(2)} min (contract ≥ ${h3Floor}${why}); hours 4–12 ${late} — decorative past hour 4 on exponent 0.488 (docs/DESIGN.md Open, FEEDBACK F12b), hours 4–${HOURS} not gated` };
+};
+const legacyTempo = PROFILE === 'human' ? legacyTempoFor(0.5, '') : legacyTempoFor(0.25, ", the greedy's hour 3 is cities 5–9 with 7–12-minute cycles on a ×1.4-per-founding legacy sequence");
+if (GATED && hours >= 6 && !legacyTempo.ok) issues.push({ tick: 0, kind: 'legacy-tempo', msg: legacyTempo.msg });
 // Income should grow roughly 10x per game-hour early on; flag flat stretches within the
 // first city. Later cities are excluded on purpose: a replay re-buys its whole ladder in the
 // first three minutes and then earns its way toward the next founding on a near-flat income,
@@ -599,50 +833,92 @@ if (hours >= 12 && (neverPurchased.buildings.length || neverPurchased.upgrades.l
   issues.push({ tick: 0, kind: 'content', msg: `never purchased in ${hours}h: ${[...neverPurchased.buildings, ...neverPurchased.upgrades].join(', ')}` });
 }
 
-// ---- human-profile contract gates (docs/FEEDBACK.md F2/F3/F16; --profile human, no --grant) ----
+// ---- human-profile contract gates (docs/FEEDBACK.md F1/F2/F3/F12/F16; --profile human, no --grant) ----
 // The reproduction of F2 (power runaway) and F3 (unemployment cliff) as gates, fed into `issues`
-// so contractPass reflects them. They FAILED on the 2026-09-14 balance (numbers in the header)
-// and pass since the F2/F3 wave, round 1 (stack ×9.5 / ×0.33, paired housing rungs, the human
-// bot's sticker-draw grid guard): cap/demand ≤ 2.3 by hour, no ≥ 3× city, unemployment 0 % from
-// hour 2, Lights Out 3/9. Hours are 1-based game-hours of playtime
-// (hour 1 = array index 0); city medians are the warmed-up per-city samples (cityStats).
-//   power-surplus  median cap/demand ≤ 4.0 in hours 3–12 and ≥ 1.0 in hours 2–12;
-//                  firstCityWithSurplus3x ≥ 8 or none
-//   unemployment   per-city median ≤ 0.20 for every city ≥ 4; by-hour median ≤ 0.15 in hours 2–12
-//   lights-out     the Lights Out milestone latched in ≥ 1 city after city 1
-// nextLegacyMinutesByHour stays report-only.
+// so contractPass reflects them. They FAILED on the 2026-09-14 balance (numbers in the header).
+// Round 1 (stack ×9.5 / ×0.33, paired housing rungs) passed the 12 h power and unemployment
+// lines but its Lights Out line was the human bot's sticker-draw grid guard on UNCHANGED
+// content (the pre-wave content latched 4/9 with that bot). Round 3 restores the strain-aware
+// guard as the default (src/core/bot.js: the card shows the strain rule and "×N now"), keeps
+// the sticker booking as `--guard sticker` for the control line, and re-metrics the gate to
+// what content must earn under an honest grid-ahead player: ≥ 30 s at ratio ≤ 0.95 in ≥ 1
+// complete city ≥ 4 on the 12 h run, ≥ 2 on a 24 h run. Hours are 1-based game-hours of
+// playtime (hour 1 = array index 0); city medians are the warmed-up per-city samples
+// (cityStats); every line prints the window it reads and the unread part.
+//   power-surplus  median cap/demand ≤ 4.0 in hours 3–H and ≥ 1.0 in hours 2–H (H = hours run);
+//                  firstCityWithSurplus3x ≥ 13 or none
+//   unemployment   per-city median ≤ 0.20 for every city ≥ 4; by-hour median ≤ 0.15 in hours
+//                  2–H (every hour played); 0.85 ≤ median jobs/pop ≤ 1.3 for every complete
+//                  city ≥ 4 (round 2: 0.67–1.54); by-hour median inside [2 %, 15 %] in ≥ 3 of
+//                  hours 3–12 (round 2: 1 of 10 — the jobs lever never bound after hour 2)
+//   lights-out     ≥ 1 complete city ≥ 4 with ≥ 30 s at ratio ≤ 0.95 (≥ 2 on runs ≥ 24 h)
+//   cadence (F1)   complete cities 4–9 (4–12 on runs ≥ 24 h): each ≤ 1.35× the previous OR
+//                  ≤ 90 min (round 2: 22 → 64 → 79 → 70 → 94 → 148 → 149 min); no stretch
+//                  > 20 run-minutes without a DECISION purchase (reach at unlock ≥ 30 s) inside
+//                  any complete city 3–9 (3–12 on runs ≥ 24 h); the all-purchases gap and the
+//                  plateau reach share (complete cities 4–9, target ≥ 40 %) are printed beside it
+//   legacy-tempo   the F12 segment line (hour 2 0.5–30 min, hour 3 ≥ 0.5)
 const HUMAN_GATED = PROFILE === 'human' && !GRANT;
 const humanGates = [];
-const hourIdx = (h) => h - 1; // 1-based hour → array index
+const humanReports = [];
 const pc = (v) => (v * 100).toFixed(0) + '%';
 const gateLine = (kind, ok, msg) => {
   humanGates.push({ kind, ok, msg });
   if (!ok) issues.push({ tick: 0, kind, msg });
 };
+const lightsOutCitiesLate = cycles.filter((c) => c.n >= 3 && c.brownoutDeepSeconds >= 30);
+const cityLabel = (c) => `c${c.city}${c.complete ? '' : '*'}`;
+const byCityNote = '(* = the city in progress, unread)';
 if (HUMAN_GATED) {
-  const lastHour = Math.min(HOURS, 12);
   const over = [];
   const under = [];
-  for (let h = 2; h <= lastHour; h++) {
-    const v = powerRatioByHour[hourIdx(h)];
+  for (let h = 2; h <= HOURS; h++) {
+    const v = powerRatioByHour[hourIdx0(h)];
     if (v === null) continue;
     if (h >= 3 && v > 4.0) over.push(`h${h} ${v.toFixed(2)}`);
     if (v < 1.0) under.push(`h${h} ${v.toFixed(2)}`);
   }
-  gateLine('power-surplus', !over.length && !under.length, `median cap/demand by hour: ${over.length ? `> 4.0 in ${over.join(', ')}` : 'none > 4.0 (hours 3–12)'}; ${under.length ? `< 1.0 in ${under.join(', ')}` : 'none < 1.0 (hours 2–12)'}`);
+  gateLine('power-surplus', !over.length && !under.length, `median cap/demand by hour (hours 2–${HOURS} read, the whole run): ${over.length ? `> 4.0 in ${over.join(', ')}` : `none > 4.0 (hours 3–${HOURS})`}; ${under.length ? `< 1.0 in ${under.join(', ')}` : `none < 1.0 (hours 2–${HOURS})`}; by hour ${hourly(powerRatioByHour, (v) => v.toFixed(2))}`);
   const fs3 = firstSurplusCity ? firstSurplusCity.city : null;
-  gateLine('power-surplus', fs3 === null || fs3 >= 8, `first city with median cap/demand ≥ 3×: ${fs3 ?? 'none'} (contract ≥ 8 or none)`);
-  const badCities = cityStats.filter((c) => c.city >= 4 && c.medianUnemployment !== null && c.medianUnemployment > 0.2).map((c) => `city ${c.city} ${pc(c.medianUnemployment)}`);
-  gateLine('unemployment', !badCities.length, `per-city median unemployment > 20 % (cities ≥ 4): ${badCities.length ? badCities.join(', ') : 'none'}`);
+  gateLine('power-surplus', fs3 === null || fs3 >= 13, `first city with median cap/demand ≥ 3× (every city read): ${fs3 ?? 'none'} (contract ≥ 13 or none); by city ${cityStats.map((c) => `${cityLabel(c)} ${c.medianPowerRatio === null ? '-' : c.medianPowerRatio.toFixed(2)}`).join(' ')} ${byCityNote}`);
+  const badCities = cityStats.filter((c) => c.city >= 4 && c.medianUnemployment !== null && c.medianUnemployment > 0.2).map((c) => `city ${c.city}${c.complete ? '' : '*'} ${pc(c.medianUnemployment)}`);
+  gateLine('unemployment', !badCities.length, `per-city median unemployment > 20 % (cities 4–${cityStats.length} read, the city in progress included): ${badCities.length ? badCities.join(', ') : 'none'}; by city ${cityStats.map((c) => `${cityLabel(c)} ${c.medianUnemployment === null ? '-' : pc(c.medianUnemployment)}`).join(' ')}`);
   const badHours = [];
-  for (let h = 2; h <= lastHour; h++) {
-    const v = unemploymentByHour[hourIdx(h)];
+  for (let h = 2; h <= HOURS; h++) {
+    const v = unemploymentByHour[hourIdx0(h)];
     if (v !== null && v > 0.15) badHours.push(`h${h} ${pc(v)}`);
   }
-  gateLine('unemployment', !badHours.length, `median unemployment by hour > 15 % (hours 2–12): ${badHours.length ? badHours.join(', ') : 'none'}`);
-  const latchedLater = cycles.filter((c) => c.n >= 1 && c.lightsOut).length + (cur.n >= 1 && cur.lightsOut ? 1 : 0);
-  const citiesAfterFirst = Math.max(0, cycles.length + 1 - 1);
-  gateLine('lights-out', hours < 6 || latchedLater >= 1, `Lights Out latched in ${latchedLater}/${citiesAfterFirst} cities after city 1 (contract ≥ 1)`);
+  gateLine('unemployment', !badHours.length, `median unemployment by hour > 15 % (hours 2–${HOURS} read, every hour played, nothing unread): ${badHours.length ? badHours.join(', ') : 'none'}; by hour ${hourly(unemploymentByHour, pc)}`);
+  const offJobs = cityStats.filter((c) => c.complete && c.city >= 4 && c.medianJobsPerPop !== null && (c.medianJobsPerPop > 1.3 || c.medianJobsPerPop < 0.85)).map((c) => `city ${c.city} ${c.medianJobsPerPop.toFixed(2)}`);
+  gateLine('unemployment', !offJobs.length, `median jobs/pop outside [0.85, 1.3] (complete cities 4–${Math.max(4, cycles.length)} read): ${offJobs.length ? offJobs.join(', ') : 'none'}; by city ${cityStats.map((c) => `${cityLabel(c)} ${c.medianJobsPerPop === null ? '-' : c.medianJobsPerPop.toFixed(2)}`).join(' ')} ${byCityNote}`);
+  const inBand = [];
+  for (let h = 3; h <= H12; h++) {
+    const v = unemploymentByHour[hourIdx0(h)];
+    if (v !== null && v >= 0.02 && v <= 0.15) inBand.push(`h${h} ${pc(v)}`);
+  }
+  gateLine('unemployment', hours < 6 || inBand.length >= 3, `median unemployment inside [2 %, 15 %] in ${inBand.length} of hours 3–${H12} (contract ≥ 3)${inBand.length ? `: ${inBand.join(', ')}` : ''}; hours > 15 % in 2–${HOURS}: ${badHours.length ? badHours.join(', ') : 'none'}${unreadHours(unemploymentByHour, 12, pc)}`);
+  const needLights = hours >= 24 ? 2 : 1;
+  const secs = cycles.map((c) => c.brownoutSeconds.toFixed(0)).join(' ');
+  const deep = cycles.map((c) => c.brownoutDeepSeconds.toFixed(0)).join(' ');
+  const inProgress = `${(cur.brownoutTicks / 10).toFixed(0)}/${(cur.brownoutDeepTicks / 10).toFixed(0)}`;
+  gateLine('lights-out', hours < 6 || lightsOutCitiesLate.length >= needLights, `Lights Out (≥ 30 s at ratio ≤ 0.95) in ${lightsOutCitiesLate.length} complete cities ≥ 4 (contract ≥ ${needLights}${hours >= 24 ? ' on a 24 h run' : ''}; guard ${GUARD === 'sticker' ? 'sticker (the control)' : 'strain-aware (default)'})${lightsOutCitiesLate.length ? `: ${lightsOutCitiesLate.map((c) => `city ${c.n + 1} ${c.brownoutDeepSeconds} s`).join(', ')}` : ''}; seconds under power (< 1) by complete city ${secs}; seconds at ≤ 0.95 by complete city ${deep}; city ${cycles.length + 1} in progress ${inProgress} (unread)`);
+  const lastRatioCity = hours >= 24 ? 12 : 9;
+  const badRatio = [];
+  const ratios = [];
+  for (let i = 1; i < cycles.length; i++) {
+    const a = cycles[i - 1], b = cycles[i];
+    const r = a.minutes > 0 ? b.minutes / a.minutes : Infinity;
+    const read = i >= 3 && i <= lastRatioCity - 1;
+    ratios.push(`c${b.n + 1} ×${Number.isFinite(r) ? r.toFixed(2) : '∞'}${read ? '' : '°'}`);
+    if (read && b.minutes > a.minutes * 1.35 && b.minutes > 90) badRatio.push(`city ${b.n + 1} ${b.minutes} min > 1.35× city ${a.n + 1} ${a.minutes} min`);
+  }
+  gateLine('cadence', !badRatio.length, `F1 complete cities 4–${lastRatioCity} each ≤ 1.35× the previous or ≤ 90 min: ${badRatio.length ? badRatio.join('; ') : 'ok'}; cycles ${cycles.map((c) => c.minutes.toFixed(1)).join(' ')}; ratio of every complete city ${ratios.join(' ')} (° = outside the window, unread)`);
+  const lastGapCity = hours >= 24 ? 12 : 9;
+  const badGap = cityStats.filter((c) => c.complete && c.city >= 3 && c.city <= lastGapCity && c.maxDecisionGapMin > 20).map((c) => `city ${c.city} ${c.maxDecisionGapMin} min`);
+  const gapList = (key) => cityStats.map((c) => `${cityLabel(c)}${c.complete && c.city >= 3 && c.city <= lastGapCity ? '' : '°'} ${c[key].toFixed(0)}`).join(' ');
+  gateLine('cadence', !badGap.length, `F1 longest stretch without a DECISION upgrade purchase > 20 min (reach at unlock ≥ ${DECISION_REACH_SEC} s; complete cities 3–${lastGapCity}): ${badGap.length ? badGap.join(', ') : 'none'}; decision gap by city ${gapList('maxDecisionGapMin')}; all-purchases gap by city (the pre-round-3 reading, unread) ${gapList('maxUpgradeGapMin')} (° = outside the window / in progress, unread)`);
+  humanReports.push(`reachShare over complete cities 4–9: ${reachShareCities4to9 === null ? '-' : pc(reachShareCities4to9)} of ${plateauSamples} samples (reported target ≥ 40 %, not gated; session ${pc(reachShare)}); by city ${cityStats.map((c) => `${cityLabel(c)} ${c.reachSamples ? pc(c.reachHits / c.reachSamples) : '-'}`).join(' ')}`);
+  gateLine('legacy-tempo', hours < 6 || legacyTempo.ok, legacyTempo.msg);
 }
 
 const HARD = new Set(['overflow', 'stall', 'magnitude']);
@@ -684,6 +960,13 @@ const report = {
     powerRatioByHour,
     unemploymentByHour,
     nextLegacyMinutesByHour,
+    nextLegacyRemainingByHour,
+    underPowerByHour,
+    underPowerDeepByHour,
+    underPowerHoursAtLeast1pct: underHours.length,
+    over40NotLast: over40NotLast.map((c) => ({ n: c.n, minutes: c.minutes })),
+    legacyTempo,
+    happinessDipsLastHalf,
     lightsOutReachable: +lightsOutReachable.toFixed(3),
     lightsOutByHour,
     lightsOutCities: cycles.filter((c) => c.lightsOut).length,
@@ -692,6 +975,19 @@ const report = {
     surplus3xShareByCity: cityStats.map((c) => c.shareSurplus3x),
     unemploymentByCity: cityStats.map((c) => c.medianUnemployment),
     unemp40ShareByCity: cityStats.map((c) => c.shareUnemp40),
+    jobsPerPopByCity: cityStats.map((c) => c.medianJobsPerPop),
+    brownoutSecondsByCity: cityStats.map((c) => c.brownoutSeconds),
+    brownoutDeepSecondsByCity: cityStats.map((c) => c.brownoutDeepSeconds),
+    lightsOutCitiesLate: lightsOutCitiesLate.map((c) => c.n + 1),
+    guard: PROFILE === 'human' ? GUARD : null,
+    upgradeGapByCity: cityStats.map((c) => c.maxUpgradeGapMin),
+    upgradeRunMinutesByCity: cityStats.map((c) => c.upgradeRunMinutes),
+    decisionGapByCity: cityStats.map((c) => c.maxDecisionGapMin),
+    decisionRunMinutesByCity: cityStats.map((c) => c.decisionRunMinutes),
+    reachShareByCity: cityStats.map((c) => (c.reachSamples ? +(c.reachHits / c.reachSamples).toFixed(3) : null)),
+    reachShareCities4to9: reachShareCities4to9 === null ? null : +reachShareCities4to9.toFixed(3),
+    // F7: median pop/housing at the moment each growth-titled rung was bought ({ n, median }).
+    popHousingAtPurchase,
     firstCityWithSurplus3x: firstSurplusCity ? firstSurplusCity.city : null,
     megastructuresCity: megaSample ? megaSample.prestiges + 1 : null,
     megastructuresMin: megaSample ? megaSample.min : null,
@@ -729,18 +1025,25 @@ report.contractPass = issues.length === 0 && report.errors.length === 0;
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, JSON.stringify(report, null, 2));
 console.log(
-  `[sim] ${report.pass ? 'PASS' : 'FAIL'} (contract ${report.contractPass ? 'PASS' : 'FAIL'}) ${report.gameHours}h game in ${wallMs}ms (${report.ticksPerSec} t/s) money=${(last.money ?? 0).toExponential(2)} income=${(last.income ?? 0).toExponential(2)}/s pop=${Math.round(
+  `[sim] ${report.pass ? 'PASS' : 'FAIL'} (contract ${report.contractPass ? 'PASS' : 'FAIL'}) ${report.gameHours}h game in ${wallMs}ms (${report.ticksPerSec} t/s) money=${(last.money ?? 0).toExponential(2)} (tick-level max ${maxMoney.toExponential(2)}) income=${(last.income ?? 0).toExponential(2)}/s pop=${Math.round(
     last.pop ?? 0
   )} prestiges=${state.stats.prestiges} legacy=${state.prestige.legacy} (spent ${state.prestige.spent || 0}) issues=${issues.length} errors=${report.errors.length}`
 );
 console.log(`[sim] cycles(min): ${report.metrics.cycles.map((m) => m.toFixed(1)).join(' ')}`);
 console.log(`[sim] profile=${PROFILE} reach=${(reachShare * 100).toFixed(0)}% bigRatio=${(tensionShare * 100).toFixed(0)}% (next-step ${(report.metrics.tensionNextShare * 100).toFixed(0)}%) underPower=${(underPowerShare * 100).toFixed(1)}% minRatio=${minRatio.toFixed(2)} happyDips=${happyDips}/${cycles.length} emptyLate=${emptyCycles.length}`);
-const hourly = (xs, f) => xs.map((v) => (v === null ? '-' : f(v))).join(' ');
-const pct = (v) => (v * 100).toFixed(0) + '%';
 const m = report.metrics;
 console.log(
-  `[sim] ${PROFILE} by hour: power cap/demand ${hourly(powerRatioByHour, (v) => v.toFixed(2))} | unemployment ${hourly(unemploymentByHour, pct)} | next legacy (min) ${hourly(nextLegacyMinutesByHour, (v) => v.toFixed(1))} | lightsOut ${hourly(lightsOutByHour, (v) => (v * 100).toFixed(1) + '%')} of grid samples (${(lightsOutReachable * 100).toFixed(1)}% overall, latched in ${m.lightsOutCities}/${cycles.length} cities)`
+  `[sim] ${PROFILE} by hour: power cap/demand ${hourly(powerRatioByHour, (v) => v.toFixed(2))} | unemployment ${hourly(unemploymentByHour, pct)} | legacy segment (min, F12 bar) ${hourly(nextLegacyMinutesByHour, (v) => v.toFixed(2))} (remaining-at-sample ${hourly(nextLegacyRemainingByHour, (v) => v.toFixed(1))}) | lightsOut ${hourly(lightsOutByHour, (v) => (v * 100).toFixed(1) + '%')} of grid samples (${(lightsOutReachable * 100).toFixed(1)}% overall, latched in ${m.lightsOutCities}/${cycles.length} cities)`
 );
+const powerHourStatus = (ok) => (hours >= 6 && GATED ? (ok ? 'PASS' : 'FAIL') : 'report');
+console.log(
+  `[sim] ${PROFILE} ${powerHourStatus(underHours.length >= 3)} [power] ${underHoursMsg} | under-power (≤ 0.95) share of ticks by hour ${hourly(underPowerDeepByHour, (v) => (v * 100).toFixed(2) + '%')} | seconds under power (< 1) by city ${m.brownoutSecondsByCity.map((v) => v.toFixed(0)).join(' ')} | seconds at ≤ 0.95 by city ${m.brownoutDeepSecondsByCity.map((v) => v.toFixed(0)).join(' ')}${PROFILE === 'human' ? ` | guard ${GUARD}` : ''}`
+);
+console.log(`[sim] ${PROFILE} ${powerHourStatus(!capOver.length && !capUnder.length)} [power] ${capHoursMsg}`);
+console.log(
+  `[sim] ${PROFILE} happiness dips < 1.0 in the last half of the cities: ${happinessDipsLastHalf.dips}/${happinessDipsLastHalf.cities}${happinessDipsLastHalf.from ? ` (from city ${happinessDipsLastHalf.from})` : ''} | ${over40Note} | ${legacyTempo.ok ? 'PASS' : hours >= 6 && (GATED || HUMAN_GATED) ? 'FAIL' : 'n/a'} [legacy-tempo] ${legacyTempo.msg}`
+);
+console.log(`[sim] ${PROFILE} F7 pop/housing at purchase by rung (median across the cities that bought it; a rung bought at 1.00 cannot deliver growth): ${F7_UPGRADES.map((id) => `${id} ${popHousingAtPurchase[id].median === null ? '-' : popHousingAtPurchase[id].median.toFixed(2)} (×${popHousingAtPurchase[id].n})`).join(' | ')}`);
 console.log(
   `[sim] ${PROFILE} by city (≥ ${CITY_WARMUP_MIN} min in): median cap/demand ${hourly(m.powerRatioByCity, (v) => v.toFixed(2))} | median unemployment ${hourly(m.unemploymentByCity, pct)} | first city with median ≥ 3×: ${m.firstCityWithSurplus3x ?? 'none'} | Megastructures: ${
     m.megastructuresCity ? `first owned in city ${m.megastructuresCity} at ${m.megastructuresMin} min; median unemployment before ${pct(m.unemploymentBeforeMegastructures ?? 0)} / with ${pct(m.unemploymentWithMegastructures ?? 0)} (≥ 40% in ${pct(m.unemp40ShareWithMegastructures ?? 0)} of owned samples)` : 'never bought'
@@ -761,6 +1064,9 @@ if (HUMAN_GATED) {
     `[sim] human founding rule ${report.found}: ${cycles.length} foundings in ${report.gameHours}h, legacy at end of city 6 ${c6 ? c6.legacy : '-'} (player 415), Megastructures ${fmtFirst(megastructuresFirst)}, Arcology Gardens ${fmtFirst(arcologyGardensFirst)}, lightsOutReachable ${(lightsOutReachable * 100).toFixed(1)}%`
   );
   for (const g of humanGates) console.log(`[sim] human gate ${g.ok ? 'PASS' : 'FAIL'} [${g.kind}] ${g.msg}`);
+  for (const r of humanReports) console.log(`[sim] human report ${r}`);
+  console.log(`[sim] human DECISION upgrade purchases by city (run-minute; reach at unlock ≥ ${DECISION_REACH_SEC} s): ${cityStats.map((c) => `c${c.city}[${c.complete ? c.maxDecisionGapMin.toFixed(0) : '…'}]: ${c.decisionRunMinutes.length ? c.decisionRunMinutes.map((v) => v.toFixed(0)).join(' ') : '-'}`).join(' | ')}`);
+  console.log(`[sim] human all upgrade purchases by city (run-minute): ${cityStats.map((c) => `c${c.city}[${c.complete ? c.maxUpgradeGapMin.toFixed(0) : '…'}]: ${c.upgradeRunMinutes.length ? c.upgradeRunMinutes.map((v) => v.toFixed(0)).join(' ') : '-'}`).join(' | ')}`);
 }
 const cp = playerCheckpoint;
 const cpFmt = (s) => (s ? `city ${s.city} @ ${s.min} min: income ${s.income.toExponential(2)}/s (×${s.ratioToPlayer.income}), pop ${s.pop} (×${s.ratioToPlayer.pop}), legacy ${s.legacy} (×${s.ratioToPlayer.legacy}), ${s.buildings} bldg, unemployment ${pct(s.unemployment)}, cap/demand ${s.powerRatio ?? '-'}, Megastructures ${s.megastructures ? 'yes' : 'no'}` : 'not reached');

@@ -36,12 +36,12 @@
 //
 // Shipped knobs (simulation.test.mjs asserts this line against src/balance/config.js, so
 // it cannot drift): threshold 1.1e7, exponent 0.488, incomePerLegacy 0.01, legacyPower
-// 0.548, firstBonus 0.15, startMoneyPerLegacy 1, minGain 1, minGainShare 0.4,
+// 0.528, firstBonus 0.15, startMoneyPerLegacy 1, minGain 1, minGainShare 0.4,
 // prestigePanelShare 0.1.
 //
 // Shape, not bug: the bot resets for +40% legacy (minGainShare), which at exponent 0.488
 // means every run must earn the whole past over again (lifetime ×1.4^(1/0.488) = ×1.99)
-// while the bonus grows only ×1.4^0.548 = ×1.20 per founding, so a city with nothing new
+// while the bonus grows only ×1.4^0.528 = ×1.19 per founding, so a city with nothing new
 // is ~×1.35 longer than the one before it. The late ladder (one rung or perk per city,
 // placed by balance in config.upgrades) and the founding / legacy tiers in milestones.js
 // keep that plateau flat; the prestige knobs set the cadence, the rung prices set the

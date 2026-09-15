@@ -14,10 +14,14 @@
 //
 // Per-unit fields: housing (citizens), jobs, income ($/s), powerGen / powerUse (MW),
 // happiness (additive, civic curve), upkeep ($/s). costGrowth defaults to the tier's
-// config.cost.tierGrowth value when absent. maxCount (optional, positive integer) is a
-// hard cap on owned units: core's api.buy / maxAffordable refuse past it and api.buildings
-// rows carry `maxed` (index.js also rolls an over-cap purchase back should a core without
-// the cap ever be loaded).
+// config.cost.tierGrowth value when absent. The curve has a knee (F8): unit n costs
+// baseCost · costGrowth^min(n, knee) · lateGrowth^max(0, n − knee); `knee` and
+// `lateGrowth` default to config.cost.knee (75) / config.cost.lateGrowth (1.112) through
+// index.js and a card pins its own only where the shared pair is wrong for it (the
+// hospital's knee 60, the two tier-5 cards' lateGrowth 3 = their costGrowth). maxCount
+// (optional, positive integer) is a hard cap on owned units: core's api.buy /
+// maxAffordable refuse past it and api.buildings rows carry `maxed` (index.js also rolls
+// an over-cap purchase back should a core without the cap ever be loaded).
 // unlock(state, derived) latches in core; `unlockAt` mirrors it as data for the UI's
 // progress bar and `unlockHint` quotes the same number — the test holds all three in step.
 // synergy { stat, source, per, cap, text }: stat = base × min(cap, 1 + source / per),
@@ -80,9 +84,13 @@ export const BUILDINGS = [
     baseCost: 2800,
     housing: 160,
     powerUse: 40,
-    unlock: pop(250),
-    unlockAt: { pop: 250 },
-    unlockHint: 'Reach 250 citizens',
+    // 300 (was 250, round 3): Green Belts' F7 clause (cottages and apartment blocks hold
+    // +10 %, a $1,500 first-city rung) lifted the curve between 200 and 300 citizens, and at
+    // 250 the tower opened 32 s after the office (limit 90 s; cadence.mjs). At 300 it opens
+    // at 9.5 min, 114 s after the office and 90 s before the school.
+    unlock: pop(300),
+    unlockAt: { pop: 300 },
+    unlockHint: 'Reach 300 citizens',
   },
   {
     id: 'arcology',
@@ -134,20 +142,33 @@ export const BUILDINGS = [
     // that re-buys the core ladder (README "Tier 5").
     baseCost: 2e11,
     costGrowth: 3,
+    lateGrowth: 3, // the ×3 curve is the fleet cap: the shared knee never softens it
     housing: 80000, // eighty arcologies' worth
     // Orbital industry: the ring's yards hire from the city below, +1% per 1,000
-    // citizens (×2 at 100,000) up to ×5 (250,000 jobs in a city of 400,000). This is the
+    // citizens (×2 at 100,000) up to ×4 (200,000 jobs in a city of 300,000). This is the
     // late jobs engine: from the 14th city on the housing rungs outrun the jobs rungs
-    // (×37.5 against ×17.3 by the 31st on the 2026-09-14 upgrade stack, columns.mjs) and a
+    // (×37.5 against ×21.1 by the 31st after the 2026-09-14 round-3 re-pairing, ×17.3
+    // before it, columns.mjs) and a
     // static sticker cannot follow — a jobs number that grows with the population can, and
     // it comes online as a replay's citizens arrive. The cap was ×12 when the jobs rungs
-    // reached ×12 over a session; the 2026-09-14 upgrade wave lifted them to ×17.3 (jobs
-    // ahead of housing, ×4.39 / ×3.75, in cities 20–23) and at ×12 the ring — 72–86 % of
-    // the jobs column from the 20th city — held jobs/pop at 2.0–4.3 for the back half of
-    // 12 h (median 2.02, 41 % of mature samples inside 0.8–2.0). ×5 keeps every mature
-    // city at or above 1 job per citizen (README "Jobs and housing").
+    // reached ×12 over a session; the 2026-09-14 upgrade wave (round 1) lifted them to
+    // ×17.3 and at ×12 the ring — 72–86 % of the jobs column from the 20th city — held
+    // jobs/pop at 2.0–4.3 for the back half of 12 h (median 2.02, 41 % of mature samples
+    // inside 0.8–2.0); ×5 read 1.32 median / 77 % in span on the greedy but pinned
+    // unemployment at exactly 0 from hour 2 in every profile (human city 9 jobs/pop 2.34,
+    // greedy cities 20–23 2.2–3.8, the ring 50–86 % of the column). Round 2 planned ×3
+    // alongside the upgrades' jobs-stack trim (Gardens ×1.1, Civic ×1.25, Archives' growth
+    // term → ring housing ×1.5) so a mature city reads jobs/pop ≈ 1.0–1.3 and unemployment
+    // lives in a 2–15 % band around each housing step — and the plan let this folder hold
+    // ×4 if ×3 pushed a mature city under 0.8. Measured on the round-2 tree (12 h, the
+    // three caps side by side, scratch cap3/4/5 runs): human jobs/pop cities 7–10 read
+    // 0.78 / 0.93 / 1.14 / 0.80 at ×3 (cities 7 and 10 at 22 % / 20 % unemployment, the
+    // per-city gate red), 0.85 / 1.02 / 1.26 / 0.95 at ×4 (15 / 0 / 0 / 5 %, every
+    // per-city and jobs/pop gate green) and 0.91 / 1.11 / 1.39 / 1.06 at ×5 (city 9 over
+    // the 1.3 line); the greedy's cities 25–28 read 0.70 at ×3 on columns.mjs. So ×4: the
+    // ring at its cap hires 2.5× its own housing (README "Jobs and housing").
     jobs: 50000,
-    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 5, text: 'Orbital industry: +1% jobs per 1,000 citizens (up to ×5)' },
+    synergy: { stat: 'jobs', source: 'pop', per: 100000, cap: 4, text: 'Orbital industry: +1% jobs per 1,000 citizens (up to ×4)' },
     powerUse: 1.2e6, // 12 MW per citizen, twice the arcology's 6.5: the card says "≈ 20 × Fusion Reactor"
     happiness: 0.5, // ten parks: a sealed world with weather it chose
     unlock: legacy(500),
@@ -211,9 +232,12 @@ export const BUILDINGS = [
     powerUse: 60,
     // 3,000 (was 2,800): between the refinery (2,200, 13.5 min) and the solar farm (3,600,
     // 17.1) in the first city, ~2 and ~1.6 min apart (cadence.mjs: opens 15.5, bought 19.1).
-    unlock: pop(3000),
-    unlockAt: { pop: 3000 },
-    unlockHint: 'Reach 3,000 citizens',
+    // 3,100 (was 3,000, round 3): on the Green Belts curve (see the tower) 3,000 opened the
+    // mall 82 s after the refinery (limit 90 s); 3,100 opens it at 15.0 min, 102 s after,
+    // and stays ≥ 15 % under the solar farm's 3,600.
+    unlock: pop(3100),
+    unlockAt: { pop: 3100 },
+    unlockHint: 'Reach 3,100 citizens',
   },
   {
     id: 'financial',
@@ -431,11 +455,19 @@ export const BUILDINGS = [
     // counterweights: each one anchored to the cable lifts the beamed-down output.
     baseCost: 2e13,
     costGrowth: 3,
+    lateGrowth: 3, // as the ring: the ×3 curve never softens
     jobs: 40000,
-    powerGen: 3e6, // 50 fusion reactors
-    synergy: { stat: 'powerGen', source: 'building:ring', per: 10, cap: 3, text: 'Counterweights: output +10% per Orbital Ring (up to ×3)' },
+    // Ten fusion reactors (was fifty, 3e6). At 3e6 × the ×3 counterweight cap the elevator
+    // was 61 % of the human 24 h fleet's sticker capacity (11 units) and 65 % of the
+    // greedy's at 12 h: it alone took the human's city 13 from 5.4× to 13× cap/demand and
+    // the greedy's city 34 to 14.7× (round-1 skeptics). 6e5 with the cap at ×2 leaves the
+    // card a felt generator (still the biggest in the game, ≥ 10 reactors) at ~20 % of
+    // the late fleet's capacity; the price and the ×3 curve — the city-33 novelty — stay.
+    // Upkeep moves with it so the cable still bills nuclear's $0.025/MW/s at the sticker.
+    powerGen: 6e5,
+    synergy: { stat: 'powerGen', source: 'building:ring', per: 10, cap: 2, text: 'Counterweights: output +10% per Orbital Ring (up to ×2)' },
     happiness: 0.3,
-    upkeep: 7.5e4, // the cable is inspected daily: nuclear's $0.025/MW/s at the sticker, a third of it at ×3
+    upkeep: 1.5e4, // the cable is inspected daily: nuclear's $0.025/MW/s at the sticker, half of it at ×2
     unlock: legacy(300000),
     unlockAt: { legacy: 300000 },
     unlockHint: 'Bank 300,000 legacy',
@@ -481,6 +513,12 @@ export const BUILDINGS = [
     tier: 3,
     baseCost: 60000,
     costGrowth: 1.18,
+    // Knee 60 (the shared knee is 75): a 1.18 curve from $60k has to soften earlier than
+    // the park's and school's to stay under the stadium — at 75 the 200th hospital reads
+    // $8.6e15 against the stadium's $5.0e15 and $1e18 buys fewer hospitals than stadiums;
+    // at 60 it reads $3.5e15 and 232 vs 229 units from zero. The first city buys 23, so
+    // its curve is untouched (buildings.test.mjs "F8").
+    knee: 60,
     jobs: 200,
     powerUse: 50,
     happiness: 0.12,

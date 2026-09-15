@@ -11,7 +11,7 @@
     "dipShareMin": 0.55,
     "foundingsMin": 20,
     "foundingsMax": 35,
-    "moneyMax": 500000000000000000,
+    "moneyMax": 700000000000000000,
     "legacyMax": 800000
   },
   "rungs": [

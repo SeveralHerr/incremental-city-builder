@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { config, costGrowthFor } from './config.js';
 import { init } from './index.js';
 import { prestigeTuning, economyTuning, milestoneTuning, foundingTuning, LEGACY_POWER_MAX, SEED_SECONDS_MAX } from '../simulation/tuning.js';
-import { normalizeGrowth, growthFactor } from '../buildings/index.js';
+import { normalizeGrowth, growthFactor, normalizeSynergy, DEFAULT_KNEE, DEFAULT_LATE_GROWTH } from '../buildings/index.js';
 import { loadPlan, checkTargets, fromSimLog, formatChecks } from './targets.mjs';
 import { UPGRADES, CHARTER_GATE, FRONTIER_GATE } from '../upgrades/data.js';
 import { BUILDINGS } from '../buildings/data.js';
@@ -44,6 +44,19 @@ test('every section a consumer reads is present with finite numbers', () => {
   assert.ok(isNum(config.milestones.popIncomeBonus) && config.milestones.popIncomeBonus > 0);
   assert.ok(config.cost.sellRefund > 0 && config.cost.sellRefund < 1);
   for (const t of [1, 2, 3, 4]) assert.ok(isNum(config.cost.tierGrowth[t]) && config.cost.tierGrowth[t] > 1, `tierGrowth.${t}`);
+});
+
+test('F8 knee: config-owned, above the first city\'s largest fleet, late slope = the tier-4 slope, mirrored by buildings', () => {
+  // The two-segment curve (config.js cost block): the knee sits above the 71 cottages the
+  // first city owns at its founding so every first-city price is the single segment it
+  // was, and the late slope is tierGrowth[4] — no card climbs slower late than the tier it
+  // is cheaper than (the minimum of the tier ladder is the tier-4 rate).
+  assert.ok(Number.isInteger(config.cost.knee) && config.cost.knee >= 72, `knee ${config.cost.knee} >= 72 (first-city cottages: 71)`);
+  assert.equal(config.cost.lateGrowth, config.cost.tierGrowth[4], 'lateGrowth is the tier-4 slope');
+  assert.equal(config.cost.lateGrowth, Math.min(...Object.values(config.cost.tierGrowth)), 'lateGrowth is the lowest tier slope');
+  // src/buildings/index.js keeps a fallback copy of the pair (like DEFAULT_TIER_GROWTH).
+  assert.equal(DEFAULT_KNEE, config.cost.knee, 'buildings DEFAULT_KNEE mirrors config.cost.knee');
+  assert.equal(DEFAULT_LATE_GROWTH, config.cost.lateGrowth, 'buildings DEFAULT_LATE_GROWTH mirrors config.cost.lateGrowth');
 });
 
 test('first-tick brownout: the floor is the contract floor (>= 0.6) so a dark first tick never reads below it', () => {
@@ -94,6 +107,16 @@ test('building overrides name real buildings and keep the catalogue sane', () =>
         assert.ok(rule, `${id}.demandGrowth is a valid { per, cap, text } rule`);
         assert.ok(rule.cap > 1 && rule.per > 0, `${id}.demandGrowth grows`);
         assert.ok(typeof v.text === 'string' && v.text.length > 0 && v.text.length <= 70, `${id}.demandGrowth.text is the card line`);
+      } else if (k === 'synergy') {
+        // A synergy mirror (the elevator's counterweights): the buildings module's own
+        // rule shape, and equal to data.js on every number — config restates the card, it
+        // does not re-tune it (the buildings test holds the same line from its side).
+        const rule = normalizeSynergy(v);
+        assert.ok(rule, `${id}.synergy is a valid { stat, source, per, cap, text } rule`);
+        assert.ok(typeof v.text === 'string' && v.text.length > 0 && v.text.length <= 70, `${id}.synergy.text is the card line`);
+        const d = normalizeSynergy(buildingById.get(id).synergy);
+        assert.ok(d, `${id}: data.js carries the synergy this config mirrors`);
+        assert.deepEqual([rule.stat, rule.source, rule.per, rule.cap], [d.stat, d.source, d.per, d.cap], `${id}.synergy mirrors data.js`);
       } else assert.ok(isNum(v) && v >= 0, `${id}.${k} finite and non-negative`);
     }
     if (isNum(o.baseCost)) assert.ok(o.baseCost > 0, `${id}.baseCost`);
@@ -104,6 +127,14 @@ test('building overrides name real buildings and keep the catalogue sane', () =>
   assert.ok(config.buildings.financial.powerUse >= 2000 && config.buildings.arcology.powerUse >= 1200);
   const fusionGen = config.buildings.fusion?.powerGen ?? buildingById.get('fusion').powerGen;
   assert.ok(fusionGen <= 3e5, 'fusion powerGen <= 3e5 MW');
+  // The Space Elevator mirror (round 2, F2): ten reactors, counterweights ×2, nuclear's
+  // upkeep per MW — every number equal to data.js, so the mirror never re-tunes the card.
+  const elev = config.buildings.elevator;
+  const elevData = buildingById.get('elevator');
+  assert.equal(elev.powerGen, elevData.powerGen, 'elevator powerGen mirrors data.js');
+  assert.equal(elev.upkeep, elevData.upkeep, 'elevator upkeep mirrors data.js');
+  assert.ok(elev.powerGen >= 10 * fusionGen && elev.powerGen <= 12 * fusionGen, 'elevator is 10–12 fusion reactors');
+  assert.equal(normalizeSynergy(elev.synergy).cap, 2, 'counterweights cap ×2');
   // Every gated override carries the UI mirror: a population gate (`unlockAt.pop`) or, for
   // the tier-5 megastructures, a legacy gate (`unlockAt.legacy`), and the rule is exactly it.
   for (const [id, o] of Object.entries(config.buildings)) {

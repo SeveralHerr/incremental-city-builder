@@ -11,14 +11,61 @@ export function buildingCap(def) {
   return Number.isInteger(m) && m >= 1 ? Math.min(m, MAX_COUNT) : MAX_COUNT;
 }
 
-export function buildingCost(def, count = state.buildings[def.id] || 0, n = 1) {
+// ---- cost curve ---------------------------------------------------------------------------
+// Two-segment curve (docs/FEEDBACK.md F8): the unit with `i` owned costs
+//   baseCost · costGrowth^min(i, knee) · lateGrowth^max(0, i − knee)
+// i.e. the tier's own exponent up to `knee` units, then the shared late exponent. A def without
+// a knee (or a knee that is not a non-negative integer, or a lateGrowth below 1) is the old
+// single geometric segment, so nothing changes for a def that does not opt in. The buildings
+// module resolves knee / lateGrowth from config.cost (knee 75, lateGrowth 1.112) and pins
+// exceptions per building (hospital knee 60, ring / elevator lateGrowth 3); core only reads the
+// two fields off the def. Why: one exponent per tier makes the cheap tier's 200th unit dearer
+// than the top tier's (cottage #200 $7e15 vs arcology $2e14), so at equal money a player can
+// afford more Financial Districts than Corner Shops — the playtest's 237-vs-202 reading.
+// Ordering claims (house ≤ arcology at count 200, units-from-zero non-decreasing in tier) are
+// pinned by core.test.mjs against the shipped data once buildings pins it.
+function curveOf(def) {
   const g = def.costGrowth;
-  const mult = (derived.costMult || 1) * (derived.mods?.byBuilding?.[def.id]?.cost ?? 1);
-  if (n === 1) return def.baseCost * Math.pow(g, count) * mult;
-  // geometric series sum for n purchases starting at `count`
-  const first = def.baseCost * Math.pow(g, count);
-  const sum = g === 1 ? first * n : (first * (Math.pow(g, n) - 1)) / (g - 1);
-  return sum * mult;
+  const knee = Number.isInteger(def.knee) && def.knee >= 0 ? def.knee : Infinity;
+  const late = knee !== Infinity && Number.isFinite(def.lateGrowth) && def.lateGrowth >= 1 ? def.lateGrowth : g;
+  return { g, knee, late };
+}
+
+// Geometric series: n terms from `first` at ratio g (0 for n = 0; NaN stays NaN so buy()
+// rejects a NaN quantity on its finite-cost check, as before).
+const geo = (first, g, n) => (n === 0 ? 0 : g === 1 ? first * n : (first * (Math.pow(g, n) - 1)) / (g - 1));
+
+// Undiscounted price of the next unit when `count` are owned.
+function unitPrice(def, count) {
+  const { g, knee, late } = curveOf(def);
+  if (count <= knee) return def.baseCost * Math.pow(g, count);
+  return def.baseCost * Math.pow(g, knee) * Math.pow(late, count - knee);
+}
+
+// Undiscounted price of `n` units bought in a row with `start` owned: the early segment (units
+// indexed below the knee, ratio g) plus the late segment (ratio lateGrowth from the knee on).
+function seriesPrice(def, start, n) {
+  const { g, knee, late } = curveOf(def);
+  if (knee === Infinity || late === g) return geo(def.baseCost * Math.pow(g, start), g, n);
+  const early = Math.max(0, Math.min(n, knee - start));
+  const lateStart = Math.max(start, knee);
+  return geo(def.baseCost * Math.pow(g, start), g, early) + geo(unitPrice(def, lateStart), late, n - early);
+}
+
+const costMultOf = (def) => (derived.costMult || 1) * (derived.mods?.byBuilding?.[def.id]?.cost ?? 1);
+
+export function buildingCost(def, count = state.buildings[def.id] || 0, n = 1) {
+  const mult = costMultOf(def);
+  if (n === 1) return unitPrice(def, count) * mult;
+  return seriesPrice(def, count, n) * mult;
+}
+
+// Largest n with geo(first, g, n) ≤ money, by the closed form (float-exact enough for the
+// walk in maxAffordable to settle).
+function geoCount(first, g, money) {
+  if (first > money) return 0;
+  if (g === 1) return Math.floor(money / first);
+  return Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
 }
 
 // Max affordable count for a building with current money, never past the def's cap
@@ -30,12 +77,21 @@ export function maxAffordable(def, money = state.res.money) {
   const count = state.buildings[def.id] || 0;
   const limit = Math.min(10000, buildingCap(def) - count);
   if (limit <= 0) return 0;
-  const g = def.costGrowth;
-  const mult = (derived.costMult || 1) * (derived.mods?.byBuilding?.[def.id]?.cost ?? 1);
-  const first = def.baseCost * Math.pow(g, count) * mult;
+  const { g, knee, late } = curveOf(def);
+  const mult = costMultOf(def);
+  const first = unitPrice(def, count) * mult;
   if (first > money) return 0;
-  if (g === 1) return Math.min(limit, Math.floor(money / first));
-  let n = Math.floor(Math.log((money * (g - 1)) / first + 1) / Math.log(g));
+  let n;
+  if (knee === Infinity || late === g || count >= knee) {
+    // One segment from `count` on (the late one when the knee is already behind us).
+    n = geoCount(first, count >= knee ? late : g, money);
+  } else {
+    // Early segment first; whatever the wallet has left past the knee buys late-segment units.
+    const early = Math.min(limit, knee - count);
+    const earlyTotal = geo(first, g, early);
+    if (earlyTotal > money) n = geoCount(first, g, money);
+    else n = early + geoCount(unitPrice(def, knee) * mult, late, money - earlyTotal);
+  }
   n = Math.max(0, Math.min(n, limit));
   // The closed form can land one off in either direction when money sits within float error
   // of an exact n-purchase total (log/pow round differently from the series sum): walk back so
@@ -52,12 +108,8 @@ export function maxAffordable(def, money = state.res.money) {
 // like every idle game's sell button), but a cost multiplier above 1 can never turn sell into a
 // money printer: the refund is at most sellRefund of the undiscounted price.
 export function sellRefund(def, count = state.buildings[def.id] || 0, n = 1) {
-  const g = def.costGrowth;
-  const mult = Math.min(1, (derived.costMult || 1) * (derived.mods?.byBuilding?.[def.id]?.cost ?? 1));
-  const start = count - n;
-  const first = def.baseCost * Math.pow(g, start);
-  const sum = g === 1 ? first * n : (first * (Math.pow(g, n) - 1)) / (g - 1);
-  return sum * mult * (def.sellRefund ?? 0.5);
+  const mult = Math.min(1, costMultOf(def));
+  return seriesPrice(def, count - n, n) * mult * (def.sellRefund ?? 0.5);
 }
 
 export function isBuildingUnlocked(def) {
@@ -162,7 +214,7 @@ export function buy(id, n = 1) {
   const count = state.buildings[id] || 0;
   if (n === 'max') n = maxAffordable(def);
   n = Math.floor(n);
-  if (n <= 0 || count + n > buildingCap(def)) return false;
+  if (!Number.isFinite(n) || n <= 0 || count + n > buildingCap(def)) return false;
   const cost = buildingCost(def, count, n);
   // Both sides must be finite: an Infinity cost (growth^count overflow) or an Infinity wallet
   // (possible between sanitize() passes) would otherwise pass `Infinity >= Infinity` and leave

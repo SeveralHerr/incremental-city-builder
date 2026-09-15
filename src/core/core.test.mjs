@@ -14,6 +14,7 @@ import { guard, reportError, DISABLE_AFTER, DISABLE_AFTER_TOTAL, WINDOW } from '
 import { on, off, emit, isListenerDisabled, listenerCount } from './events.js';
 import { loop, step, start, stop, TICK_MS } from './loop.js';
 import { botStep, humanShouldFound } from './bot.js';
+import { createMods } from './mods.js';
 
 function clearErrors() {
   errors.length = 0;
@@ -51,6 +52,64 @@ test('maxAffordable is exact at, just below and just above every n-purchase tota
   assert.equal(maxAffordable(TB, 29.999), 0);
   assert.equal(maxAffordable(TFLAT, 55), 5);
   assert.equal(maxAffordable(TFLAT, 9.99), 0);
+});
+
+// The two-segment curve (docs/FEEDBACK.md F8): the tier's own exponent up to `knee` units,
+// then `lateGrowth`. Unit i (i owned) costs baseCost · g^min(i, knee) · lateGrowth^max(0, i − knee).
+const TK = registerBuilding({ id: 'tk', name: 'Knee block', baseCost: 30, costGrowth: 1.18, knee: 10, lateGrowth: 1.112, tier: 1 });
+const unitOf = (def, i) => def.baseCost * Math.pow(def.costGrowth, Math.min(i, def.knee)) * Math.pow(def.lateGrowth, Math.max(0, i - def.knee));
+
+test('F8: two-segment buildingCost matches a manual loop on both sides of the knee', () => {
+  assert.ok(TK);
+  for (const [count, n] of [[0, 1], [0, 10], [0, 11], [0, 60], [5, 20], [9, 2], [10, 1], [10, 3], [12, 40], [200, 5]]) {
+    let sum = 0;
+    for (let i = 0; i < n; i++) sum += unitOf(TK, count + i);
+    const closed = buildingCost(TK, count, n);
+    assert.ok(Math.abs(closed - sum) / sum < 1e-12, `count=${count} n=${n}: ${closed} vs ${sum}`);
+  }
+  // The knee unit itself is still on the early curve; the one after it is the first late unit.
+  assert.ok(Math.abs(buildingCost(TK, 10, 1) - 30 * Math.pow(1.18, 10)) < 1e-9);
+  assert.ok(Math.abs(buildingCost(TK, 11, 1) - 30 * Math.pow(1.18, 10) * 1.112) < 1e-9);
+  // Unit 200 on the knee curve is far under the single-segment price (the F8 inversion).
+  assert.ok(buildingCost(TK, 200, 1) < buildingCost({ ...TK, knee: undefined }, 200, 1) / 1e4, `late exponent softens the tail: ${buildingCost(TK, 200, 1)} vs ${buildingCost({ ...TK, knee: undefined }, 200, 1)}`);
+  // A def without a knee, with a knee but no lateGrowth, or with a lateGrowth < 1, is the old
+  // single geometric segment.
+  const single = (extra) => ({ id: 'x', baseCost: 30, costGrowth: 1.18, ...extra });
+  for (const extra of [{}, { lateGrowth: 1.112 }, { knee: 10, lateGrowth: 0.5 }, { knee: 10.5, lateGrowth: 1.112 }, { knee: -1, lateGrowth: 1.112 }]) {
+    const def = single(extra);
+    assert.ok(Math.abs(buildingCost(def, 30, 5) - buildingCost({ ...def, knee: undefined, lateGrowth: undefined }, 30, 5)) < 1e-9, JSON.stringify(extra));
+    assert.ok(Math.abs(buildingCost(def, 30, 1) - 30 * Math.pow(1.18, 30)) < 1e-9, JSON.stringify(extra));
+  }
+});
+
+test('F8: maxAffordable is exact around every n-purchase total that straddles the knee; sell mirrors buy', () => {
+  for (const start of [0, 8, 10, 11, 40]) {
+    state.buildings.tk = start;
+    for (let n = 1; n <= 40; n++) {
+      const total = buildingCost(TK, start, n);
+      assert.equal(maxAffordable(TK, total), n, `start=${start} exact n=${n}`);
+      assert.equal(maxAffordable(TK, total * (1 + 1e-12)), n, `start=${start} +eps n=${n}`);
+      assert.equal(maxAffordable(TK, total * (1 - 1e-12)), n - 1, `start=${start} -eps n=${n}`);
+    }
+    assert.equal(maxAffordable(TK, unitOf(TK, start) * 0.999), 0);
+    // buy('max') never fails its own check across the knee.
+    for (const money of [unitOf(TK, start), buildingCost(TK, start, 15), 1e9]) {
+      state.buildings.tk = start;
+      state.res.money = money;
+      const k = maxAffordable(TK);
+      assert.ok(k > 0);
+      assert.equal(buy('tk', 'max'), true, `start=${start} money=${money}`);
+      assert.equal(state.buildings.tk, start + k);
+      assert.ok(state.res.money >= -1e-9);
+    }
+  }
+  // Selling n units refunds sellRefund × the replacement price of exactly those units, on the
+  // same two-segment curve (a sale across the knee prices its late units at lateGrowth).
+  for (const [count, n] of [[5, 3], [12, 5], [30, 30], [200, 1]]) {
+    assert.ok(Math.abs(sellRefund(TK, count, n) - 0.5 * buildingCost(TK, count - n, n)) < 1e-9 * buildingCost(TK, count - n, n), `count=${count} n=${n}`);
+  }
+  state.buildings.tk = 0;
+  state.res.money = 0;
 });
 
 test('buy("max") never fails its own affordability check; bad n rejected', () => {
@@ -869,18 +928,13 @@ test('botStep human profile: homes before jobs on the stale population, a civic 
   resetState();
 });
 
-test('botStep human profile: a draw batch is trimmed at the sticker draw, not the grid-strain draw the tick will add', () => {
-  clearErrors();
-  // Draw grows with the fleet (buildings demandGrowth: per-unit × min(cap, 1 + (count − 1) / per)):
-  // with per = 1 the k-th unit's fleet draws k × k stickers. The card shows the sticker, and so
-  // does the player's arithmetic — the grid guard must not foresee the growth, or the profile
-  // never walks into the one brownout the playtest's player could (docs/FEEDBACK.md F2, Lights
-  // Out latched 0/9 cities with the growth folded in, 3/9 at the sticker; sim 2026-09-14).
-  const strained = registerBuilding({ id: 'h-strain', name: 'Human tower', baseCost: 30, costGrowth: 1.15, tier: 3, category: 'residential', housing: 4, powerUse: 1, demandGrowth: { per: 1, cap: 40 } });
-  assert.ok(strained);
-  // Stale snapshot: housing full (14 homes open the 5 % vacancy), grid 10 / 5 → room for 5
-  // stickers. The strain-aware guard of the second cut would have let 2 through (2 × 2 = 4 ≤ 5,
-  // 3 × 3 = 9 > 5); the sticker guard lets 5 through.
+// The strain-rule content both guard tests read: draw grows with the fleet (buildings
+// demandGrowth: per-unit × min(cap, 1 + (count − 1) / per)); with per = 1 a fleet of k units
+// draws k × k stickers. The build card prints the rule and the current "×N now" factor
+// (src/ui/build.js:261-271), so a grid-ahead player can foresee a batch's strain; the default
+// guard does, the 'sticker' guard (the round-1/2 booking) is kept as the sim's control line.
+const strainSnapshot = () => {
+  // Stale snapshot: housing full (14 homes open the 5 % vacancy), grid 10 / 5 → room 5.
   freshPlot();
   state.res.pop = 1000;
   derived.housing = 1000;
@@ -888,7 +942,16 @@ test('botStep human profile: a draw batch is trimmed at the sticker draw, not th
   derived.employed = 1000;
   derived.powerCap = 10;
   derived.powerDemand = 5;
-  let { log, reasons } = humanRun();
+};
+
+test("botStep human profile, guard 'sticker' (the control): a draw batch is trimmed at the sticker draw, not the grid-strain draw the tick will add", () => {
+  clearErrors();
+  const strained = registerBuilding({ id: 'h-strain', name: 'Human tower', baseCost: 30, costGrowth: 1.15, tier: 3, category: 'residential', housing: 4, powerUse: 1, demandGrowth: { per: 1, cap: 40 } });
+  assert.ok(strained);
+  // Room for 5 stickers: the sticker guard lets 5 through (the strain-aware default lets 2:
+  // 2 × 2 = 4 ≤ 5, 3 × 3 = 9 > 5 — the next test).
+  strainSnapshot();
+  let { log, reasons } = humanRun({ guard: 'sticker' });
   assert.deepEqual(log[0], { id: 'h-strain', n: 5 }, `5 stickers fit the room: ${JSON.stringify(log[0])}`);
   assert.equal(reasons[0], 'housing');
   // The draw turned away (14 − 5 = 9 stickers) is met in the same step by the power rule: the
@@ -896,20 +959,110 @@ test('botStep human profile: a draw batch is trimmed at the sticker draw, not th
   assert.equal(log[1].id, 'h-gen', reasons.join(' '));
   assert.equal(reasons[1], 'power');
   assert.equal(log[1].n, 4);
-  // No room at all (grid 10 / 10): nothing that draws is bought before a generator, same as
-  // before — the profile never KNOWINGLY browns out; the guard only stops foreseeing strain.
-  freshPlot();
-  state.res.pop = 1000;
-  derived.housing = 1000;
-  derived.jobs = 2000;
-  derived.employed = 1000;
-  derived.powerCap = 10;
-  derived.powerDemand = 10;
-  ({ log, reasons } = humanRun());
-  assert.equal(log[0].id, 'h-gen', `generator first at no room: ${reasons.join(' ')}`);
-  assert.equal(reasons[0], 'power');
+  // No room at all (grid 10 / 10): nothing that draws is bought before a generator, under
+  // either guard — the profile never KNOWINGLY browns out.
+  for (const guard of ['sticker', 'strain']) {
+    strainSnapshot();
+    derived.powerDemand = 10;
+    ({ log, reasons } = humanRun({ guard }));
+    assert.equal(log[0].id, 'h-gen', `generator first at no room (${guard}): ${reasons.join(' ')}`);
+    assert.equal(reasons[0], 'power');
+  }
+  assert.equal(errors.length, 0);
+  resetState();
+});
+
+test('botStep human profile (default guard): a ×Max draw batch is trimmed to the units the capacity carries AFTER the fleet strain, from the count owned', () => {
+  clearErrors();
+  const strained = registry.buildings.get('h-strain');
+  assert.ok(strained && strained.demandGrowth, 'the strain-rule test building from the control test above');
+  strainSnapshot();
+  const { log, reasons } = humanRun();
+  // Need 14 homes; the fleet of k towers draws k × k over a room of 5 → 2 fit (4 ≤ 5 < 9).
+  assert.deepEqual(log[0], { id: 'h-strain', n: 2 }, `2 towers fit the room after strain: ${JSON.stringify(log[0])} (${reasons.join(' ')})`);
+  assert.equal(reasons[0], 'housing');
+  // The refused draw is the strain draw of the batch turned away: 14 × 14 − 2 × 2 = 192. The
+  // power rule then sizes the plant 1.2× ahead of demand (5 + 4) + 192 → 241.2 at 4 MW per
+  // mill over the 10 there = 58 mills (the wallet covers them).
+  assert.equal(log[1].id, 'h-gen', reasons.join(' '));
+  assert.equal(reasons[1], 'power');
+  const mills = Math.ceil(((5 + 4 + (14 * 14 - 2 * 2)) * 1.2 - 10) / 4);
+  assert.equal(mills, 58);
+  assert.equal(log[1].n, mills, `plant sized for the refused strain draw: ${JSON.stringify(log[1])}`);
+  // The next housing batch in the same step folds the 2 towers already owned: room is now
+  // 10 + 58 × 4 − 9 = 233 and (2 + k)² − 4 ≤ 233 → k ≤ 13, so the 12 homes the vacancy still
+  // needs (ceil((1000 / 0.95 − 1008) / 4)) all fit.
+  assert.deepEqual(log[2], { id: 'h-strain', n: 12 }, `second batch from the count owned: ${JSON.stringify(log[2])} (${reasons.join(' ')})`);
+  assert.equal(reasons[2], 'housing');
+  // Replay: under the strain draw no batch ever exceeded the room the step had booked.
+  let owned = 0;
+  let demand = 5;
+  let cap = 10;
+  for (const b of log) {
+    if (b.id === 'h-strain') {
+      const before = owned * owned;
+      const after = (owned + b.n) * (owned + b.n);
+      assert.ok(after - before <= cap - demand + 1e-9, `batch of ${b.n} at ${owned} owned: +${after - before} over room ${cap - demand}`);
+      demand += after - before;
+      owned += b.n;
+    } else if (b.id === 'h-gen') cap += 4 * b.n;
+  }
   assert.equal(errors.length, 0);
   state.buildings['h-strain'] = 400; // priced out for the tests below
+  resetState();
+});
+
+// A demand step the player did not choose to power: an upgrade's draw clause (the +8 % on the
+// mid-fleet employer rungs, +15 % on the Energy Charter — src/upgrades) folds into the tick's
+// mods bag and lifts every unit's draw at once. Neither guard can trim it (no batch was
+// chosen), so both profiles sit in the brownout for exactly as long as the cheapest generator
+// is out of reach, and both buy that generator before anything else the moment it is not —
+// the same content, the same reason, under the strain-aware default and the sticker control.
+// This is what the Lights Out milestone is earned by under an honest grid-ahead player.
+test('both profiles brown out on the same demand-step content for the same reason: nothing that draws until the cheapest generator is affordable, then the generator first', () => {
+  clearErrors();
+  const step = registerUpgrade({ id: 'h-demand-step', name: 'Trading Floors II (test)', cost: 10, effect: (mods) => { mods.demand *= 1.08; } });
+  assert.ok(step);
+  const mods = createMods();
+  step.effect(mods, state);
+  assert.equal(mods.demand, 1.08, 'the draw clause is a mods.demand step');
+  const drawIds = new Set(registry.buildingOrder.filter((id) => registry.buildings.get(id).powerUse > 0));
+  const genIds = new Set(registry.buildingOrder.filter((id) => registry.buildings.get(id).powerGen > 0));
+  assert.ok(drawIds.size >= 2 && genIds.size >= 1, `test cards: draw ${[...drawIds]} gen ${[...genIds]}`);
+  // The grid one tick after the step: cap 10, demand 9.5 × 1.08 = 10.26 (it was 0.95 ahead).
+  const setup = (genAffordable) => {
+    freshPlot();
+    state.res.pop = 1000;
+    derived.housing = 1000; // a housing need, so the human's first pick is a draw building
+    derived.jobs = 2000;
+    derived.employed = 1000;
+    derived.powerCap = 10;
+    derived.powerDemand = 9.5 * 1.08;
+    derived.powerRatio = 10 / (9.5 * 1.08);
+    for (const id of genIds) state.buildings[id] = genAffordable ? 0 : 400; // 40 · 1.15^400: out of reach
+  };
+  const drawUnits = (log) => log.filter((b) => drawIds.has(b.id)).reduce((a, b) => a + b.n, 0);
+  const runs = [
+    ['human strain', () => humanRun().log],
+    ['human sticker', () => humanRun({ guard: 'sticker' }).log],
+    ['greedy', () => recordBuys(() => botStep({ maxBuys: 25 }))],
+  ];
+  for (const [name, run] of runs) {
+    // Generator out of reach: the step is bought (a lit card), the draw rows are affordable,
+    // and not one unit of them goes in — the wallet goes to the rows that do not draw.
+    setup(false);
+    let log = run();
+    assert.ok(state.upgrades['h-demand-step'], `${name}: buys the lit card`);
+    assert.ok(log.length > 0, `${name}: the wallet still goes somewhere`);
+    assert.equal(drawUnits(log), 0, `${name}: no draw unit while the grid is short and the generator is out of reach: ${JSON.stringify(log)}`);
+    assert.ok(!log.some((b) => genIds.has(b.id)), `${name}: no generator was affordable: ${JSON.stringify(log)}`);
+    // Generator in reach: it is the first building bought, before the housing the step wants.
+    setup(true);
+    log = run();
+    assert.ok(log.length > 0, `${name}: buys`);
+    assert.ok(genIds.has(log[0].id), `${name}: the generator comes first: ${JSON.stringify(log)}`);
+  }
+  assert.equal(errors.length, 0);
   resetState();
 });
 

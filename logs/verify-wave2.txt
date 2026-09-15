@@ -1,0 +1,2 @@
+[verify] PASS ticks=10000 money=18361 pop=4277 income=4231.29/s tick avg=0.010ms p99=0.10ms fps=60.2 errors=0
+[verify] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\wave2.json

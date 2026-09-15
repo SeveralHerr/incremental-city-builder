@@ -68,6 +68,19 @@ export { BUILDINGS, CATEGORIES };
 // sketch). Tier-5 cards pin their own costGrowth: neither this table nor config has a
 // tier 5, and balance's costGrowthFor(5) would answer with the tier-1 rate.
 export const DEFAULT_TIER_GROWTH = Object.freeze({ 1: 1.18, 2: 1.16, 3: 1.13, 4: 1.112 });
+// The knee of the two-segment cost curve (F8, 2026-09-14 round 2): unit n (0-based) costs
+// baseCost · g^min(n, knee) · gLate^max(0, n − knee), so a tier-1 card climbs at its own
+// rate through the first city (the largest first-city fleet is 71 cottages, under the
+// knee) and at the tier-4 rate after it — a 200th cottage ($4.3e12) stays under a 200th
+// arcology ($2.0e14) instead of 36× above it, and a fixed sum of money buys more of a
+// cheap card than of a dear one in every column (README "Cost curve"). Both mirrors
+// config.cost.knee / config.cost.lateGrowth like DEFAULT_TIER_GROWTH mirrors tierGrowth
+// (the drift test holds them equal) so a config import failure ships the sim's curve. A
+// def may pin its own `knee` (hospital: 60, its 1.18 curve has to soften earlier to stay
+// under the stadium) or `lateGrowth` (ring, elevator: 3 = their costGrowth, the tier-5
+// fleet cap never softens). Core reads the two resolved fields and nothing else.
+export const DEFAULT_KNEE = 75;
+export const DEFAULT_LATE_GROWTH = 1.112;
 const NUMERIC_FIELDS = ['baseCost', 'costGrowth', 'housing', 'jobs', 'powerUse', 'powerGen', 'income', 'upkeep', 'happiness', 'sellRefund', 'tier'];
 const CATEGORY_IDS = new Set(CATEGORIES.map((c) => c.id));
 // Stats a synergy may scale. Cost is deliberately excluded (cost mods belong to the mods
@@ -122,6 +135,17 @@ function applyOverride(def, override) {
       else if (Number.isInteger(v) && v >= 1) out.maxCount = v;
       continue;
     }
+    if (k === 'knee') {
+      // null removes the knee (a single segment forever); anything else must be a positive
+      // integer, else the data value stands.
+      if (v === null) out.knee = null;
+      else if (Number.isInteger(v) && v >= 1) out.knee = v;
+      continue;
+    }
+    if (k === 'lateGrowth') {
+      if (isFiniteNum(v) && v >= 1) out.lateGrowth = v;
+      continue;
+    }
     if (k === 'category') {
       if (CATEGORY_IDS.has(v)) out.category = v;
       continue;
@@ -140,11 +164,41 @@ function applyOverride(def, override) {
   return out;
 }
 
-// Fully resolved definition for `id` (data + config override + cost growth). Pure.
+// The knee every def without one resolves to: config.cost.knee (a positive integer) →
+// DEFAULT_KNEE. Pure.
+export function kneeFor(balance) {
+  const k = balance?.config?.cost?.knee;
+  return Number.isInteger(k) && k >= 1 ? k : DEFAULT_KNEE;
+}
+
+// The late growth every def without one resolves to: config.cost.lateGrowth (finite, ≥ 1)
+// → DEFAULT_LATE_GROWTH. Pure.
+export function lateGrowthFor(balance) {
+  const g = balance?.config?.cost?.lateGrowth;
+  return isFiniteNum(g) && g >= 1 ? g : DEFAULT_LATE_GROWTH;
+}
+
+// Unit price of the `i`-th unit (0-based) of a resolved def before the cost mods: the
+// two-segment curve core prices (single segment when the def has no usable knee). Pure.
+export function unitCost(def, i) {
+  const g = isFiniteNum(def?.costGrowth) && def.costGrowth >= 1 ? def.costGrowth : 1;
+  const knee = Number.isInteger(def?.knee) && def.knee >= 1 ? def.knee : Infinity;
+  const gLate = isFiniteNum(def?.lateGrowth) && def.lateGrowth >= 1 ? def.lateGrowth : g;
+  const n = isFiniteNum(i) && i > 0 ? Math.floor(i) : 0;
+  return def.baseCost * Math.pow(g, Math.min(n, knee)) * Math.pow(gLate, Math.max(0, n - knee));
+}
+
+// Fully resolved definition for `id` (data + config override + cost growth + knee). Pure.
 export function resolveBuilding(base, balance) {
   const override = balance?.config?.buildings?.[base.id];
   const def = applyOverride(base, override);
   if (!isFiniteNum(def.costGrowth) || def.costGrowth < 1) def.costGrowth = costGrowthForTier(def.tier, balance);
+  // The two-segment curve (see DEFAULT_KNEE). A data/config knee of null is "no knee":
+  // the field is dropped so core sees a single segment; any other non-positive-integer
+  // value falls back to the shared knee. lateGrowth below 1 or non-finite likewise.
+  if (def.knee === null) delete def.knee;
+  else if (!(Number.isInteger(def.knee) && def.knee >= 1)) def.knee = kneeFor(balance);
+  if (!(isFiniteNum(def.lateGrowth) && def.lateGrowth >= 1)) def.lateGrowth = lateGrowthFor(balance);
   const refund = balance?.config?.cost?.sellRefund;
   if (def.sellRefund === undefined && isFiniteNum(refund) && refund >= 0 && refund <= 1) def.sellRefund = refund;
   if (!isFiniteNum(def.baseCost) || def.baseCost <= 0) def.baseCost = base.baseCost;
@@ -182,8 +236,16 @@ export function rollbackOverCap(e, def = registry.buildings.get(e?.id), state = 
   const keep = Math.max(cap, start);
   const excess = count - keep;
   if (excess <= 0) return 0;
-  const g = isFiniteNum(def.costGrowth) && def.costGrowth >= 1 ? def.costGrowth : 1;
-  const share = g === 1 ? excess / n : (Math.pow(g, count) - Math.pow(g, keep)) / (Math.pow(g, count) - Math.pow(g, start));
+  // The excess units' share of the purchase on the def's own curve (unit prices, so a knee
+  // inside the purchase — a cap above it — is priced exactly; the windmill's cap of 8 sits
+  // under every knee, where this is the geometric ratio it always was).
+  let all = 0, over = 0;
+  for (let i = start; i < count; i++) {
+    const c = unitCost(def, i);
+    all += c;
+    if (i >= keep) over += c;
+  }
+  const share = all > 0 ? over / all : excess / n;
   const paid = isFiniteNum(e.cost) && e.cost > 0 ? e.cost : 0;
   const refund = isFiniteNum(share) ? paid * Math.min(1, Math.max(0, share)) : 0;
   state.buildings[e.id] = keep;
@@ -212,15 +274,21 @@ export function powerHintFor(def, gens) {
   return `Draws ${fmtMW(use)} MW ≈ ${count.toLocaleString('en-US')} × ${pick.name}`;
 }
 
+// A card only a legacy bank opens (the tier-5 megastructures): never the unit a bill is
+// quoted in, since a player reading a tier-4 card, or the ring's, has not seen it yet.
+const legacyOnly = (d) => Number.isFinite(d?.unlockAt?.legacy) && !Number.isFinite(d?.unlockAt?.pop);
+
 // Stamp `powerHint` on every registered consumer from the registered generators' base
 // output (a synergy such as the solar farm's park bonus is not counted: the hint is the
-// sticker, like the rest of the card).
+// sticker, like the rest of the card). The ladder is the first-city generators: the
+// elevator (6e5 MW, legacy-gated) is never the unit — at 2 × the ring's draw it would
+// otherwise become the one the ring's 1.2 GW bill is sized against.
 function stampPowerHints() {
   const gens = [];
   for (const id of registry.buildingOrder) {
     const d = registry.buildings.get(id);
     const gen = baseStat(id, 'powerGen');
-    if (d && isFiniteNum(gen) && gen > 0) gens.push({ name: d.name, powerGen: gen });
+    if (d && isFiniteNum(gen) && gen > 0 && !legacyOnly(d)) gens.push({ name: d.name, powerGen: gen });
   }
   for (const id of registry.buildingOrder) {
     const d = registry.buildings.get(id);
@@ -492,7 +560,7 @@ export async function init(game) {
     on('buy', enforceCap); // the bus keys listeners by function, so a repeated init adds nothing
     if (game && typeof game === 'object') {
       const count = BUILDINGS.filter((b) => registry.buildings.has(b.id)).length;
-      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), rules: activeRules(), liveStat, baseStat, liveStats, capOf, powerHintFor };
+      game.buildings = { count, categories: CATEGORIES, synergies: activeSynergies(), growth: activeGrowth(), rules: activeRules(), liveStat, baseStat, liveStats, capOf, powerHintFor, unitCost };
     }
   } catch (e) {
     reportError('buildings:init', e);

@@ -14,15 +14,37 @@
 //             nobody fills (a tier-4 employer's sticker that is decoration) and a ratio
 //             under 1 is a city that cannot employ its citizens. The wider span is the
 //             swing the upgrade rungs impose (their housing multipliers outrun the jobs
-//             multipliers ×37.5 to ×17.3 across a session, and run behind them ×3.75 to
-//             ×4.39 in cities 20–23 — the global `(hous/jobs)` mods); the catalogue's
-//             stickers and the ring's population-scaled hiring hold the ratio inside
-//             it, they cannot hold a 1.6× band across a ~2.5× swing;
+//             multipliers ×37.5 to ×21.1 across a session after the 2026-09-14 round-3
+//             re-pairing — ×17.3 before it — the global `(hous/jobs)` mods); the
+//             catalogue's stickers and the ring's population-scaled hiring hold the ratio
+//             inside it, they cannot hold a 1.6× band across a ~2× swing;
 //   tier 5    every legacy-gated card opens during the session, is bought within
 //             T5_BUY_CITIES cities of opening, and keeps being bought afterwards (a
 //             megastructure is a rolling target, not a one-off trophy).
+// Both column readings are reported AND judged — with the opening-minute filter (`ratio`
+// in --json, the first summary line in text) and without it (`ratio.unfiltered`, the
+// second line): the ≥ RATIO_SHARE rule is a problem on either reading (round 3; until then
+// the rule was quoted for both and applied to the filtered set only, which a round-1
+// skeptic named). Measured 12 h on the greedy: round-2 tree 78 % / 72 % (the unfiltered
+// misses beyond the opening minutes were cities 25–28 and 32 at 0.71–0.76, the housing
+// rungs ahead of the jobs rungs); with the round-3 upgrades re-pairing as landed (before
+// balance's tail re-placement) 94.8 % / 92.2 % — both in-span lines clear the rule — with
+// the median at 0.99 / 0.99, one hundredth under RATIO_MIN: the mature ratios sort
+// 0.69 0.71 0.78 0.80 … 0.99 ×5 | 1.00 … 1.28, the dips are cities 16–18 (0.69–0.82,
+// global mods housing ×3.75 / jobs ×2.25 right after Megastructures) and 23–26
+// (0.82–0.89). That floor is NOT moved here: the contract's per-city band is now
+// 0.85–1.3 with a deliberate 2–8 % jobless stretch after each housing step, so a median
+// a hair under 1.0 is the state the plan asks for, and whether RATIO_MIN is re-derived
+// from that band is the integrator's call, not a tune to pass this file. (A scratch A/B
+// of the plan's effects with 1× fleet prices read 96 % / 94 %, medians 1.04 / 1.02.)
+// Resolved by the re-placement, not by the floor (wave 2 round 2): with balance's tail
+// re-placement and Blueprints ×1.12 sweep landed the same 12 h probe reads median 1.1 / 1.1,
+// 98 % / 97 % in span, 67 % / 69 % inside the band (min 0.75, max 1.27 filtered / 3.54
+// unfiltered — one opening-minute sample), 35 foundings, ring city 14, elevator city 33;
+// 6 h median 1.11 / 1.12, 95 % / 93 %. RATIO_MIN stays 1.0 — the greedy median clears it
+// with a tenth to spare, so the band was never the thing holding it under.
 // Exit code 1 when a rule is broken or the game raised an error. buildings.test.mjs spawns
-// it at 6 game-hours (the ring opens inside that window, the elevator is a 12 h reading).
+// it at 6 and at 12 game-hours (the ring opens inside 6 h, the elevator inside 12 h).
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -128,20 +150,36 @@ for (let t = 0; t < TICKS; t += BOT_EVERY) {
 }
 
 const problems = [];
-const mature = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.runMin >= MATURE_RUN_MIN && s.ratio !== null);
-const opening = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.runMin < MATURE_RUN_MIN && s.ratio !== null).length;
-const ratios = mature.map((s) => s.ratio).sort((a, b) => a - b);
-const median = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
-const inBand = mature.filter((s) => s.ratio >= RATIO_MIN && s.ratio <= RATIO_MAX).length;
-const inSpan = mature.filter((s) => s.ratio >= SPAN_MIN && s.ratio <= SPAN_MAX).length;
-const bandShare = mature.length ? inBand / mature.length : 0;
-const share = mature.length ? inSpan / mature.length : 0;
+// The ratio statistics over a sample set: median, share inside the band and the span.
+const stats = (set) => {
+  const ratios = set.map((s) => s.ratio).sort((a, b) => a - b);
+  const median = ratios.length ? ratios[Math.floor(ratios.length / 2)] : null;
+  const inBand = set.filter((s) => s.ratio >= RATIO_MIN && s.ratio <= RATIO_MAX).length;
+  const inSpan = set.filter((s) => s.ratio >= SPAN_MIN && s.ratio <= SPAN_MAX).length;
+  return { median, bandShare: set.length ? inBand / set.length : 0, share: set.length ? inSpan / set.length : 0, min: ratios[0] ?? null, max: ratios[ratios.length - 1] ?? null, n: set.length };
+};
+// Two readings, both reported (a round-1 skeptic asked for the share with and without the
+// opening-minute filter so the >= 75 % rule can be read against both): `mature` sets a
+// replay's first MATURE_RUN_MIN minutes aside (the rule is judged on it), `matureAll`
+// keeps them.
+const matureAll = samples.filter((s) => s.city >= MATURE_FROM_CITY && s.ratio !== null);
+const mature = matureAll.filter((s) => s.runMin >= MATURE_RUN_MIN);
+const opening = matureAll.length - mature.length;
+const filtered = stats(mature);
+const unfiltered = stats(matureAll);
+const { median, bandShare, share } = filtered;
 const FIX = 'fix: data.js financial.jobs / techpark.jobs / stadium.synergy.cap / arcology.synergy / ring.synergy';
 if (median !== null && (median < RATIO_MIN || median > RATIO_MAX)) {
   problems.push(`median jobs/pop ${median} in mature cities is outside ${RATIO_MIN}–${RATIO_MAX} — ${FIX}`);
 }
 if (mature.length && share < RATIO_SHARE) {
-  problems.push(`only ${Math.round(share * 100)}% of mature samples have jobs/pop inside ${SPAN_MIN}–${SPAN_MAX} (rule ≥ ${RATIO_SHARE * 100}%) — ${FIX}`);
+  problems.push(`only ${Math.round(share * 100)}% of mature samples (past run-minute ${MATURE_RUN_MIN}) have jobs/pop inside ${SPAN_MIN}–${SPAN_MAX} (rule ≥ ${RATIO_SHARE * 100}%) — ${FIX}`);
+}
+// The same rule on the unfiltered reading: the opening-minute samples are kept, so a session
+// whose replays open with long all-housing sprees, or whose late cities sit under the span,
+// fails here even when the filtered set clears the line.
+if (matureAll.length && unfiltered.share < RATIO_SHARE) {
+  problems.push(`only ${Math.round(unfiltered.share * 100)}% of ALL mature samples (opening minutes kept; ${Math.round(share * 100)}% with them set aside) have jobs/pop inside ${SPAN_MIN}–${SPAN_MAX} (rule ≥ ${RATIO_SHARE * 100}% on both readings) — ${FIX}`);
 }
 const finalCity = city();
 const bank = state.prestige?.legacy ?? 0;
@@ -166,7 +204,17 @@ const report = {
   gameHours: +(TICKS / 36000).toFixed(2),
   foundings: finalCity,
   rules: { ratioMin: RATIO_MIN, ratioMax: RATIO_MAX, spanMin: SPAN_MIN, spanMax: SPAN_MAX, ratioShare: RATIO_SHARE, matureFromCity: MATURE_FROM_CITY, matureRunMin: MATURE_RUN_MIN, t5BuyCities: T5_BUY_CITIES },
-  ratio: { median, inBandShare: +bandShare.toFixed(3), inSpanShare: +share.toFixed(3), matureSamples: mature.length, openingSamples: opening, min: ratios[0] ?? null, max: ratios[ratios.length - 1] ?? null },
+  ratio: {
+    median,
+    inBandShare: +bandShare.toFixed(3),
+    inSpanShare: +share.toFixed(3),
+    matureSamples: mature.length,
+    openingSamples: opening,
+    min: filtered.min,
+    max: filtered.max,
+    // The same statistics with the opening-minute samples kept (no MATURE_RUN_MIN filter).
+    unfiltered: { median: unfiltered.median, inBandShare: +unfiltered.bandShare.toFixed(3), inSpanShare: +unfiltered.share.toFixed(3), matureSamples: unfiltered.n, min: unfiltered.min, max: unfiltered.max },
+  },
   tier5: [...t5.values()].map((r) => ({ ...r, citiesBought: [...r.citiesBought] })),
   samples,
   problems,
@@ -181,6 +229,7 @@ if (JSON_OUT) {
     console.log(`${String(s.min).padStart(5)}  ${String(s.city).padStart(4)}  ${String(s.runMin).padStart(4)}  ${s.pop.toExponential(2).padStart(8)}  ${s.jobs.toExponential(2).padStart(8)}  ${String(s.ratio ?? '—').padStart(5)}  ${String(s.employedShare ?? '—').padStart(5)}  ${String(s.happiness).padStart(4)}  ${String(s.housingMult ?? '—').padStart(5)} ${String(s.jobsMult ?? '—').padStart(5)} (${s.globalHousingMod}/${s.globalJobsMod})  ${s.topJobs} / ${s.topHousing}`);
   }
   console.log(`mature cities (≥ ${MATURE_FROM_CITY}, past run-minute ${MATURE_RUN_MIN}): median jobs/pop ${median}, ${Math.round(bandShare * 100)}% of ${mature.length} samples inside ${RATIO_MIN}–${RATIO_MAX}, ${Math.round(share * 100)}% inside ${SPAN_MIN}–${SPAN_MAX} (min ${report.ratio.min}, max ${report.ratio.max}; ${opening} opening-minute samples set aside)`);
+  console.log(`  without the opening-minute filter (all ${unfiltered.n} samples from city ${MATURE_FROM_CITY}): median ${unfiltered.median}, ${Math.round(unfiltered.bandShare * 100)}% inside ${RATIO_MIN}–${RATIO_MAX}, ${Math.round(unfiltered.share * 100)}% inside ${SPAN_MIN}–${SPAN_MAX} (min ${unfiltered.min}, max ${unfiltered.max})`);
   for (const r of report.tier5) {
     if (r.note) console.log(`${r.id.padEnd(9)} legacy ${r.gate.toLocaleString('en-US').padStart(6)}: ${r.note}`);
     else console.log(`${r.id.padEnd(9)} legacy ${r.gate.toLocaleString('en-US').padStart(6)}: opened city ${r.openCity} (${r.openMin} min), first bought city ${r.buyCity ?? '—'} (${r.buyMin ?? '—'} min), ${r.buys} bought across ${r.citiesBought.length} cities [${r.citiesBought.join(' ')}]`);

@@ -1,258 +1,271 @@
 {
-  "updated": "2026-09-14T00:00:00.000Z",
-  "iteration": 8,
-  "passThreshold": 8.5,
-  "modules": {
-    "core": {
-      "score": 9,
-      "rounds": 1,
-      "pass": true,
-      "errors": 0,
-      "verdict": "PASS. The core module is excellent engine work: fault isolation was independently reproduced against a real boot (throwing effect + throwing unlock, 500 bot ticks, game continued, 4 deduped error entries, both items disabled after exactly 3 calls and badged broken), cost/maxAffordable/sell math is exact to float precision including the off-by-one edges, formatting floors consistently through 1e308 with clean K..Dc -> scientific handoff, loadState is prototype-pollution-safe with a closed schema, the rAF accumulator is drift-free with capped catch-up and offline hand-off, and ticks cost ~6 microseconds. 22/22 unit tests pass and zero errors are attributable to core in the gauntlet or 12h sim. Docked from 10 for the lack of any guard recovery path (a transient 3-tick startup failure permanently inerts a purchased upgrade), fmtPct not compacting large values, and a few organizational/comment nits. Score 9.",
-      "issues": [
-        "[minor] src/core/safe.js guard(): a callback disabled after 3 consecutive failures stays disabled for the whole session; nothing in src/ calls wrapped.reset() (grep confirms only core.test.mjs does). A transient failure during the first 3 ticks (e.g. an effect reading derived.extra before another module populates it) permanently inerts a paid-for upgrade until page reload. → Expose a registry.resetGuards() that calls .reset() on every effect/unlock/tick guard, and invoke it from the prestige action and after loadState() so a one-off startup fault self-heals; alternatively add a cooldown re-enable (e.g. retry once every 6000 ticks) inside guard().",
-        "[minor] src/core/format.js fmtPct() does not compact large values: fmtPct(1e13) prints '1000000000000000%' and fmtPct(1e38) prints '1e+38%' (toFixed switches to exponent notation above 1e21). Harmless for happiness/power ratios today, but any future multiplier readout (income x-multiplier, legacy bonus at 270k legacy) would overflow the stat tile. → In fmtPct, when Math.abs(x)*100 >= 1000 route through fmt(x*100, digits) + '%' instead of floorFixed so it reads '1.00Qa%'.",
-        "[nit] src/core/state.js:60-62 comment says mergeInto 'only follows keys dst itself owns', but line 71 creates dst[k] = {} for unknown nested objects (e.g. buildings.deep from the hostile-save test lands as an object that sanitize later coerces to 0). Behavior is safe (depth-bounded, closed top level, sanitize repairs) but the comment overstates the guarantee. → Either reword the comment to 'creates missing nested objects but never walks into prototype keys, depth <= 16', or drop non-owned nested objects inside res/buildings/upgrades/unlocks where only primitives are valid.",
-        "[nit] src/core/api.js buildings()/upgrades() spread every def ({...def}) on each call; UI calls both every render frame. Measured cost is negligible now (20 buildings / 69 upgrades) but it is O(defs * fields) allocation per frame. → Return a stable row object per id and mutate count/cost/affordable/unlocked/broken in place, or memoize on state.tick.",
-        "[nit] src/core/bot.js is a test/tooling player policy living inside src/core alongside runtime code; it imports api.js and carries balance-tuning commentary (\"tried in the polish pass\") that has nothing to do with the engine. → Move bot.js to tools/ (or src/tools/) and import it from verify.mjs/economy-sim.mjs; keep boot.js free of it."
-      ]
-    },
-    "balance": {
-      "score": 7.5,
-      "rounds": 2,
-      "pass": false,
-      "errors": 1,
-      "verdict": "The default greedy-bot profile passes every Late-game-contract gate on this tree (34 foundings, max ratio x1.341, last cycle 17.7 min, reach 38.5 %, under-power 4.27 %, dips 62 %, 0 empty cycles, nothing unpurchased, 3.23e17 / 530k), and the opening minute-by-minute is at Cookie Clicker standard. But the contract's second profile fails a hard gate: a fresh `--saver` 12 h run peaks at 2.13e18 money and 1.46e6 legacy (14 empty late cities), the config header admits it, DESIGN.md still quotes the old passing numbers, and balance.test.mjs skips the assertion because the log it expects is never produced. Add the razor-thin cadence margin (0.7 % under the 1.35 line, tuned to a 1.345 target the config says a 1 % income change breaks) and a late game where half the 'new' items are measured at x1.0-1.1 felt strength with power and civic dead after hour 2, and this is solid, unusually well-instrumented balance with one real unresolved gameplay flaw and one shipped contract miss. Not a pass at 8.5; fix the saver ceiling (threshold/legacyPower + re-place, un-skip the test) and buy cadence margin, then it is close.",
-      "issues": [
-        "[high] Saver profile breaks the magnitude hard gate that DESIGN.md 'Late game contract' applies to BOTH profiles ('both profiles must stay free of overflow/stall/magnitude issues'). Fresh run `node tools/economy-sim.mjs --ticks 432000 --saver`: contract FAIL, money peak 2.13e18 (> 1e18), legacy 1,462,559 (> 1e6), 37 foundings, 14 empty late cities (9,10,12,13,15,20,21,23,24,30,31,34,35,36). The config.js header (lines 56-71) admits this ('OVER both magnitude ceilings ... this file cannot close it') and DESIGN.md still quotes the older 379,439 / 7.1e16 saver numbers. Balance owns the prestige knobs that set the ceiling (config.prestige.threshold 1.1e7, legacyPower 0.548, minGainShare 0.4). → Close the ceiling with the uniform lever config.js already documents as re-order-free: raise prestige.threshold 1.1e7 -> ~1.25e7 (+13 %, mirrored in src/simulation/tuning.js DEFAULTS) so the saver's 36th founding lands past 12 h (<= 35 foundings banks ~7.4e5), then re-run `node src/balance/place.mjs --plan src/balance/plan.json` and copy the re-placed rung prices in so the default profile keeps the Imperial Charter in city 32; verify both `logs/sim-gauntlet.json` and a `--saver` log read contract PASS. If the +13 % costs the default profile its 34th city, lower legacyPower 0.548 -> 0.540 instead (tail brake, ~-0.7 % income at 1e5 points) and re-place. Update the DESIGN.md 'Measured' saver line to the numbers actually shipped.",
-        "[high] balance.test.mjs silently skips its 6 saver-profile assertions ('logs/sim-fix-balance-12h-saver.json not present or shorter than 12 h'), so `node tools/test.mjs` reports 9/9 green while the saver hard gate is failing. A skipped hard gate is how the magnitude miss above shipped unnoticed. → Point the three saver subtests at the log the gauntlet actually writes (logs/sim-saver.json, or have the gauntlet/verify script emit logs/sim-fix-balance-12h-saver.json with `--saver --out`), and make the magnitude subtest FAIL rather than SKIP when the file is missing (t.fail / assert.fail on absence), so the two-profile contract is enforced by CI.",
-        "[medium] Cadence contract passes with almost no margin: strict max ratio x1.341 vs the 1.35 line (0.7 %), six cycles over x1.30 (cycles 6, 14, 16, 18, 26, 33), and plan.json `targets.ratioMax` is 1.345 (a 0.3 % 'safety margin'). config.js itself says a +/-1 % income change (civicCap 1.10, growthRate 0.092) flips the Megastructures step to x1.351-1.358. Any sibling retune (the integrator already nudged office/factory/mall/refinery/stadium/financial this round) is one rounding away from a red gate. → Buy real margin at the five nil-rung steps instead of tuning to the line: set plan.json ratioMax to 1.30, then either (a) re-place with legacyPower 0.548 -> 0.540 (mirrored) so the x1.30-1.34 nil cities read ~x1.28, or (b) move the one extra felt rung already sitting in a double (Galactic Charter, city 28) to the tightest nil city (27, Superconductor Grid) once the upgrades owner ships the documented `charter-energy` +25 % income clause (probe: `--boost charter-energy=income:1.25` takes city 27 from 50 -> 26 min).",
-        "[medium] Late-game novelty is decorative for half the cities. config.js (lines 710-718) measures the power rungs (Orbital Solar, Superconductor Grid, Stellar Engine, Helios Array, Dyson's grid half), the housing rungs and the jobs rungs (Shipyard, Ringworld) at x1.0-1.1 felt strength in a replay ('variety, not pace'), plus the Orbital Ring / Space Elevator megastructures are nil. From hour 5.5 to 11.5 the loop is 23-35 min cycles where the single new item changes nothing the player can feel; each nil city is 23-34 % longer than the last (cycles 15-19: 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6 min). That is a treadmill, not the Antimatter-Dimensions 'this unlock changes how I play' rhythm. → Make the late grid bind so power/grid rungs become felt: the config's own measurement says no draw or upkeep it can set bites after hour 3 because the perk stack is x30 supply / x0.2 demand and the bot hoards ~200 nuclear + ~200 fusion. Escalate the two cross-module requests already written in config.js as blocking for the next round: upgrades compresses the grid perk stack to <= x8 / x0.5 and core caps the bot's generator scoring past 2x surplus; then re-derive STRAIN {per:8, cap:40} so tier-4/5 draw exceeds supply in ~10 % of a mature city and re-place the ladder. Until then, alternate nil rungs with felt ones in plan.json (never two nil cities in a row: 26 Stellar -> 27 Superconductor is currently back-to-back).",
-        "[medium] 'Power matters' and 'civic matters' are met to the letter only. Under-power by hour (probe): 33.9 % / 15.1 % / 0.6 / 0.7 / 0.5 / 0.2 / 0.1 / 0.1 / 0.1 / 0 / 0 / 0 - the Power tab is a dead stat from hour 2 to hour 12, and the 4.27 % session share sits 0.27 points above the plan target (0.04) and 1.27 above the contract floor. Happiness dips (21/34) are the replay's dark first tick + jobless opening spree (cycle minHappiness 0.41-0.81 in the first minute); mid-city dips 3/34, and from city 21 on minHappiness is >= 1.10 (no dip possible), so civic buildings are a stat dump for 6 hours. → Power: same root cause as the previous issue (perk stack / bot scoring); as a balance-side stopgap raise the legacy-gated fusion upkeep from 1,500 to ~6,000 $/s and nuclear upkeep to ~1,500 so a plant fleet of 200+ has a visible cost line (config measured these change <0.3 pts of under-power but they at least put a number on the Power tab). Civic: cap the flat happiness a veteran carries - ask simulation to make the legacy clean-air tiers a % smog cut that saturates at 60 % instead of 90 %, and raise config.happiness.pollutionScale 0.35 -> 0.45 only once that lands (config already measured 0.45 alone adds ~1 min to city 1 and nothing later).",
-        "[low] First city has two short windows with no open money upgrade at all (probe: minutes 1-2, 11-12 and 27 read 'cheapest open rung: none') and minutes 20-26 where the cheapest open rung (Regional Airport $1.2e5) is 2-13 s of income away, i.e. a reflex buy; first-city reach reads 49 %, acceptable but the 11-12 minute hole comes right after the 1k-pop milestone (13 min) when a player expects a new goal. Session foundings (34) sit exactly at plan.json foundingsMax 34, so there is no headroom on that target either. → Open one mid-ladder rung by pop instead of price during minutes 10-13 (e.g. move 'high-density' $6,000 unlock to pop 500 so it is on the card from ~8 min and the 1k-pop push has a visible target), and raise plan.json foundingsMax to 35 or trim the tier-4 growth 1.112 -> 1.113 so the 34th founding is not on the edge.",
-        "[low] Content cliff at 12 h: the Exchange Ring $4.87e15 is the last money rung, the 35th city opens at 704 min with nothing new, and config.js concedes 'a session that runs past 12 h keeps founding cities with nothing new to buy'. The 12 h contract is met but a premium idle game does not run out of ladder on day one. → Request 2-3 more late rungs from the upgrades owner (the same 6-8 rungs config asks for to fix the saver placement) at x3-x5 spacing from 1e16 to 1e17, and re-pin the Space Elevator gate so it is a felt item (housing/income clause) rather than the filler that stops the 35th city from completing."
-      ]
-    },
-    "resources": {
-      "score": 8.8,
-      "rounds": 1,
-      "pass": true,
-      "errors": 0,
-      "verdict": "PASS. The resources module is correct, pure, allocation-free and documented to the level of a premium indie release: formulas in code, header and DESIGN.md are identical and reproduce by hand from boot.js with the real registry; every edge case named in the brief (pop 0, demand 0, 1e300/1e308, garbage inputs) is finite and tested; derived.extra gives the UI signed breakdowns it uses directly. Remaining items are polish: an unclamped happiness.min config guard, two legacy aliases in extra, a stale measurement comment, and a cosmetic double-saturation quirk. Nothing here is attributable as an error; gauntlet and 12h sim ran with 0 errors.",
-      "issues": [
-        "[low] src/resources/index.js line 244: config.happiness.min is not clamped to >= 0, so a bad balance entry (e.g. min:-3, max:-5) yields happiness -3, happinessMult -1 and negative income (verified: income -0.144 on a 1-house city). max is guarded against min but min is unguarded. → const happyMin = Math.max(0, tune(hc, 'min', D.happiness)); and add a one-line test asserting happinessMult >= 0.5 for any config.",
-        "[low] src/resources/index.js line 372-373 and DESIGN.md: top-level extra.civic and extra.pollution duplicate happinessBreakdown.civic / penalties.pollution ('kept one release'); ui/topbar.js already reads the breakdown, so the aliases are dead weight that widen the UI contract. → grep src/ui for extra.civic / extra.pollution; if no consumer remains, delete the two aliases and the alias tests in resources.test.mjs lines 577/618/799/805.",
-        "[low] src/resources/index.js line 44-47 'Measured' header block is stale: it says 22 cities dip below 1.0 happiness and 3.5% under-power, while logs/sim-gauntlet.json reports 21 of 32 and 3.14%; the coal figure (-0.03) in the pollution note also predates buildings/data.js coal -0.015. → Either re-measure and update the numbers, or drop the dated measurements from the module header and point at logs/ + docs/STATUS.json so the comment cannot rot.",
-        "[low] src/resources/index.js line 334-342: when both gross and upkeep saturate at FINITE_MAX the clamp reports income exactly 0 (verified: 1e308 nuclear with upkeep mod 1e10 -> income 0, upkeep 1e300). Unreachable at real magnitudes but the clamp discards the sign of the true difference. → Clamp the difference rather than the operands: compute income = finite(rawGross - rawUpkeep) from the unclamped sums before scaling the breakdown, or document the 0 as intentional in the header."
-      ]
-    },
-    "buildings": {
-      "score": 8.2,
-      "rounds": 2,
-      "pass": false,
-      "errors": 0,
-      "verdict": "Zero errors and top-tier structure: varied roles, witty flavor, a clean 19-card first city with no dead air, tier-5 rolling targets, and robust registry code with 23 passing tests and two probes. It misses PASS on clarity: the Orbital Ring card states its headline rule 100x too small (+1% per 100,000 vs the actual +100% per 100,000), and the shipped +12.5%/×40 grid-strain rule never reaches the card, so late power demand explodes without explanation. Both are one-line fixes plus a test; with them and the comment/README drift cleaned up this module is a 9.",
-      "issues": [
-        "[high] Orbital Ring card text is wrong by 100x. src/buildings/data.js ring.synergy.text says 'Orbital industry: +1% jobs per 100,000 citizens (up to ×12)', but the rule is { source:'pop', per:100000 } which evaluates to 1 + pop/100000: verified synergyFactor gives ×2 at 100,000 citizens and ×12 at 1.1 M (600,000 jobs). The README's own table (line 187) says '100,000 → +100 %'. A player reads the late-game jobs engine as almost inert. README.md line 76 repeats the same wrong sentence. → Change the text to 'Orbital industry: +1% jobs per 1,000 citizens (up to ×12)' (matches the mall/financial/stadium phrasing which are all correct) and fix README.md line 76. Add a test in buildings.test.mjs mirroring line 427 (strain text quotes 100/per): for every synergy with source 'pop' or 'employed', assert text contains `${100000/per}%` per 1,000, and for building-sourced rules `${100/per}%`.",
-        "[medium] The shipped grid-strain rule is invisible to the player. data.js documents '`text` is what the build card prints' for demandGrowth, but src/ui/build.js only renders synergy.text and powerHint (grep 'demandGrowth' in src/ui/ returns nothing). Config re-pins strain to +12.5% per unit up to ×40, so a fleet of 262 arcologies draws ~33x its sticker with no card explaining why power demand explodes late. → Render demandGrowth.text under the synergy line in src/ui/build.js (same row style, ⚡ glyph), or have index.js stampPowerHints fold it into powerHint ('Draws 6,500 MW ≈ 0.5 × Nuclear Plant · +12.5% per Arcology owned'). Add a test that the resolved def's card strings include the strain text.",
-        "[low] Comments and README drifted from the integrator's retune: data.js mall comment '2,800: between the refinery (2,200) and the solar farm' (gate is now 3,000), refinery comment 'ahead of the mall (2,800)', solar comment 'after the mall (2,800)', fusion comment 'district (27,000 at 32.3) ... stadium (43,000 at 37.9)' (now 30,000 / 45,000), factory comment '~4.7 min' (probe: 4.9). README.md line 99 and 261 still say Space Elevator 'legacy ≥ 15,000 / city 24' while data.js and config pin 300,000 / city 33. → Update the five data.js comments to the shipped gates and the README table row + line 261 to 'legacy ≥ 300,000 | city 33 (~11 h)'. Consider making the 'data.js matches config' test also assert README's tier-5 gate table by regex so it cannot drift again.",
-        "[low] catalogue.mjs FIELDS omit synergy and demandGrowth, so it prints '22 buildings, 0 with a config override' although the strain rule (data.js +2.5%/×1.5 vs config +12.5%/×40) is exactly the 'one deliberate delta' README says the tool shows in brackets. → In src/buildings/catalogue.mjs, compare shipped.synergy/demandGrowth {per,cap} to the data.js default and push 'demandGrowth'/'synergy' into row.overridden, printing the default rule text in brackets.",
-        "[low] Factory and Refinery sit at the edge of the affordability rule: cadence probe shows factory opens 4.9 min, bought 9.4 (lag 4.6 min, limit 5.0) and refinery opens 13.5, bought 18.0 (lag 4.6). A $500 card glowing unaffordable for four and a half minutes at minute 5 is the longest wait in the first city and one retune away from failing the probe. → Either lift factory gate 65 → 80 citizens (puts it after the apartment spree) or drop factory baseCost 500 → 400; for the refinery, baseCost 20,000 → 16,000 or gate 2,200 → 2,400. Re-run `node src/buildings/cadence.mjs` and keep lag ≤ 3.5 min so the rule has slack.",
-        "[low] Tier-1 residential becomes a dead buy that the greedy bot still takes: logs/screenshot-gauntlet-end.png at 16 min shows Cottage $13,701 for 5 housing next to Residential Tower $13,714 for 160 housing (37 cottages owned). The Suburbs synergy (×1.24 at 26 apartments) cannot close a 32x gap; genre-standard but it makes the 'every building bought' metric partly a bot artefact. → Raise the suburbs rule to per: 10 (10% per apartment, cap ×3) so cottages reach ×3 by the tower era, or add a UI 'best value' hint so a human is not misled by the affordable glow; verify with columns.mjs that the housing column stays in band."
-      ]
-    },
-    "upgrades": {
-      "score": 8,
-      "rounds": 2,
-      "pass": false,
-      "errors": 0,
-      "verdict": "Very strong, error-free module: 70 legible, meaningful, config-synced upgrades that all get bought, a clean mods-only effect seam, a tested founding-memory rule, and a late-game contract (12 legacy-priced charter perks at ×2.5–4, earnings-gated fixed-dollar frontier, zero clock gates) that is satisfied in code. It misses the 8.5 bar on one real pacing flaw the module owns — Standing Orders opens on legacy alone and parks a $4T card as the sole visible target for ~4 hours (cycles 20–24 spend 60–80% of samples with the next upgrade >15 min away) — plus the fact that its carefully built unlock hints/progress mirrors are not surfaced anywhere in the money-upgrade panel, so unlock conditions are invisible to the player. Fix the Standing Orders/Archives/Memory gates with an earnings door and render locked-rung hints, and this is a 9.",
-      "issues": [
-        "[medium] Standing Orders (src/upgrades/data.js, unlock: all(hasLegacy(50), owns('institutional-memory')), cost $4.03e12) is gated only on legacy points, so it opens in city ~9 (legacy 164) and sits as the cheapest open, unowned money upgrade for ~250 minutes: samples show nextBig=4.03e12 from min 102 to min 355 with tension 20,000,000× → 1.2× cash. In cycles 20–24 (min 325–470) the 'next upgrade' is >15 min of income away in 19/27, 27/34, 16/23, 22/29 and 21/29 samples. The module's own header promises no card that 'sits almost affordable' or hopeless, and this one rung is the counter-example for 2.5 hours of a 12 h session. → Give Standing Orders (and City Archives $5.24e7, Institutional Memory $3e7, which do the same for shorter stretches in cycles 3–5) an earnings door like the frontier: unlock: all(hasLegacy(50), owns('institutional-memory'), hasEarned(cost * FRONTIER_GATE)) built via a `legacyFrontier(def)` helper so applyOverride still rebuilds it on a config price change; add a sim assertion that no unlocked-unowned money rung stays >15 min of income away for more than N consecutive samples in a cycle.",
-        "[medium] The unlock hints and progress mirrors the module computes for every money rung (unlockHint 'Build 3 corner shops, then hold $80', unlockAt {money|earned|pop|building,count|powerDemand|legacy}) are never rendered: src/ui/upgrades.js line 94 shows only 'N more ideas wait to be discovered.' and no locked card, so a player cannot learn what opens the next upgrade (only src/ui/charter.js line 111 uses 'next opens near ◆ cost'). The module exported the data correctly, but the player-facing legibility of unlock conditions is currently nil — the ~150 lines of hint machinery are dead weight in the shipped game. → In src/ui/upgrades.js render the next 1–2 locked rungs (sortedUpgrades, !unlocked && !owned, cheapest) as dimmed cards with def.unlockHint and a progress bar driven by def.unlockAt (reuse build.js lines 233–245 progress-from-unlockAt logic, extended for {money},{earned},{legacy},{legacyAvailable},{built},{upgrades}); add a ui.test.mjs case asserting the hint text of the cheapest locked rung appears in the panel.",
-        "[low] Comments contradict the shipped numbers the file promises to 'read true on its own': src/upgrades/data.js header says the Charter runs '3 to 76,488 points' and 'cycle 31 of 32', the UPGRADES section comment reads '(◆ 3 … ◆ 76,488)' while CHARTER_MAX_COST = 195808; src/balance/config.js line 640 says '8 frontier' (there are 9 — Helios Array) and line 655 '×2.5 ladder … 3 to 76,488'; docs/DESIGN.md line 107 says '69 upgrades (57 money + 12 charter)' while UPGRADES.length is 70. → Update the three comment blocks to 195,808 / 34 cycles / 9 frontier / 70 upgrades (58 money + 12 charter), and add a one-line test in upgrades.test.mjs asserting CHARTER_MAX_COST === CHARTER.at(-1).cost and UPGRADES.length === 70 so future drift is caught the way price drift is.",
-        "[low] Maintenance Contracts ($200,000, 'Building upkeep −25%') is the one rung whose felt effect is unverified: upkeep is a fraction of gross, so −25% upkeep is likely well under the +25% net-income bar the other rungs clear; the sim log does not report upkeep share so I could not confirm. → Measure upkeep/gross at minute ~22 in the sim (add `upkeepShare` to samples); if −25% upkeep is < +10% net income, change the effect to compose(global('upkeep', 0.5), global('income', 1.1)) and the desc to 'Building upkeep −50% · all income +10%'.",
-        "[low] In cycle 30 (Helios Array city, min 614–646) 29 of 32 samples show the cheapest open unowned upgrade within 30 s of income yet unbought (nextBig $4.87Qa Exchange Ring at 4–15× cash while income is 1.5e14/s) — either the earned-gate mirror and the bot's reserve policy disagree, or the target is open but the bot holds cash for founding; either way the card reads 'instant' for a whole city. → Log in the sim which rung nextBig refers to and whether it is unlocked; if it is the Exchange Ring open at earned ≥ $1.2Qa but the bot saves for the founding, raise its FRONTIER placement or price (config.js 'exchange-ring' window $2.9e15–8.3e15 → ~7e15) so it is not 'buyable but skipped' for 30 minutes."
-      ]
-    },
-    "simulation": {
-      "score": 8.6,
-      "rounds": 2,
-      "pass": true,
-      "errors": 0,
-      "verdict": "PASS. The simulation module is premium-indie quality: correct dt integration with thorough NaN guards, an allocation-light tick measured at 0.012 ms avg / 0.10 ms p99 in the browser, and a prestige loop that satisfies every binding line of the Late game contract (earnings-only legacy, spendable legacy kept through the reset, full-bank income bonus, exact event and derived.extra.prestige shapes, 34 foundings with a 41-min first city and every cycle ratio under 1.35). The tap meter and the milestone carry-over logic are better designed than most shipped idle games. What keeps it off 9: the late cadence is jagged (a 6.5-min burst at city 14, then a 24-35 min plateau) and the last cycle ratio is within 0.7 % of the strict gate, so the contract is met but fragile; plus three small hygiene items (an emitted 'brownout' event nobody consumes despite the header claiming otherwise, a UI fallback that rebuilds the bonus with wrong literals against the sim's own instructions, and settings living in the simulation module). Zero errors attributable to the module.",
-      "issues": [
-        "[medium] Late-session cadence is jagged and sits on the edge of the strict gate: cycles (min) 22.5 -> 6.5 (city 14, Ring opens at 500 legacy) -> 8.6 -> 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6, and the final step 13.2 -> 17.7 is x1.341, 0.7 % under the 1.35 contract ratio. From city 19 to 32 the player sits in a 24-35 min plateau where each replay is a ~3 min ladder re-buy followed by 20-30 min of near-flat waiting. The shape is set by prestige.minGainShare 0.4 (each founding must out-earn the whole past by x1.4^(1/0.488) = x1.99 while the bonus grows only x1.2). → Give the simulation a bank-relative taper on the share gate instead of a flat 0.4: in prestige.js requiredGain() use share = minGainShare * max(0.6, 1 - legacy / 5e5) (config knob prestige.minGainShareTaper) so a 1e5-point mayor is offered a founding at +32 % instead of +40 %; re-run npm run sim -- --ticks 432000 and pin the new cycles array; target every 5th+ ratio <= 1.30 to leave margin on the 1.35 gate. Alternatively raise founding.seedSeconds to 3-5 s only past legacy 2e4 (seedLegacy ramp is already implemented) so late replays skip the cottage re-buy.",
-        "[low] Header doc drift in src/simulation/index.js (top comment and the watchGrid() comment, ~line 380) and milestones.js isBrownout comment: they state the 'brownout' event is what \"the UI's grid warning listens for\", but no file in src/ui subscribes to it (src/ui/index.js registers unlock/milestone/load/setting/offline/prestige/frame only; topbar reads derived.powerRatio per frame). The event is emitted with no consumer. → Either subscribe the topbar's grid warning to ev.on('brownout', ...) in src/ui/index.js so the amber state flips on the exact tick, or reword the three comments to 'emitted for the UI (currently unconsumed; the topbar polls derived.powerRatio)'.",
-        "[low] The UI fallback path contradicts the simulation's stated contract: src/ui/hero.js lines 257-258 and 266-267 rebuild mult as 1 + legacy * (config.prestige.incomePerLegacy ?? 0.05) and the bar target from (threshold ?? 1e6), while the index.js header says 'Do not rebuild the bar from config.prestige.threshold or the bonus from legacy x incomePerLegacy'. The fallback defaults (0.05, 1e6) do not match shipped (0.01, 1.1e7) and the linear form ignores legacyPower 0.548 and firstBonus. Only reachable before the first tick or with a hand-edited derived, but it is dead-wrong code kept alive. → In hero.js import legacyIncomeMult and prestigeUnlockAt from src/simulation/index.js for the fallback (or call game.api.action('prestigeStatus')), and delete the two ?? literals.",
-        "[low] Milestone carry-over suppression (index.js checkMilestones, replayStart = prestiges > 0 && state.time < CARRY_OVER_WINDOW) only covers the first second of a founding. A save loaded mid-run after a content update that adds milestone ids (e.g. a new legacy tier below the player's bank) latches every new tier with a log line, toast and 'milestone' event at once, since state.time is already > 1 on load. → Have the 'load' handler set a book.carryOverUntil = state.time + 1 and make replayStart read state.time < book.carryOverUntil, so a load gets the same silent latch window a founding does.",
-        "[low] setSetting (autosave / sfx / numFormat) and its SETTINGS validator live in src/simulation/index.js and register as a simulation action, although nothing in the economy reads them; the 'setting' event is a UI/save concern. → Move SETTINGS + setSetting to src/core/api.js (or src/save) and register the action there; keep the simulation module about the tick, milestones and prestige."
-      ]
-    },
-    "ui": {
-      "score": 8.6,
-      "rounds": 1,
-      "pass": true,
-      "errors": 0,
-      "verdict": "PASS at 8.6. The UI is premium-indie quality: a coherent dark-glass design system, a skyline that is a genuine feature with a working day/night cycle, a well-engineered change-gated render loop (0.6-0.8 ms/frame at 60 fps), zero errors in the gauntlet and in my own 1440 and 1100 runs, and the Legacy panel's Charter section renders correctly after founding with ◆ cost chips and an available/total bank. Accessibility and reduced-motion basics are all in place and there is no window.confirm/alert. What keeps it from 9: a handful of visible layout-rhythm nits at the primary 1440x900 size (five tabs wrapping to an orphan Civic tab late-game despite the CSS comment claiming they fit, orphan tiles in the 2-column stat grids), the toast stack hiding the hero skyline through most of the opening and clipping the city meta line, and the Legacy/Charter actions living below the fold at 900px with no scroll cue. All fixes are small, specific CSS/JS changes.",
-      "issues": [
-        "[medium] Build tab row wraps to a second line with an orphan 'Civic 19' tab at the most common width (1440x900) once counts reach two digits (logs/screenshot-gauntlet-end.png, scratchpad/big-full.png). styles.css line 180 comment claims five labelled tabs fit at 1440, but the 600px container-query threshold (line 1333) was measured without the .tab-count widths; the build column is 607px so no collapse fires. → In src/ui/styles.css raise the five-tab container query from 600px to ~660px, or add a rule at <=660px that hides .tab-count on .tab:not(.is-active) when .tabs:has(> .tab:nth-child(5)), so all five tabs stay on one row at 1440.",
-        "[medium] Toast stack (two toasts, 5.6 s each) covers most of the skyline for the entire opening: in every busy screenshot (gauntlet mid/end, w1440-40.png, w1440-founded.png) the hero art is hidden, and .toast-stack top:50px overlaps the city meta line ('VILLAGE · 206 citizens' is clipped under the first toast at y~128). → In styles.css set .toast-stack top to 64px (below the ~60px title+meta overlay), reduce default toast timeout in src/ui/toast.js from 5600 to ~4000 ms, and consider stacking toasts from the bottom of .city-view (bottom: 44px, column-reverse) so the sun/moon and building tops stay visible.",
-        "[low] Orphan tiles in 2-column stat grids: City stats renders 9 tiles as 4 rows of 2 plus a lone 'Buildings built' (hero.js comment at line ~755 says '3x3 grid at desktop widths' but minmax(128px) yields only 2 columns in the 386px panel), and the Legacy panel's 3 tiles leave 'Income bonus' alone on its own row (w1440-legacy-panel.png). → In styles.css change .stat-grid-2 to grid-template-columns: repeat(3, minmax(0, 1fr)) (or minmax(112px, 1fr)) for the 9-tile grid, and give the Legacy panel's 3-tile grid repeat(3, minmax(0, 1fr)) with font-size 12.5px so the row fits 386px.",
-        "[low] Once the Legacy panel appears the hero column is 948-983px tall at a 900px viewport (col-hero scrollHeight 948 vs clientHeight 804), so the 'Found a new city' button and every Charter 'Sign' button sit below the fold with only a thin 8px scrollbar as a cue (w1440-founded.png shows the first charter card cut off at the bottom). → Reorder .col-hero children in src/ui/hero.js to [cityPanel, prestigePanel, nextPanel, statsPanel] when panel:prestige is unlocked, or collapse the Charter list to 2 visible cards (VISIBLE_DEFAULT = 2 in charter.js) and add a bottom fade mask on .col to signal scrollability.",
-        "[low] Category tabs use role=tablist/role=tab but have no arrow-key navigation and no aria-controls linking to the tabpanel (verified: ArrowRight on a focused .tab leaves focus unchanged), so the ARIA tabs pattern is half-implemented. → In src/ui/build.js add a keydown handler on tabBar for ArrowLeft/ArrowRight/Home/End that moves focus and calls setActive, set tabindex=-1 on inactive tabs (roving tabindex), and give list an id referenced by aria-controls on each tab.",
-        "[low] At 1100px the synergy line truncates with an ellipsis ('Suburbs: +4% housing per Apart...' in w1100-40.png) while the two-line description above it is allowed to wrap; the only recovery is a hover title. → In styles.css inside the existing @media (max-width: 1240px) block let .bcard-synergy and .bcard-power wrap (white-space: normal; display:-webkit-box; -webkit-line-clamp: 2) instead of nowrap + ellipsis.",
-        "[low] The 'tap the city to collect' pill stays over the bottom-right of the skyline indefinitely for a player who never taps 5 times (pure idlers), sitting on top of front-row buildings in sky-40-*.png. → In src/ui/hero.js also hide the hint after ~3 minutes of playtime or once population passes ~50, not only after HINT_TAPS taps."
-      ]
-    },
-    "save": {
-      "score": 8.5,
-      "rounds": 1,
-      "pass": true,
-      "errors": 0,
-      "verdict": "PASS at 8.5. The save module is genuinely premium-grade on the axes that matter for an idle game: every required scenario (3000-tick round trip, six-plus garbage payloads, 2 h / 10 h backdated offline with exact 50% credit and a visible toast, export/import, hard reset, blocked and quota-limited storage) passed in real Chrome with zero console or page errors, and the migrations path, chunked catch-up, unload-collapsed autosave and corrupt-save parking are all real, tested code rather than promises. What keeps it off 9 is a verified multi-tab clobber (no 'storage' listener or session token), silent behaviour when storage is blocked (only a console.warn, UI still shows autosave on), and small gaps like buys not triggering the debounced save and the parked corrupt copy lingering forever.",
-      "issues": [
-        "[medium] src/save/index.js has no window 'storage' listener, so two tabs on the same origin clobber each other: verified tab B (tick 3014) autosaving over tab A's newer save (tick 5014), leaving metropolis.save.v1 at tick 3015. A player who forgets a background tab silently loses progress. → In init(), add window.addEventListener('storage', e => { if (e.key !== SAVE_KEY) return; ... }) and put a per-load session id (crypto.randomUUID()) in the envelope from buildPayload(); when a write from another session id arrives with a newer savedAt, set info.otherTab=true, stop autosave/unload writes (guard in save()), addLog('This city is open in another tab; saving is paused here.', 'warn') and emit('savePaused') so the UI can toast it.",
-        "[medium] When storage is blocked (private mode / SecurityError), src/save/index.js line ~561 only console.warns; the player sees a checked 'Autosave every 30 s' in the Settings modal (src/ui/modal.js) and no in-game warning, so a whole session can vanish without notice. Verified: saveStatus().storage=false but no log line or toast. → Right after `if (!storage) console.warn(...)` also call addLog('Your browser is blocking storage; this city will not persist. Export it from Settings before closing.', 'warn') and emit('saveUnavailable'); in modal.js read game.api.action('saveStatus').storage and, when false, disable the autosave checkbox and render a form-note 'Storage blocked; use Export'.",
-        "[low] DEBOUNCED_SAVE_EVENTS (src/save/index.js line 41) is ['upgrade','milestone'] only; 'buy'/'sell' are not included, so a 29 s shopping burst followed by a tab crash (not a close, which unload saves cover) replays the pre-purchase city. → Add 'buy' and 'sell' to DEBOUNCED_SAVE_EVENTS; the existing 1500 ms debounce already folds a burst into one write, so the cost is at most one extra write per shopping spree.",
-        "[low] A parked corrupt copy is never cleared by a later healthy load or save: after garbage case 3 loaded a valid hand-edited save, saveStatus().hasCorrupt stayed true with the previous case's bytes, so the Settings modal will show the 'Previous save / Recover previous save' section indefinitely and recoverSave() would overwrite the now-healthy city with the old junk. → Stamp the park with a time (store {parkedAt, raw} or a sibling key metropolis.save.v1.corruptAt) and in loadFromStorage() remove CORRUPT_KEY once a healthy save has since been written with state.stats.playtime > 600 s, or at minimum have recoverSave() refuse (return false + warn) when the live city has more playtime than the parked one.",
-        "[low] Catch-up advances state.time (used for City Log timestamps) but restores stats.playtime (used for the topbar clock), so after a 2 h return the log shows the offline line at '2h 5m' while the topbar reads '5m 0s' (visible in the offline-2h screenshot). → Either have stepScaled() restore state.time alongside playtime and keep a separate simTime, or have src/ui/log.js stamp entries with stats.playtime instead of state.time so both clocks agree."
-      ]
-    }
+ "updated": "2026-09-15T12:00:00.000Z",
+ "iteration": 9,
+ "passThreshold": 8.5,
+ "modules": {
+  "core": {
+   "score": 9,
+   "rounds": 1,
+   "pass": true,
+   "errors": 0,
+   "verdict": "PASS. The core module is excellent engine work: fault isolation was independently reproduced against a real boot (throwing effect + throwing unlock, 500 bot ticks, game continued, 4 deduped error entries, both items disabled after exactly 3 calls and badged broken), cost/maxAffordable/sell math is exact to float precision including the off-by-one edges, formatting floors consistently through 1e308 with clean K..Dc -> scientific handoff, loadState is prototype-pollution-safe with a closed schema, the rAF accumulator is drift-free with capped catch-up and offline hand-off, and ticks cost ~6 microseconds. 22/22 unit tests pass and zero errors are attributable to core in the gauntlet or 12h sim. Docked from 10 for the lack of any guard recovery path (a transient 3-tick startup failure permanently inerts a purchased upgrade), fmtPct not compacting large values, and a few organizational/comment nits. Score 9.",
+   "issues": [
+    "[minor] src/core/safe.js guard(): a callback disabled after 3 consecutive failures stays disabled for the whole session; nothing in src/ calls wrapped.reset() (grep confirms only core.test.mjs does). A transient failure during the first 3 ticks (e.g. an effect reading derived.extra before another module populates it) permanently inerts a paid-for upgrade until page reload. → Expose a registry.resetGuards() that calls .reset() on every effect/unlock/tick guard, and invoke it from the prestige action and after loadState() so a one-off startup fault self-heals; alternatively add a cooldown re-enable (e.g. retry once every 6000 ticks) inside guard().",
+    "[minor] src/core/format.js fmtPct() does not compact large values: fmtPct(1e13) prints '1000000000000000%' and fmtPct(1e38) prints '1e+38%' (toFixed switches to exponent notation above 1e21). Harmless for happiness/power ratios today, but any future multiplier readout (income x-multiplier, legacy bonus at 270k legacy) would overflow the stat tile. → In fmtPct, when Math.abs(x)*100 >= 1000 route through fmt(x*100, digits) + '%' instead of floorFixed so it reads '1.00Qa%'.",
+    "[nit] src/core/state.js:60-62 comment says mergeInto 'only follows keys dst itself owns', but line 71 creates dst[k] = {} for unknown nested objects (e.g. buildings.deep from the hostile-save test lands as an object that sanitize later coerces to 0). Behavior is safe (depth-bounded, closed top level, sanitize repairs) but the comment overstates the guarantee. → Either reword the comment to 'creates missing nested objects but never walks into prototype keys, depth <= 16', or drop non-owned nested objects inside res/buildings/upgrades/unlocks where only primitives are valid.",
+    "[nit] src/core/api.js buildings()/upgrades() spread every def ({...def}) on each call; UI calls both every render frame. Measured cost is negligible now (20 buildings / 69 upgrades) but it is O(defs * fields) allocation per frame. → Return a stable row object per id and mutate count/cost/affordable/unlocked/broken in place, or memoize on state.tick.",
+    "[nit] src/core/bot.js is a test/tooling player policy living inside src/core alongside runtime code; it imports api.js and carries balance-tuning commentary (\"tried in the polish pass\") that has nothing to do with the engine. → Move bot.js to tools/ (or src/tools/) and import it from verify.mjs/economy-sim.mjs; keep boot.js free of it."
+   ]
   },
-  "economy": {
-    "score": 7.5,
-    "pass": false,
-    "issues": [
-      "[high] Saver profile breaks the magnitude hard gate that DESIGN.md 'Late game contract' applies to BOTH profiles ('both profiles must stay free of overflow/stall/magnitude issues'). Fresh run `node tools/economy-sim.mjs --ticks 432000 --saver`: contract FAIL, money peak 2.13e18 (> 1e18), legacy 1,462,559 (> 1e6), 37 foundings, 14 empty late cities (9,10,12,13,15,20,21,23,24,30,31,34,35,36). The config.js header (lines 56-71) admits this ('OVER both magnitude ceilings ... this file cannot close it') and DESIGN.md still quotes the older 379,439 / 7.1e16 saver numbers. Balance owns the prestige knobs that set the ceiling (config.prestige.threshold 1.1e7, legacyPower 0.548, minGainShare 0.4). → Close the ceiling with the uniform lever config.js already documents as re-order-free: raise prestige.threshold 1.1e7 -> ~1.25e7 (+13 %, mirrored in src/simulation/tuning.js DEFAULTS) so the saver's 36th founding lands past 12 h (<= 35 foundings banks ~7.4e5), then re-run `node src/balance/place.mjs --plan src/balance/plan.json` and copy the re-placed rung prices in so the default profile keeps the Imperial Charter in city 32; verify both `logs/sim-gauntlet.json` and a `--saver` log read contract PASS. If the +13 % costs the default profile its 34th city, lower legacyPower 0.548 -> 0.540 instead (tail brake, ~-0.7 % income at 1e5 points) and re-place. Update the DESIGN.md 'Measured' saver line to the numbers actually shipped.",
-      "[high] balance.test.mjs silently skips its 6 saver-profile assertions ('logs/sim-fix-balance-12h-saver.json not present or shorter than 12 h'), so `node tools/test.mjs` reports 9/9 green while the saver hard gate is failing. A skipped hard gate is how the magnitude miss above shipped unnoticed. → Point the three saver subtests at the log the gauntlet actually writes (logs/sim-saver.json, or have the gauntlet/verify script emit logs/sim-fix-balance-12h-saver.json with `--saver --out`), and make the magnitude subtest FAIL rather than SKIP when the file is missing (t.fail / assert.fail on absence), so the two-profile contract is enforced by CI.",
-      "[medium] Cadence contract passes with almost no margin: strict max ratio x1.341 vs the 1.35 line (0.7 %), six cycles over x1.30 (cycles 6, 14, 16, 18, 26, 33), and plan.json `targets.ratioMax` is 1.345 (a 0.3 % 'safety margin'). config.js itself says a +/-1 % income change (civicCap 1.10, growthRate 0.092) flips the Megastructures step to x1.351-1.358. Any sibling retune (the integrator already nudged office/factory/mall/refinery/stadium/financial this round) is one rounding away from a red gate. → Buy real margin at the five nil-rung steps instead of tuning to the line: set plan.json ratioMax to 1.30, then either (a) re-place with legacyPower 0.548 -> 0.540 (mirrored) so the x1.30-1.34 nil cities read ~x1.28, or (b) move the one extra felt rung already sitting in a double (Galactic Charter, city 28) to the tightest nil city (27, Superconductor Grid) once the upgrades owner ships the documented `charter-energy` +25 % income clause (probe: `--boost charter-energy=income:1.25` takes city 27 from 50 -> 26 min).",
-      "[medium] Late-game novelty is decorative for half the cities. config.js (lines 710-718) measures the power rungs (Orbital Solar, Superconductor Grid, Stellar Engine, Helios Array, Dyson's grid half), the housing rungs and the jobs rungs (Shipyard, Ringworld) at x1.0-1.1 felt strength in a replay ('variety, not pace'), plus the Orbital Ring / Space Elevator megastructures are nil. From hour 5.5 to 11.5 the loop is 23-35 min cycles where the single new item changes nothing the player can feel; each nil city is 23-34 % longer than the last (cycles 15-19: 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6 min). That is a treadmill, not the Antimatter-Dimensions 'this unlock changes how I play' rhythm. → Make the late grid bind so power/grid rungs become felt: the config's own measurement says no draw or upkeep it can set bites after hour 3 because the perk stack is x30 supply / x0.2 demand and the bot hoards ~200 nuclear + ~200 fusion. Escalate the two cross-module requests already written in config.js as blocking for the next round: upgrades compresses the grid perk stack to <= x8 / x0.5 and core caps the bot's generator scoring past 2x surplus; then re-derive STRAIN {per:8, cap:40} so tier-4/5 draw exceeds supply in ~10 % of a mature city and re-place the ladder. Until then, alternate nil rungs with felt ones in plan.json (never two nil cities in a row: 26 Stellar -> 27 Superconductor is currently back-to-back).",
-      "[medium] 'Power matters' and 'civic matters' are met to the letter only. Under-power by hour (probe): 33.9 % / 15.1 % / 0.6 / 0.7 / 0.5 / 0.2 / 0.1 / 0.1 / 0.1 / 0 / 0 / 0 - the Power tab is a dead stat from hour 2 to hour 12, and the 4.27 % session share sits 0.27 points above the plan target (0.04) and 1.27 above the contract floor. Happiness dips (21/34) are the replay's dark first tick + jobless opening spree (cycle minHappiness 0.41-0.81 in the first minute); mid-city dips 3/34, and from city 21 on minHappiness is >= 1.10 (no dip possible), so civic buildings are a stat dump for 6 hours. → Power: same root cause as the previous issue (perk stack / bot scoring); as a balance-side stopgap raise the legacy-gated fusion upkeep from 1,500 to ~6,000 $/s and nuclear upkeep to ~1,500 so a plant fleet of 200+ has a visible cost line (config measured these change <0.3 pts of under-power but they at least put a number on the Power tab). Civic: cap the flat happiness a veteran carries - ask simulation to make the legacy clean-air tiers a % smog cut that saturates at 60 % instead of 90 %, and raise config.happiness.pollutionScale 0.35 -> 0.45 only once that lands (config already measured 0.45 alone adds ~1 min to city 1 and nothing later).",
-      "[low] First city has two short windows with no open money upgrade at all (probe: minutes 1-2, 11-12 and 27 read 'cheapest open rung: none') and minutes 20-26 where the cheapest open rung (Regional Airport $1.2e5) is 2-13 s of income away, i.e. a reflex buy; first-city reach reads 49 %, acceptable but the 11-12 minute hole comes right after the 1k-pop milestone (13 min) when a player expects a new goal. Session foundings (34) sit exactly at plan.json foundingsMax 34, so there is no headroom on that target either. → Open one mid-ladder rung by pop instead of price during minutes 10-13 (e.g. move 'high-density' $6,000 unlock to pop 500 so it is on the card from ~8 min and the 1k-pop push has a visible target), and raise plan.json foundingsMax to 35 or trim the tier-4 growth 1.112 -> 1.113 so the 34th founding is not on the edge.",
-      "[low] Content cliff at 12 h: the Exchange Ring $4.87e15 is the last money rung, the 35th city opens at 704 min with nothing new, and config.js concedes 'a session that runs past 12 h keeps founding cities with nothing new to buy'. The 12 h contract is met but a premium idle game does not run out of ladder on day one. → Request 2-3 more late rungs from the upgrades owner (the same 6-8 rungs config asks for to fix the saver placement) at x3-x5 spacing from 1e16 to 1e17, and re-pin the Space Elevator gate so it is a felt item (housing/income clause) rather than the filler that stops the 35th city from completing."
-    ]
+  "balance": {
+   "score": 7.5,
+   "rounds": 2,
+   "pass": false,
+   "errors": 1,
+   "verdict": "The default greedy-bot profile passes every Late-game-contract gate on this tree (34 foundings, max ratio x1.341, last cycle 17.7 min, reach 38.5 %, under-power 4.27 %, dips 62 %, 0 empty cycles, nothing unpurchased, 3.23e17 / 530k), and the opening minute-by-minute is at Cookie Clicker standard. But the contract's second profile fails a hard gate: a fresh `--saver` 12 h run peaks at 2.13e18 money and 1.46e6 legacy (14 empty late cities), the config header admits it, DESIGN.md still quotes the old passing numbers, and balance.test.mjs skips the assertion because the log it expects is never produced. Add the razor-thin cadence margin (0.7 % under the 1.35 line, tuned to a 1.345 target the config says a 1 % income change breaks) and a late game where half the 'new' items are measured at x1.0-1.1 felt strength with power and civic dead after hour 2, and this is solid, unusually well-instrumented balance with one real unresolved gameplay flaw and one shipped contract miss. Not a pass at 8.5; fix the saver ceiling (threshold/legacyPower + re-place, un-skip the test) and buy cadence margin, then it is close.",
+   "issues": [
+    "[high] Saver profile breaks the magnitude hard gate that DESIGN.md 'Late game contract' applies to BOTH profiles ('both profiles must stay free of overflow/stall/magnitude issues'). Fresh run `node tools/economy-sim.mjs --ticks 432000 --saver`: contract FAIL, money peak 2.13e18 (> 1e18), legacy 1,462,559 (> 1e6), 37 foundings, 14 empty late cities (9,10,12,13,15,20,21,23,24,30,31,34,35,36). The config.js header (lines 56-71) admits this ('OVER both magnitude ceilings ... this file cannot close it') and DESIGN.md still quotes the older 379,439 / 7.1e16 saver numbers. Balance owns the prestige knobs that set the ceiling (config.prestige.threshold 1.1e7, legacyPower 0.548, minGainShare 0.4). → Close the ceiling with the uniform lever config.js already documents as re-order-free: raise prestige.threshold 1.1e7 -> ~1.25e7 (+13 %, mirrored in src/simulation/tuning.js DEFAULTS) so the saver's 36th founding lands past 12 h (<= 35 foundings banks ~7.4e5), then re-run `node src/balance/place.mjs --plan src/balance/plan.json` and copy the re-placed rung prices in so the default profile keeps the Imperial Charter in city 32; verify both `logs/sim-gauntlet.json` and a `--saver` log read contract PASS. If the +13 % costs the default profile its 34th city, lower legacyPower 0.548 -> 0.540 instead (tail brake, ~-0.7 % income at 1e5 points) and re-place. Update the DESIGN.md 'Measured' saver line to the numbers actually shipped.",
+    "[high] balance.test.mjs silently skips its 6 saver-profile assertions ('logs/sim-fix-balance-12h-saver.json not present or shorter than 12 h'), so `node tools/test.mjs` reports 9/9 green while the saver hard gate is failing. A skipped hard gate is how the magnitude miss above shipped unnoticed. → Point the three saver subtests at the log the gauntlet actually writes (logs/sim-saver.json, or have the gauntlet/verify script emit logs/sim-fix-balance-12h-saver.json with `--saver --out`), and make the magnitude subtest FAIL rather than SKIP when the file is missing (t.fail / assert.fail on absence), so the two-profile contract is enforced by CI.",
+    "[medium] Cadence contract passes with almost no margin: strict max ratio x1.341 vs the 1.35 line (0.7 %), six cycles over x1.30 (cycles 6, 14, 16, 18, 26, 33), and plan.json `targets.ratioMax` is 1.345 (a 0.3 % 'safety margin'). config.js itself says a +/-1 % income change (civicCap 1.10, growthRate 0.092) flips the Megastructures step to x1.351-1.358. Any sibling retune (the integrator already nudged office/factory/mall/refinery/stadium/financial this round) is one rounding away from a red gate. → Buy real margin at the five nil-rung steps instead of tuning to the line: set plan.json ratioMax to 1.30, then either (a) re-place with legacyPower 0.548 -> 0.540 (mirrored) so the x1.30-1.34 nil cities read ~x1.28, or (b) move the one extra felt rung already sitting in a double (Galactic Charter, city 28) to the tightest nil city (27, Superconductor Grid) once the upgrades owner ships the documented `charter-energy` +25 % income clause (probe: `--boost charter-energy=income:1.25` takes city 27 from 50 -> 26 min).",
+    "[medium] Late-game novelty is decorative for half the cities. config.js (lines 710-718) measures the power rungs (Orbital Solar, Superconductor Grid, Stellar Engine, Helios Array, Dyson's grid half), the housing rungs and the jobs rungs (Shipyard, Ringworld) at x1.0-1.1 felt strength in a replay ('variety, not pace'), plus the Orbital Ring / Space Elevator megastructures are nil. From hour 5.5 to 11.5 the loop is 23-35 min cycles where the single new item changes nothing the player can feel; each nil city is 23-34 % longer than the last (cycles 15-19: 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6 min). That is a treadmill, not the Antimatter-Dimensions 'this unlock changes how I play' rhythm. → Make the late grid bind so power/grid rungs become felt: the config's own measurement says no draw or upkeep it can set bites after hour 3 because the perk stack is x30 supply / x0.2 demand and the bot hoards ~200 nuclear + ~200 fusion. Escalate the two cross-module requests already written in config.js as blocking for the next round: upgrades compresses the grid perk stack to <= x8 / x0.5 and core caps the bot's generator scoring past 2x surplus; then re-derive STRAIN {per:8, cap:40} so tier-4/5 draw exceeds supply in ~10 % of a mature city and re-place the ladder. Until then, alternate nil rungs with felt ones in plan.json (never two nil cities in a row: 26 Stellar -> 27 Superconductor is currently back-to-back).",
+    "[medium] 'Power matters' and 'civic matters' are met to the letter only. Under-power by hour (probe): 33.9 % / 15.1 % / 0.6 / 0.7 / 0.5 / 0.2 / 0.1 / 0.1 / 0.1 / 0 / 0 / 0 - the Power tab is a dead stat from hour 2 to hour 12, and the 4.27 % session share sits 0.27 points above the plan target (0.04) and 1.27 above the contract floor. Happiness dips (21/34) are the replay's dark first tick + jobless opening spree (cycle minHappiness 0.41-0.81 in the first minute); mid-city dips 3/34, and from city 21 on minHappiness is >= 1.10 (no dip possible), so civic buildings are a stat dump for 6 hours. → Power: same root cause as the previous issue (perk stack / bot scoring); as a balance-side stopgap raise the legacy-gated fusion upkeep from 1,500 to ~6,000 $/s and nuclear upkeep to ~1,500 so a plant fleet of 200+ has a visible cost line (config measured these change <0.3 pts of under-power but they at least put a number on the Power tab). Civic: cap the flat happiness a veteran carries - ask simulation to make the legacy clean-air tiers a % smog cut that saturates at 60 % instead of 90 %, and raise config.happiness.pollutionScale 0.35 -> 0.45 only once that lands (config already measured 0.45 alone adds ~1 min to city 1 and nothing later).",
+    "[low] First city has two short windows with no open money upgrade at all (probe: minutes 1-2, 11-12 and 27 read 'cheapest open rung: none') and minutes 20-26 where the cheapest open rung (Regional Airport $1.2e5) is 2-13 s of income away, i.e. a reflex buy; first-city reach reads 49 %, acceptable but the 11-12 minute hole comes right after the 1k-pop milestone (13 min) when a player expects a new goal. Session foundings (34) sit exactly at plan.json foundingsMax 34, so there is no headroom on that target either. → Open one mid-ladder rung by pop instead of price during minutes 10-13 (e.g. move 'high-density' $6,000 unlock to pop 500 so it is on the card from ~8 min and the 1k-pop push has a visible target), and raise plan.json foundingsMax to 35 or trim the tier-4 growth 1.112 -> 1.113 so the 34th founding is not on the edge.",
+    "[low] Content cliff at 12 h: the Exchange Ring $4.87e15 is the last money rung, the 35th city opens at 704 min with nothing new, and config.js concedes 'a session that runs past 12 h keeps founding cities with nothing new to buy'. The 12 h contract is met but a premium idle game does not run out of ladder on day one. → Request 2-3 more late rungs from the upgrades owner (the same 6-8 rungs config asks for to fix the saver placement) at x3-x5 spacing from 1e16 to 1e17, and re-pin the Space Elevator gate so it is a felt item (housing/income clause) rather than the filler that stops the 35th city from completing."
+   ]
   },
-  "verify": {
-    "pass": true,
-    "errors": 0,
-    "tickAvgMs": 0.0113,
-    "fps": 60.3
+  "resources": {
+   "score": 8.8,
+   "rounds": 1,
+   "pass": true,
+   "errors": 0,
+   "verdict": "PASS. The resources module is correct, pure, allocation-free and documented to the level of a premium indie release: formulas in code, header and DESIGN.md are identical and reproduce by hand from boot.js with the real registry; every edge case named in the brief (pop 0, demand 0, 1e300/1e308, garbage inputs) is finite and tested; derived.extra gives the UI signed breakdowns it uses directly. Remaining items are polish: an unclamped happiness.min config guard, two legacy aliases in extra, a stale measurement comment, and a cosmetic double-saturation quirk. Nothing here is attributable as an error; gauntlet and 12h sim ran with 0 errors.",
+   "issues": [
+    "[low] src/resources/index.js line 244: config.happiness.min is not clamped to >= 0, so a bad balance entry (e.g. min:-3, max:-5) yields happiness -3, happinessMult -1 and negative income (verified: income -0.144 on a 1-house city). max is guarded against min but min is unguarded. → const happyMin = Math.max(0, tune(hc, 'min', D.happiness)); and add a one-line test asserting happinessMult >= 0.5 for any config.",
+    "[low] src/resources/index.js line 372-373 and DESIGN.md: top-level extra.civic and extra.pollution duplicate happinessBreakdown.civic / penalties.pollution ('kept one release'); ui/topbar.js already reads the breakdown, so the aliases are dead weight that widen the UI contract. → grep src/ui for extra.civic / extra.pollution; if no consumer remains, delete the two aliases and the alias tests in resources.test.mjs lines 577/618/799/805.",
+    "[low] src/resources/index.js line 44-47 'Measured' header block is stale: it says 22 cities dip below 1.0 happiness and 3.5% under-power, while logs/sim-gauntlet.json reports 21 of 32 and 3.14%; the coal figure (-0.03) in the pollution note also predates buildings/data.js coal -0.015. → Either re-measure and update the numbers, or drop the dated measurements from the module header and point at logs/ + docs/STATUS.json so the comment cannot rot.",
+    "[low] src/resources/index.js line 334-342: when both gross and upkeep saturate at FINITE_MAX the clamp reports income exactly 0 (verified: 1e308 nuclear with upkeep mod 1e10 -> income 0, upkeep 1e300). Unreachable at real magnitudes but the clamp discards the sign of the true difference. → Clamp the difference rather than the operands: compute income = finite(rawGross - rawUpkeep) from the unclamped sums before scaling the breakdown, or document the 0 as intentional in the header."
+   ]
   },
-  "history": [
-    {
-      "iteration": 2,
-      "timestamp": "2026-09-05T01:42:14.596Z",
-      "scores": {
-        "resources": 7.5,
-        "upgrades": 7.5,
-        "buildings": 7,
-        "simulation": 7.5,
-        "core": 8.3,
-        "save": 8.3,
-        "ui": 8.2,
-        "balance": 7.5
-      },
-      "note": "gauntlet round 1: all 8 critics scored; fixes ran for ui,buildings,resources,save,core; upgrades/simulation/balance fixes interrupted by session limit"
-    },
-    {
-      "iteration": 3,
-      "timestamp": "2026-09-05T03:47:40.789Z",
-      "scores": {
-        "core": 8.7,
-        "balance": 7.5,
-        "resources": 8.8,
-        "buildings": 8.5,
-        "upgrades": 8.5,
-        "simulation": 8.4,
-        "ui": 8.5,
-        "save": 9
-      }
-    },
-    {
-      "iteration": 4,
-      "timestamp": "2026-09-05T15:41:05.910Z",
-      "scores": {
-        "core": 8.7,
-        "balance": 7.5,
-        "resources": 8.8,
-        "buildings": 8.5,
-        "upgrades": 8.5,
-        "simulation": 8.4,
-        "ui": 8.5,
-        "save": 9
-      },
-      "note": "late-game rebuild: earnings-only legacy, charter perks (legacy currency), earnings-gated frontier ladder, UI charter section, balance retune; sim PASS, contract FAIL only on tension 19% (<30%), all tests pass"
-    },
-    {
-      "iteration": 5,
-      "timestamp": "2026-09-05T15:47:08.906Z",
-      "scores": {
-        "simulation": 8,
-        "resources": 8.8,
-        "upgrades": 7.5,
-        "buildings": 8.2,
-        "core": 8.3,
-        "balance": 7,
-        "ui": 8.6,
-        "save": 8.8
-      },
-      "note": "gauntlet after late-game rebuild (earnings-only legacy, charter perks, earnings-gated ladder); round-1 critics only, fixes interrupted by credit limit"
-    },
-    {
-      "iteration": 6,
-      "timestamp": "2026-09-07T18:01:40.715Z",
-      "scores": {
-        "ui": 8.6,
-        "buildings": 8.5,
-        "upgrades": 8.5,
-        "simulation": 8.6,
-        "resources": 8.8,
-        "save": 8.8,
-        "core": 9,
-        "balance": 8.5
-      }
-    },
-    {
-      "iteration": 7,
-      "timestamp": "2026-09-07T20:50:55.681Z",
-      "scores": {
-        "ui": 8.6,
-        "buildings": 8.2,
-        "upgrades": 8,
-        "simulation": 8.6,
-        "resources": 8.8,
-        "save": 8.5,
-        "core": 9,
-        "balance": 7.5
-      }
-    },
-    {
-      "iteration": 8,
-      "timestamp": "2026-09-08T00:54:14.817Z",
-      "scores": {
-        "core": 9,
-        "balance": 7.5,
-        "resources": 8.8,
-        "buildings": 8.2,
-        "upgrades": 8,
-        "simulation": 8.6,
-        "ui": 8.6,
-        "save": 8.5
-      },
-      "note": "wrap-up: final fix round stopped early (credits); upgrades+buildings fixes committed, ui+balance fixes not run; see open[]"
-    },
-    {
-      "at": "2026-09-07T12:00:00.000Z",
-      "note": "Integrator batch: 6 workflow branches merged (ui teaser hint, strain card, save multi-tab, layout orphans, core guards/fmtPct, sim carry-over) + panel carry-over bug fix. npm test 9/9, verify PASS, sim default 34 foundings/530,718 legacy PASS, sim saver 35/746,168 PASS."
-    }
-  ],
-  "open": [
-    "playtest 2026-09-14 (docs/FEEDBACK.md, P1 first): F2 power runaway after 3rd founding (~10x cap, Lights Out unreachable, Superconductor Grid moot); F3 Megastructures unemployment cliff 40-70 % with no commercial/industrial counterpart; F1 late slowdown / overpriced rungs after 2-3 foundings; F12 legacy progress bar fills from 0 not from last point",
-    "playtest 2026-09-14 P2: F4 happiness formula+effect opaque, joy-reducing buildings not worth it; F5 charter purchases offer no choice; F6 founding gate semantics unclear, no early reset to farm legacy; F7 pop-growth rungs land when housing-capped; F13 itch embed needs scrolling; F14 bulk sell (modifier key / x10 / max); F16 add a human-like sim profile for power surplus + unemployment before retuning",
-    "playtest 2026-09-14 P3: F8 late cost curves invert (tier-1 pricier than tier-3 at same count); F9 verify what reads as a legacy bank cap; F10 Endless Skyline 10k unreachable; F15 planes fly backwards",
-    "balance: cadence margin thin (max cycle ratio ~1.34 vs 1.35 line); balance.test.mjs skips saver assertions when its log is absent. NOTE 2026-09-07: fresh --saver 12h run now PASSES contract (35 foundings, legacy 746k, money 2.79e16) so the magnitude item is closed; keep re-checking both profiles after any income change",
-    "uncritiqued (2026-09-07 batch, tests+verify+both sims green): panel:* dashboard gates survive a founding (stats card no longer vanishes on new city; tutorial step 4 now waits for an open rung); locked-teaser fallback hint from unlockAt; live grid-strain x N now on build cards; save multi-tab storage listener + session id + storage-blocked warning + buy/sell debounced saves; stat-grid orphan tiles fixed (3-col); core registry.resetGuards() after load and on founding, fmtPct compacts >=1000%; milestone carry-over window on load",
-    "uncritiqued additions (2026-09-07): mobile layout <900px (single column, 44px targets), Web Audio sfx with settings toggle, six-step state-driven tutorial with dismiss toggle"
+  "buildings": {
+   "score": 8.2,
+   "rounds": 2,
+   "pass": false,
+   "errors": 0,
+   "verdict": "Zero errors and top-tier structure: varied roles, witty flavor, a clean 19-card first city with no dead air, tier-5 rolling targets, and robust registry code with 23 passing tests and two probes. It misses PASS on clarity: the Orbital Ring card states its headline rule 100x too small (+1% per 100,000 vs the actual +100% per 100,000), and the shipped +12.5%/×40 grid-strain rule never reaches the card, so late power demand explodes without explanation. Both are one-line fixes plus a test; with them and the comment/README drift cleaned up this module is a 9.",
+   "issues": [
+    "[high] Orbital Ring card text is wrong by 100x. src/buildings/data.js ring.synergy.text says 'Orbital industry: +1% jobs per 100,000 citizens (up to ×12)', but the rule is { source:'pop', per:100000 } which evaluates to 1 + pop/100000: verified synergyFactor gives ×2 at 100,000 citizens and ×12 at 1.1 M (600,000 jobs). The README's own table (line 187) says '100,000 → +100 %'. A player reads the late-game jobs engine as almost inert. README.md line 76 repeats the same wrong sentence. → Change the text to 'Orbital industry: +1% jobs per 1,000 citizens (up to ×12)' (matches the mall/financial/stadium phrasing which are all correct) and fix README.md line 76. Add a test in buildings.test.mjs mirroring line 427 (strain text quotes 100/per): for every synergy with source 'pop' or 'employed', assert text contains `${100000/per}%` per 1,000, and for building-sourced rules `${100/per}%`.",
+    "[medium] The shipped grid-strain rule is invisible to the player. data.js documents '`text` is what the build card prints' for demandGrowth, but src/ui/build.js only renders synergy.text and powerHint (grep 'demandGrowth' in src/ui/ returns nothing). Config re-pins strain to +12.5% per unit up to ×40, so a fleet of 262 arcologies draws ~33x its sticker with no card explaining why power demand explodes late. → Render demandGrowth.text under the synergy line in src/ui/build.js (same row style, ⚡ glyph), or have index.js stampPowerHints fold it into powerHint ('Draws 6,500 MW ≈ 0.5 × Nuclear Plant · +12.5% per Arcology owned'). Add a test that the resolved def's card strings include the strain text.",
+    "[low] Comments and README drifted from the integrator's retune: data.js mall comment '2,800: between the refinery (2,200) and the solar farm' (gate is now 3,000), refinery comment 'ahead of the mall (2,800)', solar comment 'after the mall (2,800)', fusion comment 'district (27,000 at 32.3) ... stadium (43,000 at 37.9)' (now 30,000 / 45,000), factory comment '~4.7 min' (probe: 4.9). README.md line 99 and 261 still say Space Elevator 'legacy ≥ 15,000 / city 24' while data.js and config pin 300,000 / city 33. → Update the five data.js comments to the shipped gates and the README table row + line 261 to 'legacy ≥ 300,000 | city 33 (~11 h)'. Consider making the 'data.js matches config' test also assert README's tier-5 gate table by regex so it cannot drift again.",
+    "[low] catalogue.mjs FIELDS omit synergy and demandGrowth, so it prints '22 buildings, 0 with a config override' although the strain rule (data.js +2.5%/×1.5 vs config +12.5%/×40) is exactly the 'one deliberate delta' README says the tool shows in brackets. → In src/buildings/catalogue.mjs, compare shipped.synergy/demandGrowth {per,cap} to the data.js default and push 'demandGrowth'/'synergy' into row.overridden, printing the default rule text in brackets.",
+    "[low] Factory and Refinery sit at the edge of the affordability rule: cadence probe shows factory opens 4.9 min, bought 9.4 (lag 4.6 min, limit 5.0) and refinery opens 13.5, bought 18.0 (lag 4.6). A $500 card glowing unaffordable for four and a half minutes at minute 5 is the longest wait in the first city and one retune away from failing the probe. → Either lift factory gate 65 → 80 citizens (puts it after the apartment spree) or drop factory baseCost 500 → 400; for the refinery, baseCost 20,000 → 16,000 or gate 2,200 → 2,400. Re-run `node src/buildings/cadence.mjs` and keep lag ≤ 3.5 min so the rule has slack.",
+    "[low] Tier-1 residential becomes a dead buy that the greedy bot still takes: logs/screenshot-gauntlet-end.png at 16 min shows Cottage $13,701 for 5 housing next to Residential Tower $13,714 for 160 housing (37 cottages owned). The Suburbs synergy (×1.24 at 26 apartments) cannot close a 32x gap; genre-standard but it makes the 'every building bought' metric partly a bot artefact. → Raise the suburbs rule to per: 10 (10% per apartment, cap ×3) so cottages reach ×3 by the tower era, or add a UI 'best value' hint so a human is not misled by the affordable glow; verify with columns.mjs that the housing column stays in band."
+   ]
+  },
+  "upgrades": {
+   "score": 8,
+   "rounds": 2,
+   "pass": false,
+   "errors": 0,
+   "verdict": "Very strong, error-free module: 70 legible, meaningful, config-synced upgrades that all get bought, a clean mods-only effect seam, a tested founding-memory rule, and a late-game contract (12 legacy-priced charter perks at ×2.5–4, earnings-gated fixed-dollar frontier, zero clock gates) that is satisfied in code. It misses the 8.5 bar on one real pacing flaw the module owns — Standing Orders opens on legacy alone and parks a $4T card as the sole visible target for ~4 hours (cycles 20–24 spend 60–80% of samples with the next upgrade >15 min away) — plus the fact that its carefully built unlock hints/progress mirrors are not surfaced anywhere in the money-upgrade panel, so unlock conditions are invisible to the player. Fix the Standing Orders/Archives/Memory gates with an earnings door and render locked-rung hints, and this is a 9.",
+   "issues": [
+    "[medium] Standing Orders (src/upgrades/data.js, unlock: all(hasLegacy(50), owns('institutional-memory')), cost $4.03e12) is gated only on legacy points, so it opens in city ~9 (legacy 164) and sits as the cheapest open, unowned money upgrade for ~250 minutes: samples show nextBig=4.03e12 from min 102 to min 355 with tension 20,000,000× → 1.2× cash. In cycles 20–24 (min 325–470) the 'next upgrade' is >15 min of income away in 19/27, 27/34, 16/23, 22/29 and 21/29 samples. The module's own header promises no card that 'sits almost affordable' or hopeless, and this one rung is the counter-example for 2.5 hours of a 12 h session. → Give Standing Orders (and City Archives $5.24e7, Institutional Memory $3e7, which do the same for shorter stretches in cycles 3–5) an earnings door like the frontier: unlock: all(hasLegacy(50), owns('institutional-memory'), hasEarned(cost * FRONTIER_GATE)) built via a `legacyFrontier(def)` helper so applyOverride still rebuilds it on a config price change; add a sim assertion that no unlocked-unowned money rung stays >15 min of income away for more than N consecutive samples in a cycle.",
+    "[medium] The unlock hints and progress mirrors the module computes for every money rung (unlockHint 'Build 3 corner shops, then hold $80', unlockAt {money|earned|pop|building,count|powerDemand|legacy}) are never rendered: src/ui/upgrades.js line 94 shows only 'N more ideas wait to be discovered.' and no locked card, so a player cannot learn what opens the next upgrade (only src/ui/charter.js line 111 uses 'next opens near ◆ cost'). The module exported the data correctly, but the player-facing legibility of unlock conditions is currently nil — the ~150 lines of hint machinery are dead weight in the shipped game. → In src/ui/upgrades.js render the next 1–2 locked rungs (sortedUpgrades, !unlocked && !owned, cheapest) as dimmed cards with def.unlockHint and a progress bar driven by def.unlockAt (reuse build.js lines 233–245 progress-from-unlockAt logic, extended for {money},{earned},{legacy},{legacyAvailable},{built},{upgrades}); add a ui.test.mjs case asserting the hint text of the cheapest locked rung appears in the panel.",
+    "[low] Comments contradict the shipped numbers the file promises to 'read true on its own': src/upgrades/data.js header says the Charter runs '3 to 76,488 points' and 'cycle 31 of 32', the UPGRADES section comment reads '(◆ 3 … ◆ 76,488)' while CHARTER_MAX_COST = 195808; src/balance/config.js line 640 says '8 frontier' (there are 9 — Helios Array) and line 655 '×2.5 ladder … 3 to 76,488'; docs/DESIGN.md line 107 says '69 upgrades (57 money + 12 charter)' while UPGRADES.length is 70. → Update the three comment blocks to 195,808 / 34 cycles / 9 frontier / 70 upgrades (58 money + 12 charter), and add a one-line test in upgrades.test.mjs asserting CHARTER_MAX_COST === CHARTER.at(-1).cost and UPGRADES.length === 70 so future drift is caught the way price drift is.",
+    "[low] Maintenance Contracts ($200,000, 'Building upkeep −25%') is the one rung whose felt effect is unverified: upkeep is a fraction of gross, so −25% upkeep is likely well under the +25% net-income bar the other rungs clear; the sim log does not report upkeep share so I could not confirm. → Measure upkeep/gross at minute ~22 in the sim (add `upkeepShare` to samples); if −25% upkeep is < +10% net income, change the effect to compose(global('upkeep', 0.5), global('income', 1.1)) and the desc to 'Building upkeep −50% · all income +10%'.",
+    "[low] In cycle 30 (Helios Array city, min 614–646) 29 of 32 samples show the cheapest open unowned upgrade within 30 s of income yet unbought (nextBig $4.87Qa Exchange Ring at 4–15× cash while income is 1.5e14/s) — either the earned-gate mirror and the bot's reserve policy disagree, or the target is open but the bot holds cash for founding; either way the card reads 'instant' for a whole city. → Log in the sim which rung nextBig refers to and whether it is unlocked; if it is the Exchange Ring open at earned ≥ $1.2Qa but the bot saves for the founding, raise its FRONTIER placement or price (config.js 'exchange-ring' window $2.9e15–8.3e15 → ~7e15) so it is not 'buyable but skipped' for 30 minutes."
+   ]
+  },
+  "simulation": {
+   "score": 8.6,
+   "rounds": 2,
+   "pass": true,
+   "errors": 0,
+   "verdict": "PASS. The simulation module is premium-indie quality: correct dt integration with thorough NaN guards, an allocation-light tick measured at 0.012 ms avg / 0.10 ms p99 in the browser, and a prestige loop that satisfies every binding line of the Late game contract (earnings-only legacy, spendable legacy kept through the reset, full-bank income bonus, exact event and derived.extra.prestige shapes, 34 foundings with a 41-min first city and every cycle ratio under 1.35). The tap meter and the milestone carry-over logic are better designed than most shipped idle games. What keeps it off 9: the late cadence is jagged (a 6.5-min burst at city 14, then a 24-35 min plateau) and the last cycle ratio is within 0.7 % of the strict gate, so the contract is met but fragile; plus three small hygiene items (an emitted 'brownout' event nobody consumes despite the header claiming otherwise, a UI fallback that rebuilds the bonus with wrong literals against the sim's own instructions, and settings living in the simulation module). Zero errors attributable to the module.",
+   "issues": [
+    "[medium] Late-session cadence is jagged and sits on the edge of the strict gate: cycles (min) 22.5 -> 6.5 (city 14, Ring opens at 500 legacy) -> 8.6 -> 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6, and the final step 13.2 -> 17.7 is x1.341, 0.7 % under the 1.35 contract ratio. From city 19 to 32 the player sits in a 24-35 min plateau where each replay is a ~3 min ladder re-buy followed by 20-30 min of near-flat waiting. The shape is set by prestige.minGainShare 0.4 (each founding must out-earn the whole past by x1.4^(1/0.488) = x1.99 while the bonus grows only x1.2). → Give the simulation a bank-relative taper on the share gate instead of a flat 0.4: in prestige.js requiredGain() use share = minGainShare * max(0.6, 1 - legacy / 5e5) (config knob prestige.minGainShareTaper) so a 1e5-point mayor is offered a founding at +32 % instead of +40 %; re-run npm run sim -- --ticks 432000 and pin the new cycles array; target every 5th+ ratio <= 1.30 to leave margin on the 1.35 gate. Alternatively raise founding.seedSeconds to 3-5 s only past legacy 2e4 (seedLegacy ramp is already implemented) so late replays skip the cottage re-buy.",
+    "[low] Header doc drift in src/simulation/index.js (top comment and the watchGrid() comment, ~line 380) and milestones.js isBrownout comment: they state the 'brownout' event is what \"the UI's grid warning listens for\", but no file in src/ui subscribes to it (src/ui/index.js registers unlock/milestone/load/setting/offline/prestige/frame only; topbar reads derived.powerRatio per frame). The event is emitted with no consumer. → Either subscribe the topbar's grid warning to ev.on('brownout', ...) in src/ui/index.js so the amber state flips on the exact tick, or reword the three comments to 'emitted for the UI (currently unconsumed; the topbar polls derived.powerRatio)'.",
+    "[low] The UI fallback path contradicts the simulation's stated contract: src/ui/hero.js lines 257-258 and 266-267 rebuild mult as 1 + legacy * (config.prestige.incomePerLegacy ?? 0.05) and the bar target from (threshold ?? 1e6), while the index.js header says 'Do not rebuild the bar from config.prestige.threshold or the bonus from legacy x incomePerLegacy'. The fallback defaults (0.05, 1e6) do not match shipped (0.01, 1.1e7) and the linear form ignores legacyPower 0.548 and firstBonus. Only reachable before the first tick or with a hand-edited derived, but it is dead-wrong code kept alive. → In hero.js import legacyIncomeMult and prestigeUnlockAt from src/simulation/index.js for the fallback (or call game.api.action('prestigeStatus')), and delete the two ?? literals.",
+    "[low] Milestone carry-over suppression (index.js checkMilestones, replayStart = prestiges > 0 && state.time < CARRY_OVER_WINDOW) only covers the first second of a founding. A save loaded mid-run after a content update that adds milestone ids (e.g. a new legacy tier below the player's bank) latches every new tier with a log line, toast and 'milestone' event at once, since state.time is already > 1 on load. → Have the 'load' handler set a book.carryOverUntil = state.time + 1 and make replayStart read state.time < book.carryOverUntil, so a load gets the same silent latch window a founding does.",
+    "[low] setSetting (autosave / sfx / numFormat) and its SETTINGS validator live in src/simulation/index.js and register as a simulation action, although nothing in the economy reads them; the 'setting' event is a UI/save concern. → Move SETTINGS + setSetting to src/core/api.js (or src/save) and register the action there; keep the simulation module about the tick, milestones and prestige."
+   ]
+  },
+  "ui": {
+   "score": 8.6,
+   "rounds": 1,
+   "pass": true,
+   "errors": 0,
+   "verdict": "PASS at 8.6. The UI is premium-indie quality: a coherent dark-glass design system, a skyline that is a genuine feature with a working day/night cycle, a well-engineered change-gated render loop (0.6-0.8 ms/frame at 60 fps), zero errors in the gauntlet and in my own 1440 and 1100 runs, and the Legacy panel's Charter section renders correctly after founding with ◆ cost chips and an available/total bank. Accessibility and reduced-motion basics are all in place and there is no window.confirm/alert. What keeps it from 9: a handful of visible layout-rhythm nits at the primary 1440x900 size (five tabs wrapping to an orphan Civic tab late-game despite the CSS comment claiming they fit, orphan tiles in the 2-column stat grids), the toast stack hiding the hero skyline through most of the opening and clipping the city meta line, and the Legacy/Charter actions living below the fold at 900px with no scroll cue. All fixes are small, specific CSS/JS changes.",
+   "issues": [
+    "[medium] Build tab row wraps to a second line with an orphan 'Civic 19' tab at the most common width (1440x900) once counts reach two digits (logs/screenshot-gauntlet-end.png, scratchpad/big-full.png). styles.css line 180 comment claims five labelled tabs fit at 1440, but the 600px container-query threshold (line 1333) was measured without the .tab-count widths; the build column is 607px so no collapse fires. → In src/ui/styles.css raise the five-tab container query from 600px to ~660px, or add a rule at <=660px that hides .tab-count on .tab:not(.is-active) when .tabs:has(> .tab:nth-child(5)), so all five tabs stay on one row at 1440.",
+    "[medium] Toast stack (two toasts, 5.6 s each) covers most of the skyline for the entire opening: in every busy screenshot (gauntlet mid/end, w1440-40.png, w1440-founded.png) the hero art is hidden, and .toast-stack top:50px overlaps the city meta line ('VILLAGE · 206 citizens' is clipped under the first toast at y~128). → In styles.css set .toast-stack top to 64px (below the ~60px title+meta overlay), reduce default toast timeout in src/ui/toast.js from 5600 to ~4000 ms, and consider stacking toasts from the bottom of .city-view (bottom: 44px, column-reverse) so the sun/moon and building tops stay visible.",
+    "[low] Orphan tiles in 2-column stat grids: City stats renders 9 tiles as 4 rows of 2 plus a lone 'Buildings built' (hero.js comment at line ~755 says '3x3 grid at desktop widths' but minmax(128px) yields only 2 columns in the 386px panel), and the Legacy panel's 3 tiles leave 'Income bonus' alone on its own row (w1440-legacy-panel.png). → In styles.css change .stat-grid-2 to grid-template-columns: repeat(3, minmax(0, 1fr)) (or minmax(112px, 1fr)) for the 9-tile grid, and give the Legacy panel's 3-tile grid repeat(3, minmax(0, 1fr)) with font-size 12.5px so the row fits 386px.",
+    "[low] Once the Legacy panel appears the hero column is 948-983px tall at a 900px viewport (col-hero scrollHeight 948 vs clientHeight 804), so the 'Found a new city' button and every Charter 'Sign' button sit below the fold with only a thin 8px scrollbar as a cue (w1440-founded.png shows the first charter card cut off at the bottom). → Reorder .col-hero children in src/ui/hero.js to [cityPanel, prestigePanel, nextPanel, statsPanel] when panel:prestige is unlocked, or collapse the Charter list to 2 visible cards (VISIBLE_DEFAULT = 2 in charter.js) and add a bottom fade mask on .col to signal scrollability.",
+    "[low] Category tabs use role=tablist/role=tab but have no arrow-key navigation and no aria-controls linking to the tabpanel (verified: ArrowRight on a focused .tab leaves focus unchanged), so the ARIA tabs pattern is half-implemented. → In src/ui/build.js add a keydown handler on tabBar for ArrowLeft/ArrowRight/Home/End that moves focus and calls setActive, set tabindex=-1 on inactive tabs (roving tabindex), and give list an id referenced by aria-controls on each tab.",
+    "[low] At 1100px the synergy line truncates with an ellipsis ('Suburbs: +4% housing per Apart...' in w1100-40.png) while the two-line description above it is allowed to wrap; the only recovery is a hover title. → In styles.css inside the existing @media (max-width: 1240px) block let .bcard-synergy and .bcard-power wrap (white-space: normal; display:-webkit-box; -webkit-line-clamp: 2) instead of nowrap + ellipsis.",
+    "[low] The 'tap the city to collect' pill stays over the bottom-right of the skyline indefinitely for a player who never taps 5 times (pure idlers), sitting on top of front-row buildings in sky-40-*.png. → In src/ui/hero.js also hide the hint after ~3 minutes of playtime or once population passes ~50, not only after HINT_TAPS taps."
+   ]
+  },
+  "save": {
+   "score": 8.5,
+   "rounds": 1,
+   "pass": true,
+   "errors": 0,
+   "verdict": "PASS at 8.5. The save module is genuinely premium-grade on the axes that matter for an idle game: every required scenario (3000-tick round trip, six-plus garbage payloads, 2 h / 10 h backdated offline with exact 50% credit and a visible toast, export/import, hard reset, blocked and quota-limited storage) passed in real Chrome with zero console or page errors, and the migrations path, chunked catch-up, unload-collapsed autosave and corrupt-save parking are all real, tested code rather than promises. What keeps it off 9 is a verified multi-tab clobber (no 'storage' listener or session token), silent behaviour when storage is blocked (only a console.warn, UI still shows autosave on), and small gaps like buys not triggering the debounced save and the parked corrupt copy lingering forever.",
+   "issues": [
+    "[medium] src/save/index.js has no window 'storage' listener, so two tabs on the same origin clobber each other: verified tab B (tick 3014) autosaving over tab A's newer save (tick 5014), leaving metropolis.save.v1 at tick 3015. A player who forgets a background tab silently loses progress. → In init(), add window.addEventListener('storage', e => { if (e.key !== SAVE_KEY) return; ... }) and put a per-load session id (crypto.randomUUID()) in the envelope from buildPayload(); when a write from another session id arrives with a newer savedAt, set info.otherTab=true, stop autosave/unload writes (guard in save()), addLog('This city is open in another tab; saving is paused here.', 'warn') and emit('savePaused') so the UI can toast it.",
+    "[medium] When storage is blocked (private mode / SecurityError), src/save/index.js line ~561 only console.warns; the player sees a checked 'Autosave every 30 s' in the Settings modal (src/ui/modal.js) and no in-game warning, so a whole session can vanish without notice. Verified: saveStatus().storage=false but no log line or toast. → Right after `if (!storage) console.warn(...)` also call addLog('Your browser is blocking storage; this city will not persist. Export it from Settings before closing.', 'warn') and emit('saveUnavailable'); in modal.js read game.api.action('saveStatus').storage and, when false, disable the autosave checkbox and render a form-note 'Storage blocked; use Export'.",
+    "[low] DEBOUNCED_SAVE_EVENTS (src/save/index.js line 41) is ['upgrade','milestone'] only; 'buy'/'sell' are not included, so a 29 s shopping burst followed by a tab crash (not a close, which unload saves cover) replays the pre-purchase city. → Add 'buy' and 'sell' to DEBOUNCED_SAVE_EVENTS; the existing 1500 ms debounce already folds a burst into one write, so the cost is at most one extra write per shopping spree.",
+    "[low] A parked corrupt copy is never cleared by a later healthy load or save: after garbage case 3 loaded a valid hand-edited save, saveStatus().hasCorrupt stayed true with the previous case's bytes, so the Settings modal will show the 'Previous save / Recover previous save' section indefinitely and recoverSave() would overwrite the now-healthy city with the old junk. → Stamp the park with a time (store {parkedAt, raw} or a sibling key metropolis.save.v1.corruptAt) and in loadFromStorage() remove CORRUPT_KEY once a healthy save has since been written with state.stats.playtime > 600 s, or at minimum have recoverSave() refuse (return false + warn) when the live city has more playtime than the parked one.",
+    "[low] Catch-up advances state.time (used for City Log timestamps) but restores stats.playtime (used for the topbar clock), so after a 2 h return the log shows the offline line at '2h 5m' while the topbar reads '5m 0s' (visible in the offline-2h screenshot). → Either have stepScaled() restore state.time alongside playtime and keep a separate simTime, or have src/ui/log.js stamp entries with stats.playtime instead of state.time so both clocks agree."
+   ]
+  }
+ },
+ "economy": {
+  "score": 7.5,
+  "pass": false,
+  "issues": [
+   "[high] Saver profile breaks the magnitude hard gate that DESIGN.md 'Late game contract' applies to BOTH profiles ('both profiles must stay free of overflow/stall/magnitude issues'). Fresh run `node tools/economy-sim.mjs --ticks 432000 --saver`: contract FAIL, money peak 2.13e18 (> 1e18), legacy 1,462,559 (> 1e6), 37 foundings, 14 empty late cities (9,10,12,13,15,20,21,23,24,30,31,34,35,36). The config.js header (lines 56-71) admits this ('OVER both magnitude ceilings ... this file cannot close it') and DESIGN.md still quotes the older 379,439 / 7.1e16 saver numbers. Balance owns the prestige knobs that set the ceiling (config.prestige.threshold 1.1e7, legacyPower 0.548, minGainShare 0.4). → Close the ceiling with the uniform lever config.js already documents as re-order-free: raise prestige.threshold 1.1e7 -> ~1.25e7 (+13 %, mirrored in src/simulation/tuning.js DEFAULTS) so the saver's 36th founding lands past 12 h (<= 35 foundings banks ~7.4e5), then re-run `node src/balance/place.mjs --plan src/balance/plan.json` and copy the re-placed rung prices in so the default profile keeps the Imperial Charter in city 32; verify both `logs/sim-gauntlet.json` and a `--saver` log read contract PASS. If the +13 % costs the default profile its 34th city, lower legacyPower 0.548 -> 0.540 instead (tail brake, ~-0.7 % income at 1e5 points) and re-place. Update the DESIGN.md 'Measured' saver line to the numbers actually shipped.",
+   "[high] balance.test.mjs silently skips its 6 saver-profile assertions ('logs/sim-fix-balance-12h-saver.json not present or shorter than 12 h'), so `node tools/test.mjs` reports 9/9 green while the saver hard gate is failing. A skipped hard gate is how the magnitude miss above shipped unnoticed. → Point the three saver subtests at the log the gauntlet actually writes (logs/sim-saver.json, or have the gauntlet/verify script emit logs/sim-fix-balance-12h-saver.json with `--saver --out`), and make the magnitude subtest FAIL rather than SKIP when the file is missing (t.fail / assert.fail on absence), so the two-profile contract is enforced by CI.",
+   "[medium] Cadence contract passes with almost no margin: strict max ratio x1.341 vs the 1.35 line (0.7 %), six cycles over x1.30 (cycles 6, 14, 16, 18, 26, 33), and plan.json `targets.ratioMax` is 1.345 (a 0.3 % 'safety margin'). config.js itself says a +/-1 % income change (civicCap 1.10, growthRate 0.092) flips the Megastructures step to x1.351-1.358. Any sibling retune (the integrator already nudged office/factory/mall/refinery/stadium/financial this round) is one rounding away from a red gate. → Buy real margin at the five nil-rung steps instead of tuning to the line: set plan.json ratioMax to 1.30, then either (a) re-place with legacyPower 0.548 -> 0.540 (mirrored) so the x1.30-1.34 nil cities read ~x1.28, or (b) move the one extra felt rung already sitting in a double (Galactic Charter, city 28) to the tightest nil city (27, Superconductor Grid) once the upgrades owner ships the documented `charter-energy` +25 % income clause (probe: `--boost charter-energy=income:1.25` takes city 27 from 50 -> 26 min).",
+   "[medium] Late-game novelty is decorative for half the cities. config.js (lines 710-718) measures the power rungs (Orbital Solar, Superconductor Grid, Stellar Engine, Helios Array, Dyson's grid half), the housing rungs and the jobs rungs (Shipyard, Ringworld) at x1.0-1.1 felt strength in a replay ('variety, not pace'), plus the Orbital Ring / Space Elevator megastructures are nil. From hour 5.5 to 11.5 the loop is 23-35 min cycles where the single new item changes nothing the player can feel; each nil city is 23-34 % longer than the last (cycles 15-19: 10.8 -> 14.1 -> 17.4 -> 23.1 -> 28.6 min). That is a treadmill, not the Antimatter-Dimensions 'this unlock changes how I play' rhythm. → Make the late grid bind so power/grid rungs become felt: the config's own measurement says no draw or upkeep it can set bites after hour 3 because the perk stack is x30 supply / x0.2 demand and the bot hoards ~200 nuclear + ~200 fusion. Escalate the two cross-module requests already written in config.js as blocking for the next round: upgrades compresses the grid perk stack to <= x8 / x0.5 and core caps the bot's generator scoring past 2x surplus; then re-derive STRAIN {per:8, cap:40} so tier-4/5 draw exceeds supply in ~10 % of a mature city and re-place the ladder. Until then, alternate nil rungs with felt ones in plan.json (never two nil cities in a row: 26 Stellar -> 27 Superconductor is currently back-to-back).",
+   "[medium] 'Power matters' and 'civic matters' are met to the letter only. Under-power by hour (probe): 33.9 % / 15.1 % / 0.6 / 0.7 / 0.5 / 0.2 / 0.1 / 0.1 / 0.1 / 0 / 0 / 0 - the Power tab is a dead stat from hour 2 to hour 12, and the 4.27 % session share sits 0.27 points above the plan target (0.04) and 1.27 above the contract floor. Happiness dips (21/34) are the replay's dark first tick + jobless opening spree (cycle minHappiness 0.41-0.81 in the first minute); mid-city dips 3/34, and from city 21 on minHappiness is >= 1.10 (no dip possible), so civic buildings are a stat dump for 6 hours. → Power: same root cause as the previous issue (perk stack / bot scoring); as a balance-side stopgap raise the legacy-gated fusion upkeep from 1,500 to ~6,000 $/s and nuclear upkeep to ~1,500 so a plant fleet of 200+ has a visible cost line (config measured these change <0.3 pts of under-power but they at least put a number on the Power tab). Civic: cap the flat happiness a veteran carries - ask simulation to make the legacy clean-air tiers a % smog cut that saturates at 60 % instead of 90 %, and raise config.happiness.pollutionScale 0.35 -> 0.45 only once that lands (config already measured 0.45 alone adds ~1 min to city 1 and nothing later).",
+   "[low] First city has two short windows with no open money upgrade at all (probe: minutes 1-2, 11-12 and 27 read 'cheapest open rung: none') and minutes 20-26 where the cheapest open rung (Regional Airport $1.2e5) is 2-13 s of income away, i.e. a reflex buy; first-city reach reads 49 %, acceptable but the 11-12 minute hole comes right after the 1k-pop milestone (13 min) when a player expects a new goal. Session foundings (34) sit exactly at plan.json foundingsMax 34, so there is no headroom on that target either. → Open one mid-ladder rung by pop instead of price during minutes 10-13 (e.g. move 'high-density' $6,000 unlock to pop 500 so it is on the card from ~8 min and the 1k-pop push has a visible target), and raise plan.json foundingsMax to 35 or trim the tier-4 growth 1.112 -> 1.113 so the 34th founding is not on the edge.",
+   "[low] Content cliff at 12 h: the Exchange Ring $4.87e15 is the last money rung, the 35th city opens at 704 min with nothing new, and config.js concedes 'a session that runs past 12 h keeps founding cities with nothing new to buy'. The 12 h contract is met but a premium idle game does not run out of ladder on day one. → Request 2-3 more late rungs from the upgrades owner (the same 6-8 rungs config asks for to fix the saver placement) at x3-x5 spacing from 1e16 to 1e17, and re-pin the Space Elevator gate so it is a felt item (housing/income clause) rather than the filler that stops the 35th city from completing."
   ]
+ },
+ "verify": {
+  "pass": true,
+  "errors": 0,
+  "tickAvgMs": 0.0113,
+  "fps": 60.3
+ },
+ "history": [
+  {
+   "iteration": 2,
+   "timestamp": "2026-09-05T01:42:14.596Z",
+   "scores": {
+    "resources": 7.5,
+    "upgrades": 7.5,
+    "buildings": 7,
+    "simulation": 7.5,
+    "core": 8.3,
+    "save": 8.3,
+    "ui": 8.2,
+    "balance": 7.5
+   },
+   "note": "gauntlet round 1: all 8 critics scored; fixes ran for ui,buildings,resources,save,core; upgrades/simulation/balance fixes interrupted by session limit"
+  },
+  {
+   "iteration": 3,
+   "timestamp": "2026-09-05T03:47:40.789Z",
+   "scores": {
+    "core": 8.7,
+    "balance": 7.5,
+    "resources": 8.8,
+    "buildings": 8.5,
+    "upgrades": 8.5,
+    "simulation": 8.4,
+    "ui": 8.5,
+    "save": 9
+   }
+  },
+  {
+   "iteration": 4,
+   "timestamp": "2026-09-05T15:41:05.910Z",
+   "scores": {
+    "core": 8.7,
+    "balance": 7.5,
+    "resources": 8.8,
+    "buildings": 8.5,
+    "upgrades": 8.5,
+    "simulation": 8.4,
+    "ui": 8.5,
+    "save": 9
+   },
+   "note": "late-game rebuild: earnings-only legacy, charter perks (legacy currency), earnings-gated frontier ladder, UI charter section, balance retune; sim PASS, contract FAIL only on tension 19% (<30%), all tests pass"
+  },
+  {
+   "iteration": 5,
+   "timestamp": "2026-09-05T15:47:08.906Z",
+   "scores": {
+    "simulation": 8,
+    "resources": 8.8,
+    "upgrades": 7.5,
+    "buildings": 8.2,
+    "core": 8.3,
+    "balance": 7,
+    "ui": 8.6,
+    "save": 8.8
+   },
+   "note": "gauntlet after late-game rebuild (earnings-only legacy, charter perks, earnings-gated ladder); round-1 critics only, fixes interrupted by credit limit"
+  },
+  {
+   "iteration": 6,
+   "timestamp": "2026-09-07T18:01:40.715Z",
+   "scores": {
+    "ui": 8.6,
+    "buildings": 8.5,
+    "upgrades": 8.5,
+    "simulation": 8.6,
+    "resources": 8.8,
+    "save": 8.8,
+    "core": 9,
+    "balance": 8.5
+   }
+  },
+  {
+   "iteration": 7,
+   "timestamp": "2026-09-07T20:50:55.681Z",
+   "scores": {
+    "ui": 8.6,
+    "buildings": 8.2,
+    "upgrades": 8,
+    "simulation": 8.6,
+    "resources": 8.8,
+    "save": 8.5,
+    "core": 9,
+    "balance": 7.5
+   }
+  },
+  {
+   "iteration": 8,
+   "timestamp": "2026-09-08T00:54:14.817Z",
+   "scores": {
+    "core": 9,
+    "balance": 7.5,
+    "resources": 8.8,
+    "buildings": 8.2,
+    "upgrades": 8,
+    "simulation": 8.6,
+    "ui": 8.6,
+    "save": 8.5
+   },
+   "note": "wrap-up: final fix round stopped early (credits); upgrades+buildings fixes committed, ui+balance fixes not run; see open[]"
+  },
+  {
+   "at": "2026-09-07T12:00:00.000Z",
+   "note": "Integrator batch: 6 workflow branches merged (ui teaser hint, strain card, save multi-tab, layout orphans, core guards/fmtPct, sim carry-over) + panel carry-over bug fix. npm test 9/9, verify PASS, sim default 34 foundings/530,718 legacy PASS, sim saver 35/746,168 PASS."
+  },
+  {
+   "iteration": "balance-wave-1",
+   "timestamp": "2026-09-14",
+   "commit": "38d5d32",
+   "result": "committed, 2 of 3 skeptics refuted (24 h power runaway, Lights Out bot artefact, F1 untouched)"
+  },
+  {
+   "iteration": "balance-wave-2",
+   "timestamp": "2026-09-15",
+   "rounds": 3,
+   "result": "3 rounds run; round-2 and round-3 skeptic gates killed by the session limit before voting. Round 3 closed F2 at 24 h, F3 bands, Lights Out by content, F8 core knee, F12 segment metric; left F1 cadence and the greedy variety+power lines red. Committed honestly, not ticked."
+  }
+ ],
+ "open": [
+  "playtest 2026-09-14 (docs/FEEDBACK.md \"State at 2026-09-15 session close\" has the measured detail). STILL OPEN: F1 late slowdown — human complete cities 4-9 run 63.0 76.1 73.1 105.6 164.1 min (city 7 x1.44, city 8 x1.55 vs the <=1.35x-or-<=90min rule) and the longest no-decision-purchase stretch is 61/76/48/105/51 min in cities 4-8 vs a 20 min rule; the greedy variety line, 2 of 29 late cycles introducing nothing new (first cycle 21); the greedy by-hour under-power line (0.2-4.9 %, needs >=1 % in 3 of hours 3-12 — FLEET_DRAW 1.12 buys it, measured, but breaks the upgrades module's \"all owned ~ x1.0 draw\" invariant: upgrades content decision, see the note above FLEET_DRAW in src/upgrades/data.js).",
+  "playtest 2026-09-14 CLOSED this wave and holding on the human profile: F2 (24 h cap/demand 1.0-2.5x, no city >=3x, was 13x by city 13), F3 (per-city and by-hour unemployment inside band, jobs/pop 0.89-1.27), Lights Out earned by content in cities 7-8 under a strain-aware guard, F8 two-segment cost curve in core (knee 75 / late 1.112, count-200 ordering asserted), F12 legacy segment metric gated hours 2-3 (hours 4+ collapse on exponent 0.488 — documented, ungated, next lever). Earlier: F4 F6(UI) F9 F10 F12 F13 F14 F15 F16.",
+  "playtest 2026-09-14 NOT STARTED: F5 charter purchases offer no real choice (parallel tracks / branching perks); F6 mechanics half — early founding at a reduced gain (changes bot cadence, deliberately deferred until the cadence lines above are green); F7 verification — the growth rungs were re-effected in rounds 1-3 but no skeptic has confirmed a player feels them.",
+  "tests red at 2026-09-15 close (tree committed anyway, honestly): src/balance/balance.test.mjs 18/20 (test 19 greedy contract variety+power, test 20 plan.json underPowerMin margin); src/buildings/buildings.test.mjs 27/28 (first-city cadence probe: office/tower 28 s, nuclear/techpark 88 s, financial/fusion 70 s, fusion/stadium 30 s apart vs a 90 s rule — the test names the field to move for each). verify PASSES 10k ticks 0 errors 60.3 fps; saver 12 h contract PASSES.",
+  "balance: cadence margin thin (max cycle ratio ~1.34 vs 1.35 line); balance.test.mjs skips saver assertions when its log is absent. NOTE 2026-09-07: fresh --saver 12h run now PASSES contract (35 foundings, legacy 746k, money 2.79e16) so the magnitude item is closed; keep re-checking both profiles after any income change",
+  "uncritiqued (2026-09-07 batch, tests+verify+both sims green): panel:* dashboard gates survive a founding (stats card no longer vanishes on new city; tutorial step 4 now waits for an open rung); locked-teaser fallback hint from unlockAt; live grid-strain x N now on build cards; save multi-tab storage listener + session id + storage-blocked warning + buy/sell debounced saves; stat-grid orphan tiles fixed (3-col); core registry.resetGuards() after load and on founding, fmtPct compacts >=1000%; milestone carry-over window on load",
+  "uncritiqued additions (2026-09-07): mobile layout <900px (single column, 44px targets), Web Audio sfx with settings toggle, six-step state-driven tutorial with dismiss toggle"
+ ]
 }

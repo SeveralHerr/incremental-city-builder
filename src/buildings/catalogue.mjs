@@ -1,8 +1,9 @@
 // Prints the *shipped* building catalogue: every definition as the game registers it
 // (data.js defaults + config.buildings overrides + tier cost growth), one row per building,
-// with the data.js default shown next to any field config re-pins — the numeric stickers and
-// the two rule fields (`synergy`, `demandGrowth`: a re-pinned per/cap/source prints the
-// default rule's card line in brackets, so the tier-4 strain delta is visible). DOM-free, Node only.
+// with the data.js default shown next to any field config re-pins — the numeric stickers, the
+// resolved cost curve (growth, knee, late growth: the two-segment F8 curve) and the two rule
+// fields (`synergy`, `demandGrowth`: a re-pinned per/cap/source prints the default rule's
+// card line in brackets, so the tier-4 strain delta is visible). DOM-free, Node only.
 //   node src/buildings/catalogue.mjs [--json]
 // Use this, not the numbers in data.js, when quoting what the game ships.
 import path from 'node:path';
@@ -17,7 +18,7 @@ await boot();
 const { BUILDINGS } = await import('./data.js');
 const { registry } = game;
 
-const FIELDS = ['baseCost', 'costGrowth', 'housing', 'jobs', 'income', 'powerGen', 'powerUse', 'upkeep', 'happiness'];
+const FIELDS = ['baseCost', 'costGrowth', 'knee', 'lateGrowth', 'housing', 'jobs', 'income', 'powerGen', 'powerUse', 'upkeep', 'happiness'];
 // The rule fields: compared on their numbers (stat / source / per / cap), not their text.
 const RULE_FIELDS = ['synergy', 'demandGrowth'];
 const ruleKey = (r) => (r && typeof r === 'object' ? [r.stat, r.source, r.per, r.cap].filter((v) => v !== undefined).join('/') : '');
@@ -42,6 +43,7 @@ for (const id of registry.buildingOrder) {
     const base = game.buildings?.baseStat ? game.buildings.baseStat(id, f) : shipped[f];
     row[f] = base;
     const d = def[f];
+    // knee / lateGrowth resolve from config.cost when the card pins none: not an override.
     if (d !== undefined && base !== undefined && d !== base) {
       row.overridden.push(f);
       row['default_' + f] = d;
@@ -63,11 +65,11 @@ if (JSON_OUT) {
 } else {
   const cell = (v, w) => String(v ?? '').padStart(w);
   console.log('shipped catalogue (data.js default in brackets where config.buildings re-pins a field)');
-  console.log('building     t  gate                     baseCost growth   housing     jobs   income powerGen powerUse upkeep    joy');
+  console.log('building     t  gate                     baseCost growth knee  late   housing     jobs   income powerGen powerUse upkeep    joy');
   for (const r of rows) {
     const f = (k, w) => cell(num(r[k]) + (r.overridden.includes(k) ? ` [${num(r['default_' + k])}]` : ''), w);
     const gate = r.gate + (r.overridden.includes('unlock') ? ` [${r.defaultGate}]` : '');
-    console.log(`${r.id.padEnd(12)} ${r.tier}  ${gate.padEnd(24)} ${f('baseCost', 14)} ${f('costGrowth', 6)} ${f('housing', 11)} ${f('jobs', 8)} ${f('income', 8)} ${f('powerGen', 8)} ${f('powerUse', 14)} ${f('upkeep', 12)} ${f('happiness', 6)}`);
+    console.log(`${r.id.padEnd(12)} ${r.tier}  ${gate.padEnd(24)} ${f('baseCost', 14)} ${f('costGrowth', 6)} ${f('knee', 4)} ${f('lateGrowth', 5)} ${f('housing', 11)} ${f('jobs', 8)} ${f('income', 8)} ${f('powerGen', 8)} ${f('powerUse', 14)} ${f('upkeep', 12)} ${f('happiness', 6)}`);
     for (const f of RULE_FIELDS) {
       const line = (r[f] || (r.overridden.includes(f) ? `no ${f}` : '')) + (r.overridden.includes(f) ? ` [${r['default_' + f]}]` : '');
       if (line) console.log(`             ${line}`);

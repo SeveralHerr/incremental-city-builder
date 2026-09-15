@@ -248,36 +248,63 @@ happiness stopped mattering after city 1. The fix is structural, not a knob:
   toward the next founding on a near-flat income — that is the plateau the cadence target asks for,
   not a stall).
 
-**Measured (2026-09-14 F2/F3 wave, round 1; `logs/sim-gauntlet.json`, `npm run sim -- --ticks 432000`):**
-PASS, contract PASS, 0 issues, 0 errors. 33 foundings; cycles (min) 40.9 · 12.8 · 11.5 · 7.7 · 7.0 ·
-9.0 · 11.7 · 13.7 · 16.5 · 20.8 · 22.2 · 24.6 · 11.4 · 6.5 · 8.7 · 11.0 · 13.6 · 16.6 · 16.0 · 21.4 ·
-28.7 · 36.6 · 44.3 · 30.6 · 31.5 · 25.2 · 33.0 · 36.4 · 26.4 · 33.1 · 35.8 · 30.2 · 14.6 (strict max
-ratio ×1.338 at cycle 21, the City Archives → Civic Charter step; longest 44.3, last 14.6 min); 0
-empty late cycles; every building and all 70 upgrades bought; reach 42.5 % (priciest-item 34 %);
-under-power 3.52 %, floor 0.60; happiness dips in 21/33 cities; legacy 378,647 (213,186 spent on all
-twelve charter perks), money peak 1.81e17 (60 s samples), income 2.8e15/s at 12 h; ~26k ticks/s.
-Power after the compressed stack (×9.5 supply / ×0.33 demand): median cap/demand by hour 1.11 · 1.74
-· 1.91 · 2.30 · 1.77 · 1.59 · 1.49 · 1.39 · 1.56 · 2.03 · 5.23 · 6.06 (first city with a ≥ 3× median:
-29); Lights Out latched in 33/33 cities. Saver profile (`--saver`, `logs/sim-saver.json`): PASS,
-contract PASS (hard gates only): 35 foundings, first 37.4 min, reach 63 %, under-power 3.0 %, legacy
-742,862, money peak 4.00e17, 9 empty late cities (13, 15, 19, 21, 22, 24, 30, 31, 34). Human profile
-(`--profile human`, `logs/sim-human.json`; the F2/F3 reproduction, five gates in
-`tools/economy-sim.mjs`): all five PASS — median cap/demand by hour 1.13 · 1.84 · 1.80 · 2.30 · 2.04 ·
-1.73 · 1.63 · 1.48 · 1.44 · 1.35 · 1.29 · 1.30 (none > 4.0 from hour 3, none < 1.0 from hour 2; no city
-with a ≥ 3× median), median unemployment 20 % in hour 1 then 0 % every hour and 0 % in every city from
-the 3rd (33 % in city 2), Lights Out latched in 3/9 cities (2/9 after the first; the guard reads the
-card's sticker draw, `src/core/bot.js` humanStep). 9 foundings (46.4 · 17.2 · 22.2 · 59.7 · 73.0 ·
-63.8 · 88.8 · 146.0 · 153.5 min), Megastructures bought unassisted in city 7 at 313 min with 0 %
-unemployment before and with it; the profile's own `contractPass` stays false only on the
-every-item-bought line (nine late rungs need a 27th city it never reaches in 12 h).
-**Open (documented, not gated):** the saver's 36th founding (the one that crosses the legacy
-ceiling) lands ~750 min, ~4 % past the session, and the greedy bot's Elevator city opens at 12 h with
-10.9 min played; one price table cannot put both profiles 5 % inside because a saver's 30 s-of-income
-reach lands every frontier rung ~2 cities before the bot's spree pile (`config.js`, "What the saver
-brake is"); the saver's 9 empty late cities follow from the same gap; first-city purchase tension reads 0 % of its 41 minute-samples (the
-core ladder opens a reflex buy every 1–2 min; needs re-spaced gates, not prices); the greedy
-Archives → Civic Charter step sits at ×1.34 ± 0.01 (cities 19–21 are three nil cities between the
-$1e14 and $1e15 lifetime-earnings milestones; a felt clause on one of Archives / Civic Charter /
-Standing Orders is the structural fix, not a price); power rungs are felt purchases but still
-×1.0–1.1 as pace, and the human profile never buys the nine rungs from the Space Elevator up (F8's
-two-segment cost curve is the round-2 request).
+**Measured (2026-09-14 wave, round 3 verification, 2026-09-15; `logs/sim-gauntlet.json`,
+`npm run sim -- --ticks 432000`; the greedy bot is the round-3 honest grid-ahead player, `src/core/bot.js`):**
+Greedy PASS, contract FAIL ([variety] 2/29 cycles after the 5th introduced nothing new (first: cycle 22); [power] under-power share 0.8% of the whole session), 0 errors.
+34 foundings; cycles (min) 34.8 · 11.0 · 9.7 · 6.8 · 6.5 · 8.5 · 11.1 · 13.6 · 16.9 · 22.1 · 23.4 · 25.2 · 11.6 · 6.7 · 8.9 · 11.4 · 14.6 · 17.9 · 17.4 · 22.3 · 29.5 · 35.9 · 46.4 · 28.8 · 32.4 · 25.1 · 33.1 · 34.9 · 23.9 · 30.1 · 32.8 · 27.1 · 13.8 · 18.2 (strict max ratio ×1.334 at cycle 14, none over 1.35; longest 46.4, last 18.2);
+empty late cycles [22, 24] (Mass Driver Port and Ringworld District land a city early under the round-3 bot's
+cadence — the ladder was placed on the round-2 bot); every building and all 70 upgrades bought; reach 50 %;
+under-power 0.9 % (by hour 0.2% · 0.4% · 0.1% · 0.3% · 2.5% · 4.9% · 1.4% · 0.1% · 0.1% · 0.0% · 0.0% · 0.0%; ≥ 1 % in 3 of hours 3–12), floor 0.60;
+median cap/demand by hour 1.17 · 1.71 · 1.57 · 1.55 · 1.16 · 1.01 · 1.00 · 1.00 · 1.00 · 1.11 · 1.42 · 1.48 (none > 2.5 from hour 3, none < 1.0 from hour 2); happiness dips in
+21/34 cities (last half 4/17); legacy 530462 (213,186 spent on all twelve charter perks), money peak 4.22e+17 (tick level).
+Saver (`--saver`, `logs/sim-saver.json`): PASS, contract PASS on the hard gates: 35 foundings, first 32.5 min, reach 61 %,
+under-power 0.9 %, legacy 743206, money peak 6.31e+17, 6 empty late cities (13, 22, 24, 30, 31, 34); the 36th founding (the one
+that crosses the 1e6 ceiling) cannot land before ~728 min (35th at 692.8 after a 28.2 min city; `balance.test.mjs` holds ≥ 727).
+Human profile (`--profile human`, `logs/sim-human.json`; ten gates in `tools/economy-sim.mjs`): 8 of 10 PASS — the two
+F1 cadence lines FAIL (open by arithmetic, below). Cycles 45.5 · 16.2 · 21.0 · 63.0 · 76.1 · 73.1 · 105.6 · 164.1 (8 foundings; the city-9 founding
+that the 0.538 tree reached at 705 min falls past 12 h at the 0.528 brake); median cap/demand by hour 1.07 · 1.55 · 1.50 · 1.71 · 1.32 · 1.21 · 1.09 · 1.00 · 1.00 · 1.00 · 1.00 · 1.00
+(none > 4.0 from hour 3, none < 1.0, no city with a ≥ 3× median); median unemployment by hour 17 % · 0 % · 0 % · 0 % · 0 % · 0 % · 14 % · 0 % · 0 % · 0 % · 4 % · 3 %
+(inside 2–15 % in hours 7, 11, 12), by city none > 20 % from the 4th, jobs/pop 1.03 · 0.91 · 1.27 · 1.25 · 1.12 · 1.21 · 0.89 · 1.13 · 0.97 (0.85–1.3 in every complete city ≥ 4);
+Lights Out (≥ 30 s at ratio ≤ 0.95, strain-aware guard) in city 7 (266 s) and city 8 (80 s); F12 segment hour 2 0.66 min, hour 3 0.58;
+F7 pop/housing at purchase: Welcome Sign 0.22, Green Belts 1.00, Veteran Planners 0.95, Planetary Charter 1.00, City Archives 1.00, Community Events 0.94;
+legacy 10936, money peak 2.45e+14. Human 24 h (`--ticks 864000`, `logs/sim-human-24h.json`): the power gate holds over hours 2–24 (cap/demand hours 13–24
+1.00 · 1.00 · 1.00 · 1.00 · 1.14 · 1.36 · 1.34 · 1.27 · 1.24 · 1.45 · 1.42 · 1.40, no ≥ 3× city in 13 cities), unemployment hours 13–24 12 % · 10 % · 3 % · 2 % · 2 % · 0 % · 5 % · 5 % · 4 % · 0 % · 0 % · 0 %,
+jobs/pop cities 10–12 0.97 · 0.99 · 0.96, Lights Out in 2 complete cities ≥ 4 (7 and 8), 12 foundings, legacy 886015, money peak 3.19e+17.
+Control runs (`logs/sim-human-control-prewave.txt`, `logs/sim-human-control-round2.txt`, `logs/sim-human-sticker.txt`): the pre-wave content with the
+final bot fails every power line and Lights Out; the sticker guard latches 0 cities ≥ 4 on the round-3 content (hours of 0.95 < ratio < 1, never ≤ 0.95).
+**Open (documented, not gated; 2026-09-14 wave, round 3 — the numbers are the logs named in
+"Measured" above):**
+- *F1 human cadence.* Cities 7 and 8 of the human profile run ×1.44 and ×1.55 over the city before
+  (gate ≤ 1.35) and the longest stretch without a decision purchase is 48–105 min in cities 4–8
+  (gate ≤ 20). Not closable by fixed-threshold content: the profile founds only once the haul is
+  ≥ 2× its bank, so every city must out-earn everything before it ~8.5×, while its plateau fleet
+  grows 2–4 units a minute — a rung that is 30 s–15 min away in one city is a reflex in the next.
+  Lever named: a leveled / repeatable upgrade type (core) or an income term in the Masons /
+  Archives slot with its own brake wave (docs/FEEDBACK.md F1).
+- *The greedy's 3 % under-power floor.* An honest grid-ahead greedy (best MW/$ plant, saves for
+  it, never trips the grid by a unit — `src/core/bot.js` round 3) reads under-power 0.9 % of 12 h:
+  the +8 % draw steps on Trading Floors II/III and Campus Expansion II/III bind 86 · 80 · 98 · 50 s
+  in cities 20–23 and ≤ 6 s in every other city, the first city 2 s. The 3.5 % / 37 % the earlier
+  bots read was the cheapest-generator rule digging coal beside a fusion plant and the sticker
+  booking walking the grid under 1.0 by one unit a minute — bot artefacts, never content. The
+  3–20 % line stays in the contract and reads FAIL on the greedy until content binds the grid for
+  ~20 min of a session under a player who keeps it ahead (the human profile's Lights Out reads
+  266 s / 80 s in cities 7–8 from the same steps: the human's ×Max batches land them on a full
+  grid, the greedy's one-unit buys do not).
+- *Happiness is decorative late.* Greedy dips below 1.0 sit in the first 21 cities (last half of
+  the cities 4 of 17 on the round-3 log); human 24 h cities 9–12 read minHappiness 1.06–1.4. The
+  ≥ 50 % line holds on the first half and is kept; civic content past greedy city 21 / human city 9
+  is accepted as decorative (docs/FEEDBACK.md F4's trade-off is what remains of the lever).
+- *F12b tempo.* The point bar is decorative past hour 4 on exponent 0.488 (a point every ≤ 5 s
+  from hour 4 in every profile); gated where it is readable — hour 2 within 0.5–30 min, hour 3
+  ≥ 0.5 (human) / ≥ 0.25 (greedy: hour 3 is cities 5–9 with 7–12-minute cycles on a ×1.4-per-
+  founding sequence). A ~0.35 exponent is a full re-placement wave (docs/FEEDBACK.md F12b).
+- *The post-stack surplus.* With the power fold bounded at ×5.49 supply / ×0.736 demand (net ×7.5
+  over a session) the human's mature grid settles at 1.0–1.4× demand on 24 h (hours 17–24 1.14 · 1.36 · 1.34 · 1.27 · 1.24 · 1.45 · 1.42 · 1.40) and the greedy's at 1.4–1.55× in hours 11–12: a
+  1.2–2.0× plateau is the accepted late surplus; the ≤ 4.0 / no-≥ 3×-city lines hold over every
+  hour played.
+- *Saver placement.* One price table cannot put both profiles 5 % inside: a saver's 30 s-of-income
+  reach lands every frontier rung ~2 cities before the greedy's spree pile (`config.js`, "What
+  the saver brake is"); the saver's empty late cities follow from the same gap. The first city's
+  purchase tension reads 0 % of its minute-samples (the core ladder opens a reflex buy every 1–2
+  min; needs re-spaced gates, not prices).

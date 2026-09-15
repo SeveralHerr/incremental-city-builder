@@ -13,8 +13,8 @@ what the game ships, or to see a delta, run
 ```
 node src/buildings/catalogue.mjs            # resolved catalogue, default in brackets where config differs (stickers and the synergy / strain rules)
 node src/buildings/cadence.mjs [--curve 30] # first-city open / first-buy probe (exit 1 on a fault); --curve prints the pop/demand/cash curve gates are placed on
-node src/buildings/columns.mjs [--ticks N]  # 12 h session probe: jobs vs housing per city, upgrade-mod swing, tier-5 open/buy cities (exit 1 on a fault)
-node src/buildings/buildings.test.mjs       # unit tests + both probes (cadence at the first founding, columns at 6 h)
+node src/buildings/columns.mjs [--ticks N]  # 12 h session probe: jobs vs housing per city (both readings judged), upgrade-mod swing, tier-5 open/buy cities (exit 1 on a fault)
+node src/buildings/buildings.test.mjs       # unit tests + both probes (cadence at the first founding, columns at 6 h and at 12 h)
 ```
 
 ## Columns and tiers
@@ -32,6 +32,29 @@ node src/buildings/buildings.test.mjs       # unit tests + both probes (cadence 
   franchise and priced like the other tier-4 cards so a fleet is buildable. The two tier-5
   cards pin ×3: config has no tier-5 rate (balance's `costGrowthFor(5)` would answer with the
   tier-1 curve), and ×3 is what makes a megastructure a rolling target instead of a fleet.
+- **The curve has a knee (F8, 2026-09-14 round 2).** Unit *n* (0-based) costs
+  `baseCost · g^min(n, knee) · gLate^max(0, n − knee)` with `g` the card's growth above,
+  `knee` 75 and `gLate` 1.112 (the tier-4 rate) from `config.cost.knee` /
+  `config.cost.lateGrowth`, mirrored by `DEFAULT_KNEE` / `DEFAULT_LATE_GROWTH` in
+  `index.js` the way the tier ladder is (the drift test holds the pair equal; core reads
+  only the two resolved fields, `def.knee` / `def.lateGrowth`, and prices the two geometric
+  series). Why: on one segment the cheap column overtook the dear one — at count 200 a
+  cottage cost $7.1e15 against an arcology's $2.0e14 (36×), a park $1.4e18 against a
+  stadium's $5.0e15 (275×), and $1e18 bought 219 cottages to 259 arcologies, the player's
+  "237 vs 202" (round-1 skeptic). The knee sits above the first city's largest fleet (71
+  cottages), so the first city is untouched; after it every column reads in tier order —
+  count 200: cottage $4.3e12 ≤ apartment $1.0e13 ≤ tower $1.6e13 ≤ arcology $2.0e14, shop
+  $7.1e12 ≤ … ≤ district $1.2e15, factory $7.1e13 ≤ refinery $7.9e14 ≤ campus $1.7e15, coal
+  $9.9e13 ≤ solar $1.4e14 ≤ nuclear $6.7e14 ≤ fusion $6.7e15, park $1.0e14 ≤ school $7.1e14
+  ≤ hospital $3.5e15 ≤ stadium $5.0e15 — and a budget buys a non-increasing count up the
+  tiers ($1e18 from zero: 295 / 287 / 283 / 259 cottages … arcologies, 266 / 247 / 232 /
+  229 parks … stadiums). Two cards pin their own: the **hospital knee 60** (its 1.18 curve
+  from $60k must soften earlier than the park's and school's to stay under the stadium — at
+  the shared knee the 200th reads $8.6e15; the first city buys 23), and the **ring and
+  elevator lateGrowth 3** (= their costGrowth: the ×3 curve is the fleet cap and never
+  softens). The windmill's cap of 8 sits under every knee. `unitCost(def, i)` in `index.js`
+  is the reference the F8 test holds core's `buildingCost` / `maxAffordable` / `sellRefund`
+  to, and `catalogue.mjs` prints the resolved knee and late rate per card.
 - **Late identity for the cheap column.** Three tier-1 cards are the *source* of a higher
   tier's signature rule (factory → refinery, park → solar farm, school → tech campus), and
   the two that were pure sink fodder scale *with* the tier above them instead: the cottage's
@@ -61,10 +84,13 @@ the wage term was capped by a residential column that was 84 % arcologies at a f
 Why a flat sticker cannot fix it: the upgrade rungs multiply the two columns at very
 different rates — housing ×1.9 by city 4, ×3.75 by city 14, ×18.75 by city 25, ×37.5 by
 city 31, against jobs ×1.25 / ×1.25 / ×9.9 / ×17.3 (the global `(hous/jobs)` mods of the
-probe on the 2026-09-14 upgrade stack; before that wave jobs ended at ×12). A sticker
-ratio that reads 1.5 mid-session reads 0.4 by the end; the old 4,000-job district was the
-number that made the *end* read 1.5, at the price of 3–7× for eight cities. So the catalogue
-carries three things instead of one number:
+probe on the 2026-09-14 round-1 upgrade stack; before that wave jobs ended at ×12, and the
+round-3 re-pairing — Civic Charter's jobs ×1.25 removed, Ringworld and Skyline jobs ×1.5 →
+×2.0, Shipyard ×1.75 → ×1.25, Exchange Ring's commerce-only ×2 → all jobs ×1.5 — lands the
+session at **housing ×37.5 vs global jobs ×21.1**, measured 37.5 / 21.09 on the probe's last
+sample). A sticker ratio that reads 1.5 mid-session reads 0.4 by the end; the old 4,000-job
+district was the number that made the *end* read 1.5, at the price of 3–7× for eight
+cities. So the catalogue carries three things instead of one number:
 
 1. **Stickers sized for the mid game:** the district 2,000 jobs (was 4,000), the campus
    1,800 (was 2,500), the stadium's game-day hiring capped at ×2 (was ×3). With every
@@ -75,26 +101,73 @@ carries three things instead of one number:
    stays 1,000 because a 2,500 arcology tripped every later first-city gate within a minute,
    and the rule only reaches ×1.15 in the first city's last five minutes.
 3. **A late jobs engine that grows with the population:** the Orbital Ring hires +1 % per
-   1,000 citizens (×2 at 100,000) up to ×5 (250,000 jobs in a city of 400,000). It opens in
+   1,000 citizens (×2 at 100,000) up to ×4 (200,000 jobs in a city of 300,000). It opens in
    the 14th city — one city after the Megastructures rung doubles housing — and from then on
    it is 45–75 % of the jobs column, the one term that scales with the thing the housing
    rungs inflate. The cap was ×12 while the session's jobs rungs ended at ×12; the
    2026-09-14 upgrade wave lifted them to ×17.3 (and to ×4.39 against housing ×3.75 in
    cities 20–23), and at ×12 the ring alone — 72–86 % of the column — held jobs/pop at
    2.0–4.3 for the back half of 12 h (median 2.02, 41 % of mature samples inside 0.8–2.0).
+   Round 1 set ×5, which read 1.32 median on the greedy but pinned unemployment at exactly
+   0 from hour 2 in every profile (human city 9 jobs/pop 2.34, greedy cities 20–23 2.2–3.8,
+   the ring 50–86 % of the column — the flattest metric on the tree, per both round-1
+   skeptics). Round 2 planned ×3 beside the upgrades' jobs-stack trim (Arcology Gardens jobs
+   ×1.1, Civic Charter ×1.25, the Archives' dead growth term → ring housing ×1.5) with a
+   hold-×4 clause if ×3 pushed a mature city under 0.8; measured on the round-2 tree (12 h,
+   the three caps side by side): human jobs/pop cities 7–10 **0.78 / 0.93 / 1.14 / 0.80 at
+   ×3** (cities 7 and 10 at 22 % / 20 % unemployment, the per-city gate red), **0.85 / 1.02 /
+   1.26 / 0.95 at ×4** (15 / 0 / 0 / 5 %, every per-city and jobs/pop gate green), **0.91 /
+   1.11 / 1.39 / 1.06 at ×5** (city 9 over the ≤ 1.3 line); the greedy's cities 25–28 read
+   0.70 at ×3 on the probe. So ×4 — and **frozen** (round 3): the test's line moved every
+   round ("≥ 4×" → "≥ 3×" → "≥ 2×" as the cap went ×12 → ×5 → ×4, a skeptic named the
+   drift), so it now pins `cap === 4` and `jobs × cap === 200,000` exactly, 2.5× the ring's
+   housing, with the three-cap measurement above inside the test's own text; any further
+   move of that line is a refutation, not a tune.
 
-Measured (12 h, `columns.mjs`, 2026-09-14): median jobs/pop in mature cities (from the 5th,
-past run-minute 2) **1.32**, 77 % of 57 samples inside 0.8–2.0 (65 % inside 1.0–1.6; min
-0.97, max 2.38 — the cities above 2.0 are 20–23 and 29–30, where the global jobs mod runs
-ahead of housing), employed share 1.0 at every sample. A replay's opening two minutes are
-an all-housing spree by design (a 13th city at run-minute 0.2 reads two factories and a
-house, 2.7 jobs per citizen), so the probe sets those samples aside rather than reading
-them as a column fault. The probe's rule is that median inside 1.0–1.6 and ≥ 75 % of mature
-samples inside 0.8–2.0 — 20 % unemployment at worst, at most half a sticker decorative —
-because the 1.0–1.6 band is 1.6× wide and the rung asymmetry above swings the ratio ~2.5×
-over a session (housing/jobs mods 0.85 in city 20, 1.9 in city 25, 2.2 in city 31); holding
-the narrow band everywhere needs the housing and jobs rungs (upgrades) to grow at the same
-rate, not a buildings number.
+Measured (12 h, `columns.mjs`): round 1 (ring ×5, 2026-09-14) read median jobs/pop in mature
+cities (from the 5th, past run-minute 2) **1.32**, 77 % of 57 samples inside 0.8–2.0 (65 %
+inside 1.0–1.6; min 0.97, max 2.38 — the cities above 2.0 were 20–23 and 29–30, where the
+global jobs mod ran ahead of housing). On the round-2 tree with the upgrades' jobs trims in
+flight the probe read, with the opening-minute filter / without it: ring ×3 median 0.88 /
+0.80 and 52 % / 51 % in span; ×4 median 0.90 / 0.90, 64 % / 63 %; ×5 median 1.04 / 0.99,
+69 % / 67 %; and once round 2 landed, **×4 median 1.20 / 1.16, 78 % / 72 % in span** (min
+0.71, max 1.67) — the 12 unfiltered misses beyond the 6 opening-minute samples are cities
+25–28 and 32 at 0.71–0.76 (the ring 55–64 % of the jobs column, global mods housing ×18.75 /
+jobs ×7.91): the housing rungs landing ahead of the jobs terms, an upgrades re-pairing, not
+a cap this folder can buy back without re-pinning unemployment to 0. With the round-3
+re-pairing as landed (before balance's tail re-placement; 36 foundings) the same probe reads
+**median 0.99 / 0.99, 94.8 % / 92.2 % in span** (min 0.69, max 1.28): both in-span lines
+clear the rule, the median sits one hundredth under the probe's 1.0 floor. The unfiltered
+misses are cities 16–18 at 0.69–0.82 (global mods housing ×3.75 / jobs ×2.25, the
+Megastructures step before the jobs terms catch up; the ring is 20–44 % of the column
+there) and two opening minutes (cities 30, 36); cities 23–26 sit at 0.82–0.89. The median
+floor is *not* moved to pass it: the contract's per-city band is now 0.85–1.3 with a
+deliberate 2–8 % jobless stretch after each housing step, so a median a hair under 1.0 is
+the state the plan asks for, and re-deriving `RATIO_MIN` from that band is an integrator
+decision. (A scratch A/B of the plan's effects with the plan's 1× fleet prices read
+1.04 / 1.02 and 96 % / 94 %, worst complete cities 24–26 at 0.83–0.87.) That decision did
+not have to be made: **with balance's tail re-placement and Blueprints ×1.12 sweep landed
+(wave 2 round 2) the same probe reads median 1.1 / 1.1, 98 % / 97 % in span** (67 % / 69 %
+inside 1.0–1.6; min 0.75, max 1.27 filtered / 3.54 unfiltered — one opening-minute sample),
+35 foundings, ring city 14, elevator city 33; 6 h median 1.11 / 1.12, 95 % / 93 %. The
+1.0 floor stays as written, cleared with a tenth to spare.
+
+**Both readings are judged, not just printed** (round 3 — a round-1 skeptic noted the probe
+quoted the ≥ 75 % rule and applied it to the filtered set only): `columns.mjs` lists a miss
+on either reading as a problem, and the test asserts the filtered *and* the unfiltered
+in-span share against `RATIO_SHARE` at 6 h and at 12 h (`ratio` / `ratio.unfiltered` in
+`--json`, the two summary lines in text). The filtered reading is still the one the
+opening-minute reasoning belongs to — a replay's first two minutes are an all-housing spree
+by design (a 13th city at run-minute 0.2 reads two factories and a house, 2.7 jobs per
+citizen; a 5th at 0.1 reads cottages only, ratio 0) — and those samples are 9–14 % of the
+mature set, so the unfiltered line passes only when nearly every mid-city sample is in span,
+which is the stricter reading of the same rule. The probe's rule is that median inside
+1.0–1.6 and ≥ 75 % of mature samples inside 0.8–2.0 — 20 % unemployment at worst, at most
+half a sticker decorative — because the 1.0–1.6 band is 1.6× wide and the rung asymmetry
+above swings the ratio ~2× over a session; holding the narrow band everywhere needs the
+housing and jobs rungs (upgrades) to grow at the same rate, not a buildings number. The
+test spawns the probe at 6 h (round-2 tree ×4: median 1.29 / 1.24, 100 % / 93 %; A/B
+1.07 / 1.06, 91 % / 88 %) and at 12 h (the numbers above).
 
 ## Tier 5
 
@@ -104,8 +177,18 @@ megastructures fix that, each on a legacy tier the simulation already announces:
 
 | card | column | gate | opens (12 h bot) | price | curve | identity |
 |---|---|---|---|---|---|---|
-| Orbital Ring 🛸 | residential | legacy ≥ 500 | city 14 (~3.6 h) | $2e11 | ×3 | 80,000 housing (eighty arcologies), 50,000 jobs ×(1 + pop/100k) up to ×5, +0.5 joy, draws 1.2 GW ("≈ 20 × Fusion Reactor") |
-| Space Elevator 🚀 | power | legacy ≥ 300,000 | city 33 (~11.8 h) | $2e13 | ×3 | 3 GW (fifty fusion reactors) +10 % per ring up to ×3, 40,000 jobs, +0.3 joy, upkeep $75k/s (nuclear's $0.025/MW/s, a third of it at ×3) |
+| Orbital Ring 🛸 | residential | legacy ≥ 500 | city 14 (~3.6 h) | $2e11 | ×3 | 80,000 housing (eighty arcologies), 50,000 jobs ×(1 + pop/100k) up to ×4, +0.5 joy, draws 1.2 GW ("≈ 20 × Fusion Reactor") |
+| Space Elevator 🚀 | power | legacy ≥ 300,000 | city 33 (~11.8 h) | $2e13 | ×3 | 600 MW (ten fusion reactors) +10 % per ring up to ×2, 40,000 jobs, +0.3 joy, upkeep $15k/s (nuclear's $0.025/MW/s, half of it at ×2) |
+
+The elevator was 3 GW (fifty reactors) with the counterweights up to ×3 until round 2: at
+that size it was 61 % of the human 24 h fleet's sticker capacity (11 units) and 65 % of the
+greedy's at 12 h, and alone took the human's city 13 from 5.4× to 13× cap/demand and the
+greedy's city 34 to 14.7× (round-1 skeptics). 600 MW at ×2 keeps it the biggest generator
+in the game (the test holds 10–12 reactors) at ~20 % of the late fleet's capacity; the
+price, the ×3 curve and the city-33 gate — the novelty that keeps that city open past 12 h
+— are untouched, and the upkeep moves with the output so the cable still bills nuclear's
+$0.025/MW/s at the sticker. Config mirrors the three numbers in `config.buildings.elevator`
+(the `data.js matches config` test holds them equal).
 
 Both are pace-inert by construction — housing, jobs, power and joy are "variety, not pace"
 in a replay (config.js) — and priced at seconds of their opening city's income so they are
@@ -123,13 +206,15 @@ that `cadence.mjs` and `catalogue.mjs` print as `legacy N`); the UI's locked car
 hint ("Bank 500 legacy") and no progress bar, since its mirror reader knows pop and demand.
 The ring's bill is stated against the fusion reactor, not the elevator (a card the player has
 not seen when the ring opens): `powerHintFor` sizes a draw against the largest generator no
-more than twice it, and the elevator's 3 GW never becomes the unit a 10 GW bill is quoted in.
+more than twice it, and the ladder it is given is the first-city generators only — a
+legacy-gated card is never the unit — so the elevator's 600 MW (within 2× of the ring's
+1.2 GW) never becomes the unit the ring's bill, or a 10 GW tier-4 bill, is quoted in.
 
 ## Power
 
 Each generator is sized to cover a handful of same-tier consumers and the steps between
-tiers are ~11–50× (windmill 4 MW → coal 80 → solar 900 → nuclear 12,000 → fusion 60,000 →
-elevator 3,000,000), so no plant makes the one below it pointless the moment it unlocks.
+tiers are ~5–20× (windmill 4 MW → coal 80 → solar 900 → nuclear 12,000 → fusion 60,000 →
+elevator 600,000), so no plant makes the one below it pointless the moment it unlocks.
 
 **Tier-4 stickers are power bills, not rates.** Per citizen or job a tier-4 consumer draws
 11–26× the tier-3 intensity of its column: the arcology 6.5 MW per citizen against the
@@ -158,15 +243,32 @@ The fusion reactor is priced so that **the fleet is the price of admission**: at
 at ×3 it is the cheapest MW in the game ($22) and carries a third of the fleet's upkeep per
 MW. The test pins that ordering for both the defaults and the resolved defs so neither can
 drift into a $/MW sort. The elevator repeats the shape one tier up: nuclear's upkeep per MW
-at its sticker, a third of it with thirty rings anchored to the cable.
+at its sticker, half of it with ten rings anchored to the cable.
 
 **Where the under-power time is, and what moves it.** The contract asks for 3–20 % of a 12 h
-bot session under full power. Every one of those minutes is in the first city and the first
-replays; from hour 2 on the grid is never short, because a replay's income buys a plant the
-tick it is needed. What moves the share is the price of the *fix* the bot reaches for in a
-brownout: with the windmill retired at eight the coal plant is that fix from minute 5.4 (34
-MW of draw; the eight windmills give 32), so its price is the lever ($2,500 shipped). The
-first plant is bought 4.0 minutes after it opens.
+bot session under full power. Through round 2 every one of those minutes was in the first
+city and the first replays; from hour 2 on the grid was never short, because a replay's
+income buys a plant the tick it is needed and the strain rule is on the card (the build
+card prints the rule and "×N now", so a grid-ahead player — and the human bot's strain-aware
+guard, restored in round 3 — foresees a batch's strain and never browns out on it). What
+moves the early share is the price of the *fix* the bot reaches for in a brownout: with the
+windmill retired at eight the coal plant is that fix from minute 5.4 (34 MW of draw; the
+eight windmills give 32), so its price is the lever ($2,500 shipped). The first plant is
+bought 4.0 minutes after it opens.
+
+**Round 3: power binds by content, sized per city (upgrades, not this folder).** The
+whole-session power stack folds to supply ×5.49 against demand ×0.64 × 1.15 = ×0.736, net
+**×7.5** (round 1 left it at ×8.6; the pre-wave ×29 → ~×2.8 sentence is gone everywhere),
+and the 1.6–2.0× post-stack plateau is the accepted late surplus written into
+`docs/DESIGN.md`. The step a player did not choose to power — the only kind the card cannot
+foresee — is an upgrade's draw clause: the four mid-fleet employer rungs (Trading Floors
+II/III, Campus Expansion II/III, gates 90 / 130 of their fleet) each carry a +8 % city-wide
+draw, **×1.08⁴ = ×1.36 per city**, not kept across a founding so it never compounds, and
+the Energy Charter's +50 % supply is paired with +15 % draw (net ×1.30). This folder's
+numbers stay where round 2 left them — the elevator 600 MW / ×2 / $15k upkeep mirror, the
+tier-4 bills and the strain rule — and the measurement (Lights Out ≥ 30 s at ratio ≤ 0.95
+in a human city ≥ 4, under-power ≥ 1 % of ticks in hours 3–12 on the greedy) is the
+integrator's sim on the final tree, not a reading this folder can make on its own.
 
 ## Air quality and joy
 
@@ -197,10 +299,10 @@ base counts) is reported through `reportError` and registers nothing, like a mal
 | techpark | income | schools (20 → +100 %) | ×1.75 |
 | financial | income | employed citizens (20,000 → +100 %) | ×2.5 |
 | stadium | jobs | population (20,000 → +100 %) | ×2 |
-| ring | jobs | population (100,000 → +100 %) | ×5 |
+| ring | jobs | population (100,000 → +100 %) | ×4 |
 | solar | powerGen | city parks (50 → +100 %) | ×1.5 |
 | fusion | powerGen | nuclear plants (10 → +100 %) | ×3 |
-| elevator | powerGen | orbital rings (10 → +100 %) | ×3 |
+| elevator | powerGen | orbital rings (10 → +100 %) | ×2 |
 
 The stadium scales through its payroll rather than its tills on purpose. Measured
 (`tools/economy-sim.mjs`, 6 h and 12 h, 2026-09-07 config): a ticket-sales rule (income ×3
@@ -232,7 +334,7 @@ rather than glowing unaffordably for a quarter hour. The contract, measured from
 
 The early gates are placed on the curve `cadence.mjs --curve` prints. The population crawls
 from 20 to 60 citizens on cottages between minutes 1 and 5 and then jumps with the apartment
-spree, so the factory opens at 45 (4.1 min; at 30 it opened at 1.9 and glowed for seven
+spree, so the factory opens at 65 (4.8 min; it was 45 / 4.1 min before the curve moved, and at 30 it opened at 1.9 and glowed for seven
 minutes while income was $3–6/s) and the office block at 200 (7.7 min, bought at 10.4; at 80
 it opened at 5.3, 70 s before the coal plant, and glowed for five minutes). The coal plant
 gates on 34 MW of draw (5.4 min): the apartment spree lifts the draw 25 → 34 MW between 5.5
@@ -246,13 +348,18 @@ moved).
 every field involved, with the field named) and exits 1 on any fault; a legacy-only card is
 listed with a dash (it cannot open in a first city; `columns.mjs` covers the session it opens
 in). `buildings.test.mjs` spawns it and fails on a buildings-owned fault; config-owned faults
-are reported as a todo so they cannot hide either. Measured on this tree: factory 4.1 →
-bought 7.7 · coal 5.4 → 9.4 · office 7.7 → 10.4 · tower 9.6 → 11.5 · school 11.4 → 13.0 ·
-refinery 13.7 → 17.8 · mall 15.2 → 18.9 · solar 17.5 → 19.7 · hospital 20.4 → 24.5 · arcology
-22.9 → 26.5 · nuclear 27.1 → 29.3 · campus 29.8 → 32.1 · district 32.3 → 34.9 · fusion 36.1 →
-38.4 · stadium 37.9 → 41.7; every card opens ≥ 90 s after the last and is bought within 4.1
-min; the first city founds at 42.5 min. Cadence is sensitive to every sibling module's
-numbers — re-run the probe before quoting these.
+are reported as a todo so they cannot hide either. Measured on the round-3 tree (the
+upgrades' F7 Green Belts clause — cottages and apartment blocks hold +10 %, a $1,500
+first-city rung — lifted the curve from minute 7.5, so the **tower gate moved 250 → 300**
+(at 250 it opened 32 s after the office) and the **mall gate 3,000 → 3,100** (at 3,000, 82 s
+after the refinery); config pins neither gate): factory 4.8 → bought 9.4 · coal 5.4 → 9.3 ·
+office 7.6 → 10.1 · tower 9.5 → 11.5 · school 11.0 → 12.9 · refinery 13.3 → 18.0 · mall 15.0
+→ 18.8 · solar 16.6 → 19.8 · hospital 19.5 → 22.9 · arcology 21.9 → 24.5 · nuclear 25.9 →
+27.6 · campus 27.7 → 29.6 · district 31.2 → 34.1 · fusion 33.9 → 35.9 · stadium 36.1 → 38.2;
+every card opens ≥ 90 s after the last and is bought within 4.7 min; the first city founds
+at 40.2 min. (Round 2 read factory 4.1 → 7.7 · office 7.7 → 10.4 · tower 9.6 → 11.5 · mall
+15.2 → 18.9 · stadium 37.9 → 41.7, first city 42.5.) Cadence is sensitive to every sibling
+module's numbers — re-run the probe before quoting these.
 
 The windmill gates on live power demand, so the first cottage is always followed by one dark
 tick. Measured (12 h sim): opening the windmill from the start drops the "happiness dips below
@@ -287,6 +394,52 @@ config.js says a retune elsewhere of more than ~1 % needs that), so the knees an
 cities are a re-placement, not a knob in this folder. Final city: 15 rings, 10 elevators,
 8 windmills, 160–250 of every other type.
 
+## Measured (round 2, 2026-09-14, `logs/sim-build-buildings.txt` and the plan's scratch A/B)
+
+This folder's three round-2 changes were measured one at a time against the round-1
+upgrades (scratch copies of the tree with `git show HEAD:src/upgrades/data.js`, greedy 12 h):
+the knee alone leaves the greedy at 32 foundings, under-power 3.5 %, unemployment 0 % in
+every city ≥ 5 and cap/demand by hour 1.11 … 1.34 1.55 1.91 4.16 5.78 (the elevator city is
+not reached: 270k legacy at 12 h — round 1's 33rd founding at 710 min becomes a 33rd city
+open from 710.6 in every variant, with cycles 1–24 identical to round 1's log to the
+tenth); the ring at ×3 on top costs the greedy's cities 26–28 1.5–3 min each (13–15 %
+unemployment, jobs/pop ≈ 0.87), which is what the ×4 hold above answers; the elevator trim
+is nil at 12 h (never bought) and is a 24 h human reading (integrator's run). On the live
+round-2 tree (upgrades and balance in flight) the human 6 h profile passes every buildings
+gate line the sim prints; the greedy's hours 8–11 brown out at 50–94 % of ticks from city 25
+with cap/demand 0.71–0.76 — the Ringworld District's demand term landing in city 24 against
+the cut supply stack before balance re-places the ladder, with no elevator owned — and its
+late unemployment is 33–51 % at every ring cap (see *Jobs and housing*): both are upstream
+of this folder and reported to the integrator.
+
+## Measured (round 3, 2026-09-14, `columns.mjs` on the round-2 tree and a scratch A/B)
+
+The folder's changes this round: the frozen ring line, the unfiltered columns rule (judged
+at 6 h and 12 h), the tower 250 → 300 and mall 3,000 → 3,100 gate re-spacing on the Green
+Belts curve (*Unlock spacing*), and this file; the elevator 600 MW / ×2 / $15k mirror and
+the ring ×4 are untouched. Readings, filtered / unfiltered in-span share (rule ≥ 75 % on
+both), greedy bot: **round-2 tree** 12 h median 1.20 / 1.16, 78 % / 72 %, 34 foundings,
+ring city 14 bought in every city to 34, elevator city 33 (690 min); 6 h 1.29 / 1.24,
+100 % / 93 %. **Round-3 tree as landed** (upgrades' re-pairing — Civic jobs term removed,
+Ringworld / Skyline jobs ×2.0, Shipyard ×1.25, Exchange Ring all jobs ×1.5, Blueprints
+×1.15, fleet rungs II/III draw ×1.08, Energy Charter draw ×1.15, fleet rungs at their 1×
+prices; core's strain-aware human guard; balance's tail re-placement and Blueprints sweep
+not yet applied) 12 h median 0.99 / 0.99, **94.8 % / 92.2 %**, 36 foundings, ring city 14
+bought in every city to 36, elevator city 33 (643 min), global mods at the last sample
+housing ×37.5 / jobs ×21.09; 6 h passes both readings. The human 6 h profile on the same
+tree (`logs/sim-build-buildings.txt`): 0 errors, cycles 45.5 16.0 20.9 62.3 76.4 67.8,
+jobs/pop by complete city 1.22 / 1.09 / 1.06 (cities 4–6, the 0.85–1.3 gate green),
+cap/demand by hour 1.07 1.56 1.54 1.54 1.34 1.07, no city ≥ 3×; the red lines are
+upstream — unemployment 21 % in hour 6 (city 7's Megastructures step), the 2–15 % band in
+0 of hours 3–6, Lights Out in 0 complete cities ≥ 4 under the strain-aware guard (city 7 in
+progress reads 138 s under power), decision gaps 60 / 76 / 43 min in cities 4–6.
+What was red in this folder's own suite on that tree — the 12 h probe's **median 0.99
+against its 1.0 floor** — went green with **balance's tail re-placement and Blueprints
+×1.12 sweep** (wave 2 round 2): 12 h median 1.1 / 1.1, 98 % / 97 % in span, min 0.75
+(cities 16–18 no longer dip under 0.85), 35 foundings, ring city 14 bought in every city to
+35, elevator city 33 (668 min); 6 h 1.11 / 1.12, 95 % / 93 %. The floor was not touched;
+the whole suite (29 tests, both probes) passes on the shipped tree.
+
 ## Live-stat seam
 
 `resources.computeDerived`, the bot scorer and the build card read the registered
@@ -294,8 +447,10 @@ definition's field (`registry.buildings.get(id).income`) directly. The scaled fi
 registered definition is therefore an *accessor* over the live store: reading it returns
 `liveStat(id, stat)`, assigning to it re-pins the base. Anything new should call
 `game.buildings.liveStat` / `baseStat` instead of reading the field. `game.buildings` also
-carries `capOf(def)` and `powerHintFor(def, generators)` for tools, and `index.js` exports
-`DEFAULT_TIER_GROWTH` (the config ladder's fallback copy) for the test that holds it to config.
+carries `capOf(def)`, `powerHintFor(def, generators)` and `unitCost(def, i)` (the
+two-segment unit price before mods) for tools, and `index.js` exports `DEFAULT_TIER_GROWTH`,
+`DEFAULT_KNEE` and `DEFAULT_LATE_GROWTH` (the config ladder's fallback copies) for the tests
+that hold them to config.
 
 The card strings a definition carries are `synergy.text` (✦), `demandGrowth.text` (⚡, the
 strain line — a config re-pin of per/cap without a text gets one from `strainText`) and the

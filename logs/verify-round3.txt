@@ -1,0 +1,6 @@
+
+> incremental-simcity@0.1.0 verify
+> node tools/verify.mjs --ticks 10000 --tag round3
+
+[verify] PASS ticks=10000 money=13377 pop=3533 income=3167.40/s tick avg=0.018ms p99=0.10ms fps=60.3 errors=0
+[verify] wrote C:\Users\gotmi\OneDrive\Documents\GitHub\incremental-simcity\logs\round3.json

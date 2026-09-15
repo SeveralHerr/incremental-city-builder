@@ -23,6 +23,8 @@ import {
   MILESTONE_IDS,
   FRONTIER_GATE,
   PACE_GATE,
+  FLEET_GATES,
+  FLEET_DRAW,
   CHARTER_GATE,
   CHARTER_MIN_COST,
   CHARTER_MAX_COST,
@@ -90,11 +92,13 @@ test('definitions: unique ids, categories, tiers, short descs, hints everywhere'
     }
     if (d.currency !== undefined) assert.ok(d.currency === 'money' || d.currency === 'legacy', `${d.id}: currency ${d.currency}`);
   }
-  // 70 rungs: 33 core, 9 pace, 9 frontier, 7 Legacy, 12 charter perks. A count the header
-  // comments, README.md and docs/DESIGN.md quote — pinned so a new rung updates them.
-  assert.equal(UPGRADES.length, 70, `ladder has ${UPGRADES.length} rungs`);
+  // 86 rungs: 33 core, 16 fleet (tier-4 core, count-gated), 9 pace, 9 frontier, 7 Legacy,
+  // 12 charter perks. A count the header comments, README.md and docs/DESIGN.md quote —
+  // pinned so a new rung updates them.
+  assert.equal(UPGRADES.length, 86, `ladder has ${UPGRADES.length} rungs`);
   assert.equal(UPGRADES.filter((d) => d.currency === 'legacy').length, 12);
-  assert.equal(UPGRADES.filter((d) => d.currency !== 'legacy').length, 58);
+  assert.equal(UPGRADES.filter((d) => d.currency !== 'legacy').length, 74);
+  assert.equal(UPGRADES.filter((d) => d.fleet).length, 16);
   assert.equal(MILESTONE_IDS.length, new Set(MILESTONE_IDS).size);
   // Card variety: the thirty identical Civic Bonds are gone for good. The repeats below
   // are money rungs whose ids and effects predate this pass (the three "−20% cost" rungs,
@@ -138,27 +142,28 @@ test('hints read as the rule they mirror', () => {
   assert.match(byId('smart-grid').unlockHint, /brownout/i);
   // The dear Legacy rungs name the points and the earnings door, and mirror the earnings
   // (the door that opens last), like a frontier card.
-  assert.equal(byId('standing-orders').unlockHint, 'Bank 50 legacy points and own Institutional Memory, then earn $1T in this city');
-  assert.deepEqual(byId('standing-orders').unlockAt, { earned: 4.03e12 / 4 });
+  assert.equal(byId('standing-orders').unlockHint, 'Bank 50 legacy points and own Institutional Memory, then earn $1.7T in this city');
+  assert.deepEqual(byId('standing-orders').unlockAt, { earned: 6.91e12 / 4 });
   assert.equal(byId('institutional-memory').unlockHint, 'Bank 10 legacy points, then earn $7.5M in this city');
   assert.deepEqual(byId('institutional-memory').unlockAt, { earned: 7.5e6 });
   // Frontier rungs quote the earnings gate in the hint and mirror it for the bar.
-  assert.equal(byId('dyson-swarm').unlockHint, 'Earn $12M in this city');
-  assert.deepEqual(byId('dyson-swarm').unlockAt, { earned: 1.1975e7 });
-  assert.equal(byId('mass-driver-port').unlockHint, 'Earn $2.3T in this city');
-  assert.equal(byId('ringworld-district').unlockHint, 'Earn $17.5T in this city');
-  assert.equal(byId('galactic-charter').unlockHint, 'Earn $130.5T in this city');
-  assert.equal(byId('helios-array').unlockHint, 'Earn $562.5T in this city');
-  assert.equal(byId('exchange-ring').unlockHint, 'Earn $1.2Qa in this city');
+  assert.equal(byId('dyson-swarm').unlockHint, 'Earn $12.5M in this city');
+  assert.deepEqual(byId('dyson-swarm').unlockAt, { earned: 1.2475e7 });
+  assert.equal(byId('mass-driver-port').unlockHint, 'Earn $3.3T in this city');
+  assert.equal(byId('ringworld-district').unlockHint, 'Earn $19.4T in this city');
+  assert.equal(byId('galactic-charter').unlockHint, 'Earn $213.3T in this city');
+  assert.equal(byId('orbital-shipyard').unlockHint, 'Earn $477.5T in this city');
+  assert.equal(byId('helios-array').unlockHint, 'Earn $700T in this city');
+  assert.equal(byId('exchange-ring').unlockHint, 'Earn $1.3Qa in this city');
   assert.equal(fmtMoney(1e18), '$1Qi');
   // Pace rungs keep both doors in the rule but surface only the hold — the door that opens
   // them in practice — so the hint is the price and the bar counts the treasury toward it,
   // never "Earn $34.4Qa" for a $344T card.
-  assert.equal(byId('robotic-assembly').unlockHint, 'Hold $262M');
-  assert.deepEqual(byId('robotic-assembly').unlockAt, { money: 2.62e8 });
-  assert.equal(byId('superconductor-grid').unlockHint, 'Hold $435T');
-  assert.deepEqual(byId('superconductor-grid').unlockAt, { money: 4.35e14 });
-  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points, then earn $525B in this city');
+  assert.equal(byId('robotic-assembly').unlockHint, 'Hold $249M');
+  assert.deepEqual(byId('robotic-assembly').unlockAt, { money: 2.49e8 });
+  assert.equal(byId('superconductor-grid').unlockHint, 'Hold $609T');
+  assert.deepEqual(byId('superconductor-grid').unlockAt, { money: 6.09e14 });
+  assert.equal(byId('city-archives').unlockHint, 'Bank 20 legacy points, then earn $382.5B in this city');
   // Charter perks quote the spendable points they wait for (bank − spent, what the Sign
   // button checks), never the whole bank.
   assert.equal(byId('charter-homestead').unlockHint, 'Have 2 spendable legacy points');
@@ -170,14 +175,21 @@ test('hints read as the rule they mirror', () => {
 
 test('happiness: flat city-wide adds only, descs quote the exact add in percent', () => {
   assert.equal(byId('community-events').desc, 'Happiness +10% and population grows +25% faster');
-  assert.equal(byId('green-belts').desc, 'Happiness +5% and population grows +25% faster');
+  // Green Belts and Veteran Planners (F7, round 3): the growth clause each carried was
+  // measured at pop/housing 1.00 at purchase and is gone; the desc names what is felt.
+  assert.equal(byId('green-belts').desc, 'Happiness +5% · cottages hold +25% residents');
   // Rungs that open once a city is already happy (h ≈ 1.9+) carry no happiness clause: at
   // that point +10% happiness is a +3% income footnote, so they move jobs, growth or income.
   assert.equal(byId('modern-curriculum').desc, 'All jobs +25% and all income +8%');
   assert.equal(byId('preventive-care').desc, 'Civic buildings cost −25%: parks, schools, hospitals, stadiums');
   assert.equal(byId('championship-season').desc, 'Stadiums earn +100% income and provide +100% jobs');
-  assert.equal(byId('veteran-planners').desc, 'Population grows +100% faster and happiness +10%');
-  assert.equal(byId('charter-civic').desc, 'All jobs +50% · population grows +50% faster');
+  assert.equal(byId('veteran-planners').desc, 'Happiness +10% · tier 1–2 buildings cost −25%');
+  assert.equal(byId('charter-civic').desc, 'Parks, schools, hospitals and stadiums cost −50% · all income +3%');
+  // The two late rungs whose demand cut was removed in round 2 (header, "Power") carry
+  // flat happiness as the felt term, and the desc quotes it; the Energy Charter's desc
+  // also names the draw it carries since round 3.
+  assert.equal(byId('stellar-engine').desc, 'All buildings cost −20% · happiness +10%');
+  assert.equal(byId('charter-energy').desc, 'Power +50% · happiness +15% · all buildings draw +15% power');
   let flatTotal = 0;
   for (const d of UPGRADES) {
     assert.ok(!/\+0\.\d+/.test(d.desc), `${d.id}: raw decimal in desc "${d.desc}"`);
@@ -192,11 +204,13 @@ test('happiness: flat city-wide adds only, descs quote the exact add in percent'
     else assert.equal(mods.happiness, 0, `${d.id}: silent happiness add`);
     flatTotal += mods.happiness;
   }
-  // Only the three rungs that open while a city is still unhappy add flat happiness
-  // (Community Events, Green Belts, Veteran Planners), 0.25 in total against the 3.0 cap, so
-  // civic buildings — not upgrades — decide happiness.
-  assert.ok(Math.abs(flatTotal - 0.25) < 1e-9, `ladder adds ${flatTotal} happiness in total`);
-  for (const id of ['community-events', 'green-belts', 'veteran-planners']) assert.match(byId(id).desc, /happiness \+/i, id);
+  // Five rungs add flat happiness: the three that open while a city is still unhappy
+  // (Community Events, Green Belts, Veteran Planners, 0.25) and the two late rungs whose
+  // demand cut was ∞-payback on a 2–13× grid (Stellar Engine +0.1, Energy Charter +0.15) —
+  // 0.5 in total against the 3.0 cap, so civic buildings — not upgrades — decide happiness.
+  assert.ok(Math.abs(flatTotal - 0.5) < 1e-9, `ladder adds ${flatTotal} happiness in total`);
+  for (const id of ['community-events', 'green-belts', 'veteran-planners', 'stellar-engine', 'charter-energy']) assert.match(byId(id).desc, /happiness \+/i, id);
+  assert.equal(UPGRADES.filter((d) => /happiness \+/i.test(d.desc)).length, 5);
 });
 
 test('every effect leaves a deep-frozen state untouched, only writes the mods bag, and folds without NaN', () => {
@@ -223,10 +237,94 @@ test('every effect leaves a deep-frozen state untouched, only writes the mods ba
     assert.ok(Number.isFinite(all[k]) && all[k] > 0, `all owned: mods.${k} = ${all[k]}`);
   }
   assert.ok(all.cost < 1 && all.cost > 0.05, `all owned: cost ${all.cost}`);
-  assert.ok(all.demand < 1 && all.demand > 0.05, `all owned: demand ${all.demand}`);
+  // Two demand cuts in the whole ladder (Smart Grid, Superconductor Grid: ×0.64), one perk
+  // draw (Energy Charter ×1.15) and the four per-city fleet draws (×1.08 each): a late city
+  // that owns everything draws ×0.736 · 1.36 ≈ ×1.0 of its stickers — see the full-stack
+  // fold below.
+  assert.ok(Math.abs(all.demand - 0.8 * 0.8 * 1.15 * Math.pow(1.08, 4)) < 1e-9, `all owned: demand ${all.demand}`);
+  assert.ok(all.demand > 0.95 && all.demand < 1.05, `all owned: demand ${all.demand} (rule: ≈ ×1.0 of the stickers)`);
   for (const [id, m] of Object.entries(all.byBuilding)) {
     for (const k of ['income', 'housing', 'jobs', 'power', 'cost']) assert.ok(Number.isFinite(m[k]) && m[k] > 0, `all owned: ${id}.${k}`);
   }
+});
+
+test('full-stack fold (F2, round 3): every money rung and perk owned folds to net supply/demand ×7.5; the fleet draw ×1.36 per city on top', () => {
+  // The whole-session power stack the header pins: the global supply rungs (Grid
+  // Substations 1.25 · Dyson 1.25 · Orbital Solar 1.25 · Grid Charter 1.5 · Energy Charter
+  // 1.5 · Helios 1.25 = ×5.49) over the global demand terms (Smart Grid 0.8 · Superconductor
+  // 0.8 · the Energy Charter's draw 1.15 = ×0.736) is ×7.5 net (round 2: ×8.6 with the
+  // Energy Charter demand-neutral; round 1: ×9.5 / ×0.33 = ×29, and the human profile read
+  // cap/demand 13× by city 13 of a 24 h session, the greedy 14.7× from city 34). The four
+  // fleet draws (Trading Floors II/III, Campus Expansion II/III, ×1.08 each) are per city —
+  // tier 4 is in no keeper's rule, so a founding takes them — and fold to ×1.36 on top,
+  // never compounding across cities. Header, "Power": why the plan's ≤ ×4 is not the bound
+  // (the bare grid falls ×0.9 per city, so matching draws on the housing rungs put whole
+  // cities in the dark) and why the draws sit at fleet 90–130 and on the Energy Charter.
+  // Per-building power terms (the first city's plant rungs, the Reactor Refits) are outside
+  // the global bag and outside this rule.
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const fold = createMods();
+  for (const d of UPGRADES) if (!d.fleet) d.effect(fold, FROZEN_STATE);
+  assert.ok(near(fold.power, 1.25 * 1.25 * 1.25 * 1.5 * 1.5 * 1.25), `global power ×${fold.power}`);
+  assert.ok(near(fold.demand, 0.8 * 0.8 * 1.15), `global demand ×${fold.demand}`);
+  assert.ok(fold.power <= 5.5, `global supply stack ×${fold.power} (rule ≤ 5.5)`);
+  assert.ok(fold.demand >= 0.736 - 1e-9, `global demand stack ×${fold.demand} (rule ≥ 0.736)`);
+  assert.ok(fold.power / fold.demand <= 7.5, `net supply/demand ×${fold.power / fold.demand} (rule ≤ 7.5)`);
+  const fleetFold = createMods();
+  for (const d of UPGRADES) if (d.fleet) d.effect(fleetFold, FROZEN_STATE);
+  assert.ok(near(fleetFold.demand, Math.pow(1.08, 4)), `fleet draw per city ×${fleetFold.demand} (rule ×1.36)`);
+  assert.ok(near(fleetFold.power, 1), 'the fleet ladder adds no global supply');
+  // Every demand term in the ladder, derived from the source: the two cuts, the one perk
+  // draw and the four fleet draws — nothing else moves demand, no rung above $1e12 cuts it
+  // but the Superconductor Grid, every perk's term is ≥ 1, and no global supply rung is
+  // above ×1.5.
+  const demandTerms = {};
+  for (const d of UPGRADES) {
+    const m = createMods();
+    d.effect(m, FROZEN_STATE);
+    if (!near(m.demand, 1)) demandTerms[d.id] = m.demand;
+    if (d.cost > 1e12 && d.currency !== 'legacy' && d.id !== 'superconductor-grid') assert.ok(m.demand >= 1, `${d.id}: a late demand cut (×${m.demand})`);
+    if (d.currency === 'legacy') assert.ok(m.demand >= 1, `${d.id}: a perk cuts demand (×${m.demand})`);
+    assert.ok(m.power <= 1.5 + 1e-9, `${d.id}: global power ×${m.power} above the ×1.5 perk floor`);
+  }
+  assert.deepEqual(demandTerms, {
+    'smart-grid': 0.8,
+    'superconductor-grid': 0.8,
+    'charter-energy': 1.15,
+    'trading-floors-2': 1.08,
+    'trading-floors-3': 1.08,
+    'campus-expansion-2': 1.08,
+    'campus-expansion-3': 1.08,
+  });
+  const stellar = createMods();
+  byId('stellar-engine').effect(stellar, {});
+  assert.ok(near(stellar.cost, 0.8) && near(stellar.demand, 1) && near(stellar.happiness, 0.1));
+  const yard = createMods();
+  byId('orbital-shipyard').effect(yard, {});
+  assert.ok(near(yard.jobs, 1.25) && near(yard.demand, 1), 'Shipyard: jobs ×1.25 (round 3), no demand cut');
+  for (const id of ['factory', 'refinery', 'techpark']) assert.ok(near(yard.byBuilding[id].cost, 0.75), `shipyard: ${id} −25%`);
+  // The orbital housing rungs carry no draw clause (measured and rejected, see data.js);
+  // their jobs terms are the round-3 pairing (header, "Housing").
+  const ring = createMods();
+  byId('ringworld-district').effect(ring, {});
+  assert.ok(near(ring.housing, 2.5) && near(ring.jobs, 2.0) && near(ring.demand, 1));
+  const xr = createMods();
+  byId('exchange-ring').effect(xr, {});
+  assert.ok(near(xr.housing, 2) && near(xr.demand, 1) && near(xr.jobs, 1.5) && Object.keys(xr.byBuilding).length === 0, 'Exchange Ring: all jobs ×1.5, nothing per building');
+  const sky = createMods();
+  byId('charter-skyline').effect(sky, {});
+  assert.ok(near(sky.housing, 2) && near(sky.jobs, 2.0), 'Skyline Charter: housing ×2 · jobs ×2');
+  // The late housing/jobs fold the header states: global housing ×37.5 against global jobs
+  // ×21.1 (round 2: ×13.8 plus the Exchange Ring's commerce-only ×2).
+  assert.ok(near(fold.housing, 1.25 * 1.5 * 2 * 2.5 * 2 * 2), `global housing ×${fold.housing}`);
+  assert.ok(near(fold.jobs, 1.25 * 1.5 * 1.2 * 1.25 * 2 * 2 * 1.25 * 1.5), `global jobs ×${fold.jobs}`);
+  assert.ok(fold.jobs / fold.housing > 0.5 && fold.jobs / fold.housing < 0.65, `jobs/housing fold ${fold.jobs / fold.housing} (the ring's synergy jobs and the per-building terms carry the rest)`);
+  const dyson = createMods();
+  byId('dyson-swarm').effect(dyson, {});
+  assert.ok(near(dyson.power, 1.25));
+  const solar = createMods();
+  byId('orbital-solar').effect(solar, {});
+  assert.ok(near(solar.power, 1.25));
 });
 
 test('every unlock tolerates {} / undefined / frozen inputs and returns a boolean', () => {
@@ -296,7 +394,7 @@ test('legacy rungs: the three dear ones need their points and a quarter of the p
   assert.equal(moved.unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 2e12 } }), true);
   assert.equal(moved.unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1.9e12 } }), false);
   assert.equal(moved.unlock({ prestige: { legacy: 49 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1e13 } }), false, 'the points still count');
-  assert.equal(byId('standing-orders').unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1.01e12 } }), true, 'source def keeps its own door');
+  assert.equal(byId('standing-orders').unlock({ prestige: { legacy: 50 }, upgrades: { 'institutional-memory': true }, stats: { totalEarned: 1.73e12 } }), true, 'source def keeps its own door');
   assert.equal(legacyFrontier({ cost: 400 }).unlockHint, 'Earn $100 in this city');
   assert.equal(legacyFrontier(undefined).unlock({ stats: { totalEarned: 0 } }), true, 'garbage def: a zero door, never a throw');
   // Founding memory still re-grants a kept rung without consulting the door.
@@ -384,9 +482,32 @@ test('charter perks are strong and varied: each moves a multiplier by ≥50% (co
     for (const m of Object.values(mods.byBuilding)) for (const k of ['income', 'housing', 'jobs', 'power']) if (m[k] > 1) { best = Math.max(best, m[k] - 1); levers.add('by:' + k); }
     for (const k of ['cost', 'demand', 'upkeep']) if (mods[k] < 1) levers.add(k);
     const down = Math.max(1 - mods.cost, 1 - mods.demand, 1 - mods.upkeep);
+    // The Civic Charter is the one perk under the global bar on purpose (round 3): its jobs
+    // ×1.25 is gone (it landed on a 1.24 jobs/pop city; data.js header, "Housing"), the
+    // −50 % on the four civic buildings is per building (~5 % of late spend) and its income
+    // ×1.03 is the cadence dial sized to the 1.35 line — ×1.10 there reads ×1.374 at cycle
+    // 34 (data.js) — so it is measured as the pair it is, not against the +50 % floor.
+    if (d.id === 'charter-civic') {
+      assert.ok(near(mods.jobs, 1) && near(mods.income, 1.03) && near(mods.growth, 1), 'civic: no jobs, no growth, income ×1.03');
+      for (const id of ['park', 'school', 'hospital', 'stadium']) assert.ok(near(mods.byBuilding[id].cost, 0.5), `civic: ${id} −50%`);
+      assert.equal(Object.keys(mods.byBuilding).length, 4, 'civic: the four civic buildings only');
+      continue;
+    }
     assert.ok(best >= 0.5 - 1e-9 || down >= 0.15 - 1e-9, `${d.id}: strongest +${(best * 100).toFixed(0)}% / −${(down * 100).toFixed(0)}% — too weak for a perk`);
   }
-  for (const k of ['income', 'housing', 'power', 'growth', 'jobs', 'cost', 'demand', 'upkeep', 'by:income']) assert.ok(levers.has(k), `no perk pulls ${k}`);
+  // Every perk demand term is ≥ 1: no perk cuts demand (the Energy Charter's ×0.75 was one
+  // of the five late clauses behind the round-1 runaway; header, "Power") — since round 3
+  // the Energy Charter draws ×1.15 instead, the one perk demand term, pinned here.
+  for (const k of ['income', 'housing', 'power', 'growth', 'jobs', 'cost', 'upkeep', 'by:income']) assert.ok(levers.has(k), `no perk pulls ${k}`);
+  assert.ok(!levers.has('demand'), 'a perk cuts demand');
+  const perkFold = createMods();
+  for (const d of PERKS) {
+    const m = createMods();
+    d.effect(m, FROZEN_STATE);
+    assert.ok(m.demand >= 1, `${d.id}: demand ×${m.demand} < 1`);
+    d.effect(perkFold, FROZEN_STATE);
+  }
+  assert.ok(near(perkFold.demand, 1.15), `perk demand fold ×${perkFold.demand} (rule: the Energy Charter's 1.15 alone)`);
   const m1 = createMods();
   byId('charter-mint').effect(m1, {});
   assert.ok(near(m1.income, 1.5) && near(m1.upkeep, 0.75));
@@ -404,7 +525,8 @@ test('charter perks are strong and varied: each moves a multiplier by ≥50% (co
   for (const id of ['shop', 'office', 'mall', 'financial']) assert.ok(near(m4.byBuilding[id].income, 2), `merchant: ${id}`);
   const m5 = createMods();
   byId('charter-energy').effect(m5, {});
-  assert.ok(near(m5.power, 1.5) && near(m5.demand, 0.75), 'Energy Charter: ×1.5 power, the perk floor, keeps the supply stack small (F2)');
+  assert.ok(near(m5.power, 1.5) && near(m5.demand, 1.15) && near(m5.happiness, 0.15), 'Energy Charter: ×1.5 power, the perk floor, ×1.15 draw (net ×1.30), +15% happiness (F2 round 3)');
+  assert.ok(m5.power / m5.demand > 1.29 && m5.power / m5.demand < 1.31, 'Energy Charter lands as net ×1.30');
   const m6 = createMods();
   byId('charter-imperial').effect(m6, {});
   assert.ok(near(m6.income, 3) && near(m6.cost, 0.85));
@@ -415,7 +537,7 @@ test('charter perks are strong and varied: each moves a multiplier by ≥50% (co
 
 test('frontier ladder: nine named rungs at the shipped prices, ascending, opening at a quarter of the price earned this run', () => {
   assert.deepEqual(FRONTIER.map((d) => d.id), FRONTIER_IDS);
-  assert.deepEqual(FRONTIER.map((d) => d.cost), [4.79e7, 3.2e10, 9e12, 7.0e13, 3.18e14, 5.22e14, 1.35e15, 2.25e15, 4.87e15]);
+  assert.deepEqual(FRONTIER.map((d) => d.cost), [4.99e7, 3.65e10, 1.32e13, 7.77e13, 4.45e14, 8.53e14, 1.91e15, 2.80e15, 5.09e15]);
   // Placed by city (config.js), so the spacing is uneven —   // Port and the Ringworld District, ×2,150 below it — but always ascending, and never
   // wider than ×6 above the Stellar Engine (the Helios Array splits the old ×23 step).
   for (let i = FRONTIER.findIndex((d) => d.id === 'stellar-engine') + 1; i < FRONTIER.length; i++) assert.ok(FRONTIER[i].cost / FRONTIER[i - 1].cost <= 6, `${FRONTIER[i].id}: ×${(FRONTIER[i].cost / FRONTIER[i - 1].cost).toFixed(1)} step`);
@@ -438,16 +560,23 @@ test('frontier ladder: nine named rungs at the shipped prices, ascending, openin
     descs.add(d.desc);
   }
   // Every rung is a different lever, and the ladder as a whole pulls income, housing,
-  // power, jobs, cost and demand — no growth lever (F7: pop fills housing in under a
-  // second by the time the frontier opens, so a growth clause there is nil), and the power
-  // and demand terms are small on purpose (F2: Dyson ×1.5 · Helios ×1.5, Shipyard 0.85 ·
-  // Stellar 0.8 — part of the ≤ ×9.5 supply / ≥ ×0.33 demand global stack the header pins).
+  // power, jobs and cost — no growth lever (F7: pop fills housing in under a second by the
+  // time the frontier opens, so a growth clause there is nil). The power terms are small
+  // on purpose (F2 round 2: Dyson ×1.25 · Helios ×1.25 = ×1.56, part of the ≤ ×5.5 supply
+  // stack the header pins) and the frontier moves demand not at all — the Stellar Engine's
+  // and the Shipyard's cuts are gone, and no frontier rung draws (the draws sit on the
+  // Energy Charter and the mid-fleet rungs, where a bot or player buys out of them in
+  // minutes; header, "Power"). Jobs: Ringworld 2.0 · Shipyard 1.25 · Exchange Ring 1.5 =
+  // ×3.75 against housing 2.5 · 2 = ×5 (round 3 pairing; header, "Housing").
   const fold = createMods();
   for (const d of FRONTIER) d.effect(fold, FROZEN_STATE);
-  assert.ok(fold.income >= 5 && fold.housing >= 5 && fold.power >= 2 && fold.power <= 2.5 && fold.jobs >= 2.5, 'frontier multipliers');
+  assert.ok(fold.income >= 5 && fold.housing >= 5 && fold.power >= 1.5 && fold.power <= 1.6, 'frontier multipliers');
+  assert.ok(Math.abs(fold.jobs - 2.0 * 1.25 * 1.5) < 1e-9 && Math.abs(fold.housing - 5) < 1e-9, `frontier jobs ×${fold.jobs} / housing ×${fold.housing}`);
   assert.ok(Math.abs(fold.growth - 1) < 1e-9, 'no frontier growth lever');
-  assert.ok(fold.cost < 0.7 && fold.demand <= 0.7 && fold.demand >= 0.6, 'frontier discounts');
-  assert.ok(fold.byBuilding.financial.income >= 2 && fold.byBuilding.techpark.income >= 2 && fold.byBuilding.mall.jobs >= 2, 'frontier per-building');
+  assert.ok(fold.cost < 0.7 && Math.abs(fold.demand - 1) < 1e-9, 'frontier discounts, no demand term');
+  assert.ok(fold.byBuilding.financial.income >= 2 && fold.byBuilding.techpark.income >= 2, 'frontier per-building');
+  for (const m of Object.values(fold.byBuilding)) assert.ok(Math.abs(m.jobs - 1) < 1e-9, 'no per-building jobs term on the frontier (the Exchange Ring is all jobs ×1.5 since round 3)');
+  assert.ok(Math.abs(fold.byBuilding.factory.cost - 0.75) < 1e-9 && Math.abs(fold.byBuilding.techpark.cost - 0.75) < 1e-9, 'the Shipyard discounts industry');
   // earnedUnlock follows the price it is given (config overrides move the gate).
   const moved = earnedUnlock({ ...byId('dyson-swarm'), cost: 4e13 });
   assert.equal(moved.unlock({ stats: { totalEarned: 1e13 } }), true);
@@ -457,15 +586,123 @@ test('frontier ladder: nine named rungs at the shipped prices, ascending, openin
   assert.deepEqual(earnedUnlock({ cost: 0 }).unlockAt, { earned: 0 });
   assert.equal(earnedUnlock(undefined).unlock({ stats: { totalEarned: 0 } }), true, 'garbage def: a zero gate, never a throw');
   // The core ladder (what a first city buys) tops out at Breeder Reactors; everything
-  // above is placed per replay city and split between the pace and frontier ladders.
-  const core = UPGRADES.filter((d) => !d.frontier && !d.pace && d.category !== 'prestige' && d.currency !== 'legacy');
+  // above is placed per replay city and split between the pace and frontier ladders — or
+  // is a fleet rung, gated on the city's own building count.
+  const core = UPGRADES.filter((d) => !d.frontier && !d.pace && !d.fleet && d.category !== 'prestige' && d.currency !== 'legacy');
   assert.equal(Math.max(...core.map((d) => d.cost)), 2e7);
-  for (const d of UPGRADES) if (d.currency !== 'legacy' && d.category !== 'prestige' && d.cost > 2e7) assert.ok(d.frontier || d.pace, `${d.id}: a late rung outside both ladders`);
+  for (const d of UPGRADES) if (d.currency !== 'legacy' && d.category !== 'prestige' && d.cost > 2e7) assert.ok(d.frontier || d.pace || d.fleet, `${d.id}: a late rung outside the three late ladders`);
+});
+
+test('fleet ladder (F1): sixteen count-gated tier-4 core rungs in four columns, funded, re-bought every city', () => {
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  const fleet = UPGRADES.filter((d) => d.fleet);
+  assert.deepEqual(FLEET_GATES, [60, 90, 130, 180]);
+  // Prices (round 3): the undiscounted unit price at the gate count on the shipped cost
+  // curve (api.buildingCost(def, gate) with no mods, rounded to two figures) — a decision
+  // 30 s – 15 min away on the plateau, not a quarter of it (data.js, "Prices").
+  const COLUMNS = [
+    ['arcology-blueprints', 'arcology', 'residential', 'housing', 1.12, [7.0e7, 1.7e9, 1.2e11, 2.4e13]],
+    ['trading-floors', 'financial', 'commercial', 'jobs', 1.12, [4.1e8, 9.9e9, 6.9e11, 1.4e14]],
+    ['campus-expansion', 'techpark', 'industrial', 'jobs', 1.12, [4.6e8, 1.4e10, 9.9e11, 2.0e14]],
+    ['reactor-refits', 'fusion', 'power', 'power', 1.08, [2.3e9, 5.6e10, 3.9e12, 8.0e14]],
+  ];
+  assert.deepEqual(
+    fleet.map((d) => d.id),
+    COLUMNS.flatMap(([col]) => [1, 2, 3, 4].map((i) => `${col}-${i}`))
+  );
+  const drawsOn = (id) => /^(trading-floors|campus-expansion)-[23]$/.test(id);
+  for (const [col, building, category, stat, mult, costs] of COLUMNS) {
+    const rungs = fleet.filter((d) => d.fleetColumn === col);
+    assert.equal(rungs.length, 4, col);
+    assert.deepEqual(rungs.map((d) => d.cost), costs, `${col}: prices`);
+    const column = createMods();
+    rungs.forEach((d, i) => {
+      const n = FLEET_GATES[i];
+      assert.equal(d.tier, 4, `${d.id}: tier 4 — in no keeper's rule, so every city buys it again`);
+      assert.equal(d.category, category, d.id);
+      assert.ok(d.hold && typeof d.gate === 'function' && !d.earnedGate, `${d.id}: a funded core rung`);
+      assert.ok(d.currency === undefined || d.currency === 'money', `${d.id}: money-priced`);
+      assert.match(d.name, new RegExp(` ${['I', 'II', 'III', 'IV'][i]}$`), d.id);
+      assert.match(d.desc, new RegExp(` · with ${n} owned$`), `${d.id}: desc names the fleet`);
+      assert.equal(/ · draw \+8% · /.test(d.desc), drawsOn(d.id), `${d.id}: desc names the draw exactly where it carries one`);
+      assert.equal(d.unlockHint, `Build ${n} ${{ arcology: 'arcologies', financial: 'financial districts', techpark: 'tech campuses', fusion: 'fusion reactors' }[building]}, then hold ${fmtMoney(d.cost)}`);
+      assert.deepEqual(d.unlockAt, { money: d.cost }, `${d.id}: the money door is the mirror (it opens last)`);
+      assert.deepEqual(d.gate.at, { building, count: n }, `${d.id}: the count gate is the data mirror of the rule`);
+      // The count with the cash opens it; the count a unit short, or the cash a dollar
+      // short, keeps it shut; a fleet of another building does not count.
+      const have = (k, money) => ({ buildings: { [building]: k }, res: { money }, stats: {}, unlocks: {}, upgrades: {}, prestige: {} });
+      assert.equal(d.unlock(have(n, d.cost)), true, `${d.id}: opens at ${n} owned with the price held`);
+      assert.equal(d.unlock(have(n - 1, d.cost)), false, `${d.id}: shut a unit short`);
+      assert.equal(d.unlock(have(n, d.cost * 0.999)), false, `${d.id}: shut a dollar short`);
+      assert.equal(d.unlock({ ...have(0, d.cost), buildings: { house: 1000, arcology: building === 'arcology' ? 0 : 1000 } }), false, `${d.id}: another fleet does not count`);
+      // One per-building clause, exactly the desc's figure; global only the draw on the
+      // two employer columns' rungs II and III (see 'fleet draw' below).
+      const m = createMods();
+      d.effect(m, FROZEN_STATE);
+      assert.ok(near(m.byBuilding[building][stat], mult), `${d.id}: ${building}.${stat} ×${m.byBuilding[building][stat]}`);
+      for (const k of ['income', 'housing', 'jobs', 'power', 'growth', 'cost']) assert.ok(near(m[k], 1), `${d.id}: global ${k} ×${m[k]}`);
+      assert.ok(near(m.demand, drawsOn(d.id) ? 1.08 : 1), `${d.id}: global demand ×${m.demand}`);
+      assert.equal(Object.keys(m.byBuilding).length, 1, `${d.id}: touches one building`);
+      d.effect(column, FROZEN_STATE);
+    });
+    for (let i = 1; i < rungs.length; i++) assert.ok(rungs[i].cost > rungs[i - 1].cost, `${rungs[i].id}: not dearer than ${rungs[i - 1].id}`);
+    // The column as a whole is a felt step: ×1.57 (housing, jobs) or ×1.36 (power) per city.
+    assert.ok(near(column.byBuilding[building][stat], Math.pow(mult, 4)), `${col}: column ×${column.byBuilding[building][stat]}`);
+    assert.ok(column.byBuilding[building][stat] >= 1.25, `${col}: column below the +25% meaningfulness floor`);
+  }
+  // Blueprints ×1.12, not ×1.15 (F3, round 3): swept on the human profile — ×1.15 read city
+  // 7 at jobs/pop 0.83 and hour 7 at 18 % jobless, ×1.12 reads 0.87 / 14 % with three band
+  // hours (data.js header, "Housing").
+  assert.ok(near(UPGRADES.filter((d) => d.fleetColumn === 'arcology-blueprints').reduce((m, d) => (d.effect(m, FROZEN_STATE), m), createMods()).byBuilding.arcology.housing, Math.pow(1.12, 4)), 'Blueprints: ×1.12^4 = ×1.57 per city');
+  // Priced under the frontier's top rung; no fleet rung is a first-city purchase (the
+  // first city ends at 32 arcologies and 14 districts, short of every gate).
+  for (const d of fleet) assert.ok(d.cost >= 1e7 && d.cost < 5.09e15, `${d.id}: $${d.cost}`);
+  // Founding memory never grants a fleet rung — not Institutional Memory, the Grid
+  // Charter nor Standing Orders — so the plateau's content is bought again every city.
+  const kept = keptUpgradeIds(['institutional-memory', 'charter-grid', 'standing-orders', ...PERKS.map((d) => d.id)]);
+  for (const d of fleet) assert.ok(!kept.includes(d.id), `${d.id}: kept across a founding`);
+  // The count gate follows a config price like every funded rung.
+  const moved = applyOverride(byId('arcology-blueprints-1'), { cost: 5e8 });
+  assert.equal(moved.unlockHint, 'Build 60 arcologies, then hold $500M');
+  assert.equal(moved.unlock({ buildings: { arcology: 60 }, res: { money: 5e8 } }), true);
+  assert.equal(moved.unlock({ buildings: { arcology: 60 }, res: { money: 4e8 } }), false);
+  assert.equal(moved.unlock({ buildings: { arcology: 59 }, res: { money: 5e8 } }), false);
+});
+
+test('fleet draw (F2, round 3): Trading Floors and Campus Expansion II/III draw +8 % city-wide; I/IV, the Blueprints and the Refits draw nothing', () => {
+  // The one fleet size where a demand step is bought out of in minutes (gates 90 and 130:
+  // 8–15 more reactors are 5–15 min of income on a plateau wallet); rung I lands in the
+  // founding spree and rung IV at fleet 180+, where 15 reactors are hours of income and the
+  // Ringworld's ×1.5 draw was measured at 46 min of Lights Out (data.js header, "Power").
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.equal(FLEET_DRAW, 1.08);
+  const demandOf = (id) => {
+    const m = createMods();
+    byId(id).effect(m, FROZEN_STATE);
+    return m.demand;
+  };
+  for (const col of ['trading-floors', 'campus-expansion']) {
+    assert.ok(near(demandOf(`${col}-1`), 1), `${col}-1 draws`);
+    assert.ok(near(demandOf(`${col}-2`), FLEET_DRAW), `${col}-2: demand ×${demandOf(`${col}-2`)}`);
+    assert.ok(near(demandOf(`${col}-3`), FLEET_DRAW), `${col}-3: demand ×${demandOf(`${col}-3`)}`);
+    assert.ok(near(demandOf(`${col}-4`), 1), `${col}-4 draws`);
+    assert.equal(byId(`${col}-2`).desc.includes('draw +8%'), true, `${col}-2: desc names the draw`);
+    assert.equal(byId(`${col}-4`).desc.includes('draw'), false, `${col}-4: desc promises no draw`);
+  }
+  for (const col of ['arcology-blueprints', 'reactor-refits']) for (const i of [1, 2, 3, 4]) assert.ok(near(demandOf(`${col}-${i}`), 1), `${col}-${i} draws`);
+  // Per city the four fold to ×1.36 — never across a founding: no keeper grants a fleet rung.
+  const fleet = UPGRADES.filter((d) => d.fleet);
+  const fold = createMods();
+  for (const d of fleet) d.effect(fold, FROZEN_STATE);
+  assert.ok(near(fold.demand, Math.pow(FLEET_DRAW, 4)), `fleet draw per city ×${fold.demand}`);
+  assert.ok(fold.demand > 1.3 && fold.demand < 1.4);
+  const kept = keptUpgradeIds(['institutional-memory', 'charter-grid', 'standing-orders', ...PERKS.map((d) => d.id)]);
+  for (const d of fleet) assert.ok(!kept.includes(d.id), `${d.id}: a draw kept across a founding would compound`);
 });
 
 test('pace ladder: nine tier-4 rungs hidden until the city has earned 100× the price or holds it', () => {
   assert.deepEqual(PACE.map((d) => d.id), PACE_IDS);
-  assert.deepEqual(PACE.map((d) => d.cost), [8.84e7, 2.62e8, 1.07e9, 2.05e9, 4.3e9, 2.64e11, 3.2e11, 7.7e11, 4.35e14]);
+  assert.deepEqual(PACE.map((d) => d.cost), [7.43e7, 2.49e8, 1.02e9, 2.01e9, 3.70e9, 2.96e11, 3.48e11, 9.00e11, 6.09e14]);
   for (let i = 1; i < PACE.length; i++) assert.ok(PACE[i].cost > PACE[i - 1].cost, `${PACE[i].id}: listed out of price order`);
   assert.equal(PACE_GATE, 100);
   for (const d of PACE) {
@@ -558,7 +795,7 @@ test('applyOverride: bare number, object, junk; a frontier override moves its ga
   assert.equal(cheaper.unlockHint, 'Earn $500B in this city');
   assert.deepEqual(cheaper.unlockAt, { earned: 5e11 });
   assert.equal(swarm.unlock({ stats: { totalEarned: 1e7 } }), false, 'source def keeps its own gate');
-  assert.equal(swarm.unlock({ stats: { totalEarned: 1.1975e7 } }), true);
+  assert.equal(swarm.unlock({ stats: { totalEarned: 1.2475e7 } }), true);
   const same = applyOverride(swarm, { tier: 4 });
   assert.equal(same.unlock, swarm.unlock, 'unchanged price keeps the rule');
   const perk = byId('charter-mint');
@@ -634,6 +871,7 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   const strongestDown = (mods) => Math.max(...DOWN.map((k) => 1 - mods[k]), ...Object.values(mods.byBuilding).map((m) => 1 - m.cost));
   for (const d of UPGRADES) {
     if (typeof d.keeps === 'function') continue; // structural rungs: their whole effect is the memory
+    if (d.fleet) continue; // fleet rungs are judged as a column (×1.36 / ×1.57 per city; see the fleet ladder test)
     const mods = createMods();
     d.effect(mods, FROZEN_STATE);
     const up = strongestUp(mods);
@@ -660,7 +898,7 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   assert.notEqual(byId('tourism-board').desc, byId('regional-airport').desc);
   const mh = createMods();
   byId('helios-array').effect(mh, {});
-  assert.ok(near(mh.power, 1.5) && near(mh.income, 1.25));
+  assert.ok(near(mh.power, 1.25) && near(mh.income, 1.25), 'Helios: ×1.25 power (F2 round 2), the income clause kept');
   const m3 = createMods();
   byId('founders-blueprints').effect(m3, {});
   assert.ok(near(m3.cost, 0.8));
@@ -693,7 +931,50 @@ test('meaningfulness: every rung moves a multiplier by ≥25% (cost/demand/upkee
   for (const id of ['park', 'school', 'hospital', 'stadium']) assert.ok(near(m10.byBuilding[id].cost, 0.75), `preventive care: ${id}`);
   const m11 = createMods();
   byId('city-archives').effect(m11, {});
-  assert.ok(near(m11.growth, 1.5) && near(m11.jobs, 1.25));
+  // City Archives (F7, round 3): the growth ×1.5 (the documented dead clause, pop/housing
+  // 1.00 at purchase) is gone; jobs ×1.25 stays and the felt term is −10 % on the two
+  // employers bought at the price cliff — per building, so the Standing Orders re-grant
+  // compounds nothing global. The ring-housing replacement was measured in round 2 and
+  // rejected (see data.js).
+  assert.ok(near(m11.growth, 1) && near(m11.jobs, 1.25) && near(m11.income, 1) && !m11.byBuilding.ring, 'City Archives: jobs ×1.25, no growth, no income');
+  assert.ok(near(m11.byBuilding.financial.cost, 0.9) && near(m11.byBuilding.techpark.cost, 0.9), 'City Archives: districts and campuses −10%');
+  assert.equal(byId('city-archives').desc, 'All jobs +25% · financial districts and tech campuses cost −10%');
+  // The other three growth-titled rungs re-effected in round 3 (data.js header, "Growth"):
+  // the Planetary Charter is income only, Green Belts a first-city housing clause, Veteran
+  // Planners a tier-1–2 discount; the Welcome Sign keeps the one growth term that binds
+  // (pop/housing 0.30 at purchase, measured). Only the Welcome Sign, Community Events, the
+  // Settlers' Charter and the two milestone rewards (simulation-owned) still pull growth.
+  const mp = createMods();
+  byId('planetary-charter').effect(mp, {});
+  assert.ok(near(mp.income, 2.5) && near(mp.growth, 1), 'Planetary Charter: income ×2.5 only');
+  assert.equal(byId('planetary-charter').desc, 'All income +150%');
+  const mgb = createMods();
+  byId('green-belts').effect(mgb, {});
+  // Cottages ×1.25 (measured against a no-housing control: −0.2 min on the first founding,
+  // no cadence fault; ×1.10 on cottages and apartments read −0.8 min — see data.js).
+  assert.ok(near(mgb.growth, 1) && near(mgb.happiness, 0.05) && near(mgb.byBuilding.house.housing, 1.25), 'Green Belts: +5% happiness, cottages +25% residents');
+  assert.equal(Object.keys(mgb.byBuilding).length, 1);
+  const mv = createMods();
+  byId('veteran-planners').effect(mv, {});
+  assert.ok(near(mv.growth, 1) && near(mv.happiness, 0.1), 'Veteran Planners: +10% happiness, no growth');
+  for (const id of ['house', 'apartment', 'shop', 'office', 'factory', 'refinery', 'windmill', 'coal', 'park', 'school']) assert.ok(near(mv.byBuilding[id].cost, 0.75), `veteran planners: ${id} −25%`);
+  assert.equal(Object.keys(mv.byBuilding).length, 10, 'the ten tier-1–2 buildings, as the desc says');
+  const growthRungs = UPGRADES.filter((d) => {
+    const m = createMods();
+    d.effect(m, FROZEN_STATE);
+    return m.growth > 1;
+  }).map((d) => d.id);
+  assert.deepEqual(growthRungs.sort(), ['charter-settlers', 'community-events', 'welcome-sign']);
+  for (const d of UPGRADES) if (!growthRungs.includes(d.id)) assert.ok(!/grow/i.test(d.desc), `${d.id}: desc promises growth it does not carry`);
+  const mg2 = createMods();
+  byId('arcology-gardens').effect(mg2, {});
+  assert.ok(near(mg2.byBuilding.arcology.housing, 1.5) && near(mg2.jobs, 1.2), 'Arcology Gardens: jobs ×1.2, a band not a pin (F3 round 2)');
+  const mc = createMods();
+  byId('charter-civic').effect(mc, {});
+  // Civic Charter (round 3): no jobs term (it landed on a 1.24 jobs/pop city), −50 % on the
+  // four civic buildings, and the income ×1.03 that is the Archives → Civic cadence dial
+  // (measured ×1.311 vs ×1.349; see data.js).
+  assert.ok(near(mc.jobs, 1) && near(mc.income, 1.03) && near(mc.growth, 1) && near(mc.byBuilding.stadium.cost, 0.5), 'Civic Charter: civic −50%, income ×1.03, no jobs, no growth');
   const m12 = createMods();
   byId('galactic-charter').effect(m12, {});
   assert.ok(near(m12.income, 2) && near(m12.cost, 0.8));
